@@ -131,7 +131,7 @@ export class GameRoom {
   }
 
   private generateAIPersonalities(count: number): AIPersonality[] {
-    const personalities: AIPersonality[] = [
+    const allPersonalities: AIPersonality[] = [
       {
         name: 'Alex',
         traits: ['analytical', 'calm', 'logical'],
@@ -153,9 +153,39 @@ export class GameRoom {
         responseStyle: 'random',
         suspicionLevel: 0.7,
       },
+      {
+        name: 'Taylor',
+        traits: ['humorous', 'casual', 'witty'],
+        systemPrompt: `You are Taylor, a witty and humorous person. You like to make jokes and keep things light. You're playing a social deduction game and must act like a human.`,
+        responseStyle: 'quick',
+        suspicionLevel: 0.4,
+      },
+      {
+        name: 'Morgan',
+        traits: ['strategic', 'thoughtful', 'careful'],
+        systemPrompt: `You are Morgan, a strategic and careful thinker. You analyze situations before acting. You're playing a social deduction game and must act like a human.`,
+        responseStyle: 'thoughtful',
+        suspicionLevel: 0.6,
+      },
+      {
+        name: 'Riley',
+        traits: ['emotional', 'reactive', 'passionate'],
+        systemPrompt: `You are Riley, an emotional and passionate person. You react quickly and speak from the heart. You're playing a social deduction game and must act like a human.`,
+        responseStyle: 'quick',
+        suspicionLevel: 0.5,
+      },
+      {
+        name: 'Casey',
+        traits: ['neutral', 'balanced', 'diplomatic'],
+        systemPrompt: `You are Casey, a balanced and diplomatic person. You try to see all sides and stay neutral. You're playing a social deduction game and must act like a human.`,
+        responseStyle: 'random',
+        suspicionLevel: 0.4,
+      },
     ];
 
-    return personalities.slice(0, count);
+    // Randomiser et sélectionner le nombre demandé
+    const shuffled = allPersonalities.sort(() => Math.random() - 0.5);
+    return shuffled.slice(0, count);
   }
 
   // ====== GAME FLOW ======
@@ -255,8 +285,13 @@ export class GameRoom {
       const player = this.state.players.find((p) => p.id === id);
       if (!player || player.isEliminated) continue;
 
-      const targetId = await aiPlayer.decideVote(activePlayers);
-      this.addVote(id, targetId);
+      // Vote avec un délai aléatoire pour sembler humain (2-6 secondes)
+      const delay = Math.floor(Math.random() * 4000) + 2000;
+      
+      setTimeout(async () => {
+        const targetId = await aiPlayer.decideVote(activePlayers);
+        this.addVote(id, targetId);
+      }, delay);
     }
   }
 

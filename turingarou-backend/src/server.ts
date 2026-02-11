@@ -54,7 +54,7 @@ const gameRooms = new Map<string, GameRoom>();
 
 function getOrCreateRoom(roomId: string): GameRoom {
   if (!gameRooms.has(roomId)) {
-    const aiCount = parseInt(process.env.AI_COUNT || '2');
+    const aiCount = parseInt(process.env.AI_COUNT || '1');
     const room = new GameRoom(roomId, io, llmProvider, aiCount);
     gameRooms.set(roomId, room);
     console.log(`Created new room: ${roomId} with ${aiCount} AIs`);
