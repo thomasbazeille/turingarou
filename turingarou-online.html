@@ -271,8 +271,8 @@
   <script>
 const AVATARS=['🕵️','🔍','📜','🗝️','🌙','⚡','🦉','👁️','🎭','🎩','🔮','🃏','🎲','⚔️','🛡️','👻','🦇','🕷️','🐺','🦊'];
 const COLORS=[{n:'Red',h:'#ef4444'},{n:'Orange',h:'#f97316'},{n:'Gold',h:'#eab308'},{n:'Silver',h:'#94a3b8'},{n:'Purple',h:'#a855f7'},{n:'Turquoise',h:'#06b6d4'},{n:'Pink',h:'#ec4899'},{n:'Lime',h:'#84cc16'},{n:'Indigo',h:'#6366f1'}];
-const T=9,A=3;
-let G={s:'waiting',r:1,mr:T-1,t:100,qt:15,p:[],m:[],e:[],l:null,im:null,a:{},v:{},h:{},vh:{},sh:false,sa:null,ui:false};
+const T=3,A=1;  // 3 joueurs total (2 humains + 1 IA)
+let G={s:'waiting',r:1,mr:5,t:100,qt:15,p:[],m:[],e:[],l:null,im:null,a:{},v:{},h:{},vh:{},sh:false,sa:null,ui:false};
 
 // === SOCKET.IO SETUP ===
 // Configuration automatique selon environnement
@@ -482,7 +482,7 @@ function updateLocalPlayer(){
 const u=document.getElementById('username-input').value.trim();
 G.ui=u.length>0;
 document.getElementById('start-btn').disabled=!G.ui;
-document.getElementById('start-btn').textContent=G.ui?'START SESSION (9 Players)':'ENTER YOUR USERNAME TO START';
+document.getElementById('start-btn').textContent=G.ui?'START SESSION (3 Players: 2 Humans + 1 AI)':'ENTER YOUR USERNAME TO START';
 if(G.p.length===0||!G.p[0])return;
 G.p[0].username=u||'YOU';
 G.p[0].avatar=G.sa;

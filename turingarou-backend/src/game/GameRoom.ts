@@ -37,7 +37,7 @@ export class GameRoom {
   private discussionTimer: NodeJS.Timeout | null = null;
   private aiThinkingInterval: NodeJS.Timeout | null = null;
 
-  constructor(roomId: string, io: SocketServer, llmProvider: LLMProvider, aiCount: number = 2) {
+  constructor(roomId: string, io: SocketServer, llmProvider: LLMProvider, aiCount: number = 1) {
     this.io = io;
     this.llmProvider = llmProvider;
 
@@ -52,8 +52,8 @@ export class GameRoom {
       votes: [],
       protectedPlayerId: null,
       discussionEndTime: null,
-      maxPlayers: 6,
-      minPlayers: 3,
+      maxPlayers: 3,
+      minPlayers: 2,
       aiCount,
     };
   }

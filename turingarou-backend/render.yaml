@@ -14,7 +14,7 @@ services:
       - key: DEEPSEEK_API_KEY
         sync: false  # À configurer manuellement dans Render dashboard
       - key: AI_COUNT
-        value: 2
+        value: 1
       - key: FRONTEND_URL
         value: https://YOUR-USERNAME.github.io
     healthCheckPath: /health
