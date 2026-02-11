@@ -291,46 +291,58 @@ const BACKEND_URL = (() => {
 console.log('🔗 Backend URL:', BACKEND_URL);
 
 const socket = io(BACKEND_URL, {
-  transports: ['websocket', 'polling'],
+  transports: ['polling', 'websocket'],  // Polling d'abord pour compatibilité
   reconnection: true,
-  reconnectionAttempts: 5,
-  reconnectionDelay: 1000,
-  timeout: 60000,  // 60s pour gérer le cold start de Render
+  reconnectionAttempts: 10,
+  reconnectionDelay: 2000,
+  timeout: 20000,  // 20s timeout initial
+  forceNew: true,
 });
 
 let playerId = null;
 let roomId = 'game-' + Math.random().toString(36).substr(2, 9);
 let isConnected = false;
+let connectionAttempts = 0;
 
 // Indicateur visuel de connexion
 socket.on('connect', () => {
   console.log('✅ Connected to server');
   isConnected = true;
+  connectionAttempts = 0;
   document.body.style.borderTop = '3px solid #22c55e';
   
   const btn = document.getElementById('start-btn');
   if (btn && btn.textContent.includes('CONNECTING')) {
     btn.disabled = false;
-    btn.textContent = 'START SESSION';
+    btn.textContent = 'START SESSION (3 Players: 2 Humans + 1 AI)';
   }
 });
 
-socket.on('disconnect', () => {
-  console.log('❌ Disconnected from server');
+socket.on('disconnect', (reason) => {
+  console.log('❌ Disconnected from server:', reason);
   isConnected = false;
   document.body.style.borderTop = '3px solid #ef4444';
 });
 
 socket.on('reconnecting', (attemptNumber) => {
+  connectionAttempts = attemptNumber;
   console.log(`🔄 Reconnecting... attempt ${attemptNumber}`);
   document.body.style.borderTop = '3px solid #f59e0b';
 });
 
 socket.on('connect_error', (error) => {
-  console.error('Connection error:', error);
+  console.error('Connection error:', error.message);
+  connectionAttempts++;
+  
   const btn = document.getElementById('start-btn');
-  if (btn) {
-    btn.textContent = 'SERVER STARTING... (30s)';
+  if (btn && connectionAttempts > 0) {
+    if (connectionAttempts < 3) {
+      btn.textContent = `CONNECTING... (${connectionAttempts}/10)`;
+    } else if (connectionAttempts < 6) {
+      btn.textContent = 'WAKING SERVER... (30s)';
+    } else {
+      btn.textContent = 'STILL LOADING... Please wait';
+    }
   }
 });
 
