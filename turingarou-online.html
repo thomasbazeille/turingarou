@@ -160,9 +160,10 @@
       <input type="text" id="username-input" class="setup-input" placeholder="Enter your username..." maxlength="15" value="">
       
       <label class="setup-label">Room Code (optional)</label>
-      <input type="text" id="room-input" class="setup-input" placeholder="Leave empty for random room..." maxlength="20" value="">
+      <input type="text" id="room-input" class="setup-input" placeholder="Leave empty to join public lobby..." maxlength="20" value="">
       <div style="font-size: 10px; color: #64748b; margin-top: -8px; margin-bottom: 12px;">
-        💡 Share this code with friends to play together!
+        💡 Leave empty: join public lobby with next available player<br>
+        💡 Enter code: create/join private room with friends
       </div>
       
       <label class="setup-label">Your Avatar (optional)</label>
@@ -291,64 +292,56 @@ const BACKEND_URL = (() => {
 console.log('🔗 Backend URL:', BACKEND_URL);
 
 const socket = io(BACKEND_URL, {
-  transports: ['polling', 'websocket'],  // Polling d'abord pour compatibilité
+  transports: ['websocket', 'polling'],
   reconnection: true,
-  reconnectionAttempts: 10,
-  reconnectionDelay: 2000,
-  timeout: 20000,  // 20s timeout initial
-  forceNew: true,
+  reconnectionAttempts: 5,
+  reconnectionDelay: 1000,
+  timeout: 60000,  // 60s pour gérer le cold start de Render
 });
 
 let playerId = null;
 let roomId = 'game-' + Math.random().toString(36).substr(2, 9);
 let isConnected = false;
-let connectionAttempts = 0;
 
 // Indicateur visuel de connexion
 socket.on('connect', () => {
   console.log('✅ Connected to server');
   isConnected = true;
-  connectionAttempts = 0;
   document.body.style.borderTop = '3px solid #22c55e';
   
   const btn = document.getElementById('start-btn');
   if (btn && btn.textContent.includes('CONNECTING')) {
     btn.disabled = false;
-    btn.textContent = 'START SESSION (3 Players: 2 Humans + 1 AI)';
+    btn.textContent = 'START SESSION';
   }
 });
 
-socket.on('disconnect', (reason) => {
-  console.log('❌ Disconnected from server:', reason);
+socket.on('disconnect', () => {
+  console.log('❌ Disconnected from server');
   isConnected = false;
   document.body.style.borderTop = '3px solid #ef4444';
 });
 
 socket.on('reconnecting', (attemptNumber) => {
-  connectionAttempts = attemptNumber;
   console.log(`🔄 Reconnecting... attempt ${attemptNumber}`);
   document.body.style.borderTop = '3px solid #f59e0b';
 });
 
 socket.on('connect_error', (error) => {
-  console.error('Connection error:', error.message);
-  connectionAttempts++;
-  
+  console.error('Connection error:', error);
   const btn = document.getElementById('start-btn');
-  if (btn && connectionAttempts > 0) {
-    if (connectionAttempts < 3) {
-      btn.textContent = `CONNECTING... (${connectionAttempts}/10)`;
-    } else if (connectionAttempts < 6) {
-      btn.textContent = 'WAKING SERVER... (30s)';
-    } else {
-      btn.textContent = 'STILL LOADING... Please wait';
-    }
+  if (btn) {
+    btn.textContent = 'SERVER STARTING... (30s)';
   }
 });
 
-socket.on('joinSuccess', ({ playerId: id }) => {
+socket.on('joinSuccess', ({ playerId: id, roomId: actualRoomId }) => {
   playerId = id;
-  console.log('✅ Joined as player:', playerId);
+  // Mettre à jour le roomId avec celui retourné par le serveur (important pour public lobby)
+  if (actualRoomId) {
+    roomId = actualRoomId;
+  }
+  console.log('✅ Joined as player:', playerId, 'in room:', roomId);
 });
 
 socket.on('joinError', ({ message }) => {
@@ -504,25 +497,44 @@ renderWaitingRoom();
 function renderWaitingRoom(){
 const g=document.getElementById('player-grid');
 g.innerHTML='';
-for(let i=0;i<T;i++){
+
+// Afficher les joueurs actuels + emplacements vides
+const maxSlots = T;  // Maximum de slots à afficher
+for(let i=0;i<maxSlots;i++){
 const c=document.createElement('div');
-c.className='player-card'+(i===0?' local':'')+(G.p[i]?'':' empty');
-if(G.p[i]){
-const av=document.createElement('div');
-av.className='player-avatar-waiting';
-av.style.background=COLORS[i].h;
-av.style.boxShadow='0 0 12px '+COLORS[i].h+'80';
-av.textContent=G.p[i].avatar||G.p[i].username.charAt(0);
-av.style.fontSize=G.p[i].avatar?'20px':'20px';
-const nm=document.createElement('div');
-nm.className='player-name-waiting';
-nm.textContent=G.p[i].username;
-c.appendChild(av);
-c.appendChild(nm);
+const isLocal = G.p[i] && G.p[i].isLocal;
+const hasPlayer = G.p[i];
+
+c.className='player-card'+(isLocal?' local':'')+(hasPlayer?'':' empty');
+
+if(hasPlayer){
+  const av=document.createElement('div');
+  av.className='player-avatar-waiting';
+  av.style.background=G.p[i].color;
+  av.style.boxShadow='0 0 12px '+G.p[i].color+'80';
+  av.textContent=G.p[i].avatar||G.p[i].username.charAt(0);
+  av.style.fontSize=G.p[i].avatar?'20px':'20px';
+  const nm=document.createElement('div');
+  nm.className='player-name-waiting';
+  nm.textContent=G.p[i].username;
+  c.appendChild(av);
+  c.appendChild(nm);
 }else{
-c.innerHTML='<div style="color:#64748b;font-size:11px;">Waiting...</div>';
+  c.innerHTML='<div style="color:#64748b;font-size:11px;">Waiting...</div>';
 }
 g.appendChild(c);
+}
+
+// Afficher un message de statut
+const humanCount = G.p.filter(p => p.isLocal || (!p.isAI && p.username)).length;
+const statusMsg = document.createElement('div');
+statusMsg.style.cssText = 'text-align:center;color:#94a3b8;font-size:12px;margin-top:10px;';
+statusMsg.textContent = humanCount < 2 
+  ? `⏳ Waiting for ${2 - humanCount} more player(s)...`
+  : '✅ Ready to start!';
+if(!document.querySelector('.waiting-status')) {
+  statusMsg.className = 'waiting-status';
+  g.parentElement?.insertBefore(statusMsg, g.nextSibling);
 }
 }
 
@@ -532,8 +544,8 @@ function startGame(){
   const username = document.getElementById('username-input').value.trim() || 'YOU';
   const customRoom = document.getElementById('room-input')?.value.trim();
   
-  // Utiliser room custom ou générer un ID aléatoire
-  roomId = customRoom || 'game-' + Math.random().toString(36).substr(2, 9);
+  // Utiliser room custom OU rejoindre la room publique par défaut
+  roomId = customRoom || 'public-lobby';
   
   console.log('🎮 Starting game, joining room:', roomId);
   
@@ -556,19 +568,28 @@ function startGame(){
   });
   
   // Nettoyer le timeout quand la connexion réussit
-  socket.once('joinSuccess', () => {
+  socket.once('joinSuccess', ({ roomId: actualRoomId }) => {
     clearTimeout(connectTimeout);
     
-    // Afficher le room code
-    const roomDisplay = document.getElementById('room-code-display');
-    const roomText = document.getElementById('room-code-text');
-    if (roomDisplay && roomText) {
-      roomDisplay.style.display = 'block';
-      roomText.textContent = roomId;
+    // Mettre à jour roomId avec celui du serveur
+    if (actualRoomId) {
+      roomId = actualRoomId;
     }
     
-    console.log('📋 Room Code:', roomId);
-    console.log('💡 Share this code with friends!');
+    // Afficher le room code seulement si c'est une room personnalisée
+    if (customRoom) {
+      const roomDisplay = document.getElementById('room-code-display');
+      const roomText = document.getElementById('room-code-text');
+      if (roomDisplay && roomText) {
+        roomDisplay.style.display = 'block';
+        roomText.textContent = roomId;
+      }
+      console.log('📋 Private Room Code:', roomId);
+      console.log('💡 Share this code with friends!');
+    } else {
+      console.log('📋 Joined public lobby:', roomId);
+      console.log('⏳ Waiting for another player...');
+    }
   });
   
   // L'état viendra via l'event 'gameState'

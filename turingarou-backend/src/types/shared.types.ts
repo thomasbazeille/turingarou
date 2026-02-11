@@ -61,6 +61,6 @@ export interface ClientToServerEvents {
 
 export interface ServerToClientEvents {
   gameState: (state: GameState) => void;
-  joinSuccess: (data: { playerId: string }) => void;
+  joinSuccess: (data: { playerId: string; roomId: string }) => void;
   joinError: (data: { message: string }) => void;
 }

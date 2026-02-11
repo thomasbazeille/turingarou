@@ -14,26 +14,12 @@ const app = express();
 const httpServer = createServer(app);
 const io = new SocketServer(httpServer, {
   cors: {
-    origin: [
-      'http://localhost:5173',
-      'http://localhost:8000',
-      'https://thomasbazeille.github.io',
-      process.env.FRONTEND_URL || ''
-    ].filter(Boolean),
+    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
     methods: ['GET', 'POST'],
-    credentials: true,
   },
 });
 
-app.use(cors({
-  origin: [
-    'http://localhost:5173',
-    'http://localhost:8000',
-    'https://thomasbazeille.github.io',
-    process.env.FRONTEND_URL || ''
-  ].filter(Boolean),
-  credentials: true,
-}));
+app.use(cors());
 app.use(express.json());
 
 // ====== LLM PROVIDER SETUP ======
@@ -67,11 +53,34 @@ console.log(`Using LLM provider: ${llmProvider.name}`);
 const gameRooms = new Map<string, GameRoom>();
 
 function getOrCreateRoom(roomId: string): GameRoom {
+  // Si c'est le public lobby, chercher une room disponible
+  if (roomId === 'public-lobby') {
+    // Chercher une room publique en attente avec moins de 2 joueurs
+    for (const [id, room] of gameRooms) {
+      if (id.startsWith('public-') && room.getState().phase === 'waiting') {
+        const humanCount = room.getState().players.filter(p => p.type === 'human').length;
+        if (humanCount < 2) {
+          console.log(`Joining existing public room: ${id} (${humanCount}/2 players)`);
+          return room;
+        }
+      }
+    }
+    
+    // Aucune room dispo, créer une nouvelle avec un ID unique
+    const newRoomId = 'public-' + Date.now();
+    const aiCount = parseInt(process.env.AI_COUNT || '1');
+    const room = new GameRoom(newRoomId, io, llmProvider, aiCount);
+    gameRooms.set(newRoomId, room);
+    console.log(`Created new public room: ${newRoomId} with ${aiCount} AIs`);
+    return room;
+  }
+  
+  // Room privée avec code custom
   if (!gameRooms.has(roomId)) {
     const aiCount = parseInt(process.env.AI_COUNT || '1');
     const room = new GameRoom(roomId, io, llmProvider, aiCount);
     gameRooms.set(roomId, room);
-    console.log(`Created new room: ${roomId} with ${aiCount} AIs`);
+    console.log(`Created private room: ${roomId} with ${aiCount} AIs`);
   }
   return gameRooms.get(roomId)!;
 }
@@ -89,10 +98,11 @@ io.on('connection', (socket) => {
     console.log(`${username} joining room ${roomId}`);
 
     const room = getOrCreateRoom(roomId);
+    const actualRoomId = room.getState().roomId;  // Le vrai roomId de la room
     const success = room.addHumanPlayer(socket.id, username);
 
     if (success) {
-      socket.join(roomId);
+      socket.join(actualRoomId);  // Rejoindre la vraie room (pas "public-lobby")
       currentRoom = room;
       
       // Trouver l'ID du joueur
@@ -103,8 +113,8 @@ io.on('connection', (socket) => {
         playerId = player.id;
       }
 
-      socket.emit('joinSuccess', { playerId });
-      console.log(`${username} joined successfully`);
+      socket.emit('joinSuccess', { playerId, roomId: actualRoomId });
+      console.log(`${username} joined successfully in ${actualRoomId}`);
     } else {
       socket.emit('joinError', { message: 'Room is full or unavailable' });
     }
