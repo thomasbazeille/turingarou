@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: turingarou-backend
+    runtime: node
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+      - key: LLM_PROVIDER
+        value: deepseek
+      - key: DEEPSEEK_API_KEY
+        sync: false  # À configurer manuellement dans Render dashboard
+      - key: AI_COUNT
+        value: 2
+      - key: FRONTEND_URL
+        value: https://YOUR-USERNAME.github.io
+    healthCheckPath: /health

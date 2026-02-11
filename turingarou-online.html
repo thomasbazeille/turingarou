@@ -1,0 +1,1029 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TURINGAROU - Final Version</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #000; color: #fff; overflow: hidden; }
+    .screen { display: none; width: 100vw; height: 100vh; }
+    .screen.active { display: flex; }
+
+    /* Force scrollbar to always show */
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track { background: rgba(30,30,30,0.8); border-radius: 5px; }
+    ::-webkit-scrollbar-thumb { background: rgba(6,182,212,0.6); border-radius: 5px; border: 2px solid rgba(0,0,0,0.3); }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(6,182,212,0.8); }
+    * { scrollbar-width: thin; scrollbar-color: rgba(6,182,212,0.6) rgba(30,30,30,0.8); }
+
+    /* WAITING ROOM */
+    .waiting-room { flex-direction: column; align-items: center; justify-content: flex-start; background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 15px; overflow-y: auto; }
+    .waiting-title { font-size: 40px; color: #06b6d4; margin: 15px 0 8px; text-align: center; text-shadow: 0 0 20px rgba(6,182,212,0.6); line-height: 1.2; }
+    .waiting-subtitle { font-size: 15px; color: #94a3b8; margin-bottom: 20px; font-style: italic; }
+    .player-setup { background: rgba(15,23,42,0.9); border: 1px solid rgba(6,182,212,0.3); border-radius: 10px; padding: 18px; max-width: 420px; width: 100%; margin-bottom: 18px; }
+    .setup-label { display: block; color: #94a3b8; font-size: 10px; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; }
+    .setup-input { width: 100%; background: rgba(39,39,42,0.8); border: 1px solid rgba(6,182,212,0.3); color: #fff; padding: 9px; border-radius: 6px; font-size: 13px; margin-bottom: 12px; }
+    .setup-input:focus { outline: none; border-color: #06b6d4; }
+    .avatar-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 8px; }
+    .avatar-option { width: 100%; aspect-ratio: 1; background: rgba(39,39,42,0.6); border: 2px solid transparent; border-radius: 6px; font-size: 20px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; }
+    .avatar-option:hover { background: rgba(6,182,212,0.1); border-color: rgba(6,182,212,0.3); }
+    .avatar-option.selected { background: rgba(6,182,212,0.2); border-color: #06b6d4; box-shadow: 0 0 8px rgba(6,182,212,0.4); }
+    .avatar-clear { width: 100%; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #f87171; padding: 5px; border-radius: 4px; font-size: 10px; cursor: pointer; transition: all 0.2s; }
+    .avatar-clear:hover { background: rgba(239,68,68,0.2); }
+    .player-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 18px; max-width: 650px; width: 100%; }
+    .player-card { background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 7px; padding: 10px; text-align: center; min-height: 75px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; }
+    .player-card.local { border-color: #06b6d4; box-shadow: 0 0 12px rgba(6,182,212,0.3); }
+    .player-card.empty { opacity: 0.3; border-style: dashed; }
+    .player-avatar-waiting { width: 42px; height: 42px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: bold; color: #fff; }
+    .player-name-waiting { color: #e2e8f0; font-size: 12px; font-weight: 500; }
+    .start-btn { background: #06b6d4; color: #000; border: none; padding: 11px 35px; font-size: 15px; font-weight: bold; border-radius: 7px; cursor: pointer; transition: all 0.3s; text-transform: uppercase; }
+    .start-btn:hover:not(:disabled) { background: #0891b2; box-shadow: 0 0 25px rgba(6,182,212,0.6); }
+    .start-btn:disabled { background: #3f3f46; cursor: not-allowed; opacity: 0.5; }
+
+    /* QUESTION */
+    .question-screen { flex-direction: column; align-items: center; justify-content: center; background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); padding: 25px; }
+    .question-card { background: #000; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 30px; max-width: 600px; width: 100%; margin-bottom: 30px; }
+    .question-label { color: #22d3ee; font-family: monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 2px; text-align: center; margin-bottom: 15px; font-weight: bold; }
+    .question-text { color: #fff; font-size: 20px; text-align: center; margin-bottom: 25px; }
+    .answer-input { width: 100%; background: rgba(39,39,42,0.8); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 12px; border-radius: 7px; font-size: 14px; margin-bottom: 15px; }
+    .answer-input:focus { outline: none; border-color: #06b6d4; box-shadow: 0 0 0 3px rgba(6,182,212,0.2); }
+    .submit-btn { width: 100%; background: #0891b2; color: #fff; border: none; padding: 11px; border-radius: 7px; font-weight: bold; cursor: pointer; transition: all 0.3s; font-size: 13px; }
+    .submit-btn:hover:not(:disabled) { background: #0e7490; box-shadow: 0 0 18px rgba(6,182,212,0.4); }
+    .submit-btn:disabled { background: #3f3f46; cursor: not-allowed; opacity: 0.5; }
+    .players-status-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; max-width: 700px; width: 100%; }
+    .player-status-card { background: rgba(24,24,27,0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 7px; padding: 10px; display: flex; align-items: center; gap: 9px; }
+    .player-status-card.answered { border-color: rgba(6,182,212,0.3); }
+    .status-avatar { width: 35px; height: 35px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: bold; color: #fff; flex-shrink: 0; }
+    .status-avatar.waiting { opacity: 0.3; }
+    .status-check { width: 16px; height: 16px; background: rgba(34,197,94,0.2); border: 1px solid #22c55e; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; color: #22c55e; }
+
+    /* GAME */
+    .game-screen { flex-direction: row; }
+    .chat-area { flex: 1; background: #000; display: flex; flex-direction: column; border-right: 1px solid rgba(251,191,36,0.3); }
+    .player-avatars-header { background: rgba(24,24,27,0.8); border-bottom: 1px solid rgba(251,191,36,0.3); padding: 12px; display: flex; justify-content: space-around; gap: 5px; flex-shrink: 0; }
+    .player-avatar-col { display: flex; flex-direction: column; align-items: center; gap: 5px; position: relative; }
+    .player-username { color: #fbbf24; font-size: 10px; font-weight: 500; }
+    .avatar-circle { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: bold; color: #fff; position: relative; }
+    .heart-icon { font-size: 14px; cursor: pointer; opacity: 0.3; transition: opacity 0.2s; }
+    .heart-icon:hover { opacity: 1; }
+    .heart-icon.filled { opacity: 1; }
+    .messages-container { flex: 1; background: #000; padding: 12px; overflow-y: scroll !important; overflow-x: hidden; position: relative; }
+    .messages-container::-webkit-scrollbar { width: 10px; }
+    .messages-container::-webkit-scrollbar-track { background: rgba(30,30,30,0.8); border-radius: 5px; }
+    .messages-container::-webkit-scrollbar-thumb { background: rgba(6,182,212,0.6); border-radius: 5px; border: 2px solid rgba(0,0,0,0.3); }
+    .messages-container::-webkit-scrollbar-thumb:hover { background: rgba(6,182,212,0.8); }
+    .messages-columns { display: flex; gap: 5px; position: relative; min-height: 100%; }
+    .player-column { flex: 1; position: relative; min-width: 0; }
+    .message-bubble { position: absolute; left: 2px; right: 2px; padding: 6px 9px; border-radius: 6px; font-size: 11px; line-height: 1.3; color: #fff; word-wrap: break-word; box-shadow: 0 2px 5px rgba(0,0,0,0.3); }
+    .system-message { position: absolute; left: 0; right: 0; display: flex; justify-content: center; padding: 0 12px; width: 100%; }
+    .system-message-text { color: #fff; font-style: italic; font-size: 14px; text-align: center; }
+    .answers-row { position: absolute; left: 0; right: 0; display: flex; gap: 5px; padding: 0 12px; }
+    .answer-bubble { flex: 1; padding: 6px 9px; border-radius: 6px; font-size: 11px; line-height: 1.3; color: #fff; word-wrap: break-word; box-shadow: 0 2px 5px rgba(0,0,0,0.3); min-width: 0; }
+    .round-separator { position: absolute; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 9px 12px; background: rgba(6,182,212,0.05); }
+    .round-separator-line { width: 100%; display: flex; align-items: center; gap: 9px; }
+    .round-separator-text { color: #64748b; font-size: 10px; font-family: monospace; letter-spacing: 1px; white-space: nowrap; }
+    .round-separator-hr { flex: 1; height: 1px; background: rgba(6,182,212,0.3); }
+    .round-eliminated-info { color: #71717a; font-size: 9px; display: flex; align-items: center; gap: 5px; }
+    .round-eliminated-circle { width: 12px; height: 12px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.2); }
+    .round-eliminated-circle.robot { border-radius: 2px; clip-path: polygon(20% 0%, 80% 0%, 100% 20%, 100% 80%, 80% 100%, 20% 100%, 0% 80%, 0% 20%); position: relative; }
+    .round-eliminated-circle.robot::after { content: '🤖'; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 7px; }
+    .game-panel { width: 30%; background: rgba(24,24,27,0.6); display: flex; flex-direction: column; padding: 16px; gap: 16px; }
+    .timer-display { font-size: 48px; font-family: monospace; font-weight: bold; text-align: center; color: #22d3ee; text-shadow: 0 0 16px rgba(34,211,238,0.5); }
+    .timer-display.warning { color: #ef4444; text-shadow: 0 0 16px rgba(239,68,68,0.5); }
+    .round-info { text-align: center; color: #94a3b8; font-size: 12px; }
+    .eliminated-circles { display: flex; justify-content: center; gap: 3px; margin-top: 5px; flex-wrap: wrap; }
+    .eliminated-circle { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.3); position: relative; cursor: pointer; transition: transform 0.2s; }
+    .eliminated-circle.robot { border-radius: 3px; clip-path: polygon(20% 0%, 80% 0%, 100% 20%, 100% 80%, 80% 100%, 20% 100%, 0% 80%, 0% 20%); }
+    .eliminated-circle.robot::after { content: '🤖'; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 9px; }
+    .eliminated-circle:hover { transform: scale(1.3); }
+    .eliminated-tooltip { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 5px; background: rgba(39,39,42,0.95); border: 1px solid rgba(6,182,212,0.5); border-radius: 4px; padding: 3px 7px; font-size: 9px; color: #fbbf24; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity 0.2s; z-index: 1000; }
+    .eliminated-circle:hover .eliminated-tooltip { opacity: 1; }
+    .history-btn { width: 20px; height: 20px; background: transparent; border: 1px solid rgba(6,182,212,0.6); border-radius: 3px; color: #22d3ee; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 12px; transition: all 0.3s; margin: 5px auto; }
+    .history-btn:hover { box-shadow: 0 0 8px rgba(6,182,212,0.5); background: rgba(6,182,212,0.1); }
+    .bot-counter { text-align: center; font-size: 12px; color: #ef4444; }
+    .vote-section { background: rgba(39,39,42,0.6); border: 1px solid rgba(251,191,36,0.3); border-radius: 7px; padding: 12px; }
+    .vote-label { color: #fbbf24; font-size: 10px; font-weight: 600; margin-bottom: 6px; }
+    .vote-select { width: 100%; background: #18181b; border: 1px solid rgba(6,182,212,0.5); color: #fbbf24; padding: 8px; border-radius: 5px; margin-bottom: 8px; cursor: pointer; font-size: 11px; }
+    .vote-btn { width: 100%; background: #0891b2; color: #fff; border: none; padding: 8px; border-radius: 5px; font-weight: bold; cursor: pointer; transition: all 0.3s; font-size: 11px; }
+    .vote-btn:hover:not(:disabled) { background: #0e7490; }
+    .vote-btn:disabled { background: #3f3f46; cursor: not-allowed; }
+    .message-section { background: rgba(39,39,42,0.6); border: 1px solid rgba(251,191,36,0.3); border-radius: 7px; padding: 12px; flex: 1; display: flex; flex-direction: column; }
+    .char-counter { font-size: 9px; color: #64748b; text-align: right; margin-bottom: 6px; }
+    .message-input-container { display: flex; gap: 8px; flex: 1; }
+    .message-textarea { flex: 1; background: #18181b; border: 1px solid rgba(6,182,212,0.5); color: #fbbf24; padding: 9px; border-radius: 5px; resize: none; font-family: inherit; font-size: 11px; }
+    .message-textarea:focus { outline: none; border-color: #22d3ee; }
+    .send-btn { background: #0891b2; color: #fff; border: none; padding: 9px 18px; border-radius: 5px; cursor: pointer; font-weight: bold; transition: all 0.3s; font-size: 11px; }
+    .send-btn:hover:not(:disabled) { background: #0e7490; }
+    .send-btn:disabled { background: #3f3f46; cursor: not-allowed; }
+    .heart-shape { width: 44px; height: 44px; position: relative; display: flex; align-items: center; justify-content: center; }
+    .heart-shape svg { width: 44px; height: 44px; filter: drop-shadow(0 0 7px rgba(255,215,0,0.4)); }
+    .heart-shape-text { position: absolute; font-size: 16px; font-weight: bold; color: #fff; z-index: 10; margin-top: -2px; }
+    .avatar-tooltip { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); background: rgba(39,39,42,0.95); border: 1px solid rgba(6,182,212,0.5); border-radius: 4px; padding: 5px 8px; font-size: 9px; color: #fbbf24; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity 0.2s; z-index: 1000; box-shadow: 0 4px 9px rgba(0,0,0,0.8); }
+    .player-avatar-col:hover .avatar-tooltip { opacity: 1; }
+    .vote-history-overlay { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 5px; background: rgba(0,0,0,0.9); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 4px 6px; box-shadow: 0 4px 7px rgba(0,0,0,0.5); z-index: 1000; white-space: nowrap; pointer-events: none; }
+    .vote-history-item { font-size: 8px; color: rgba(255,255,255,0.6); font-style: italic; line-height: 1.3; margin-bottom: 1px; }
+    .vote-history-item:last-child { margin-bottom: 0; }
+
+    /* END ROUND */
+    .end-round-screen { flex-direction: column; background: linear-gradient(135deg, #0f172a 0%, #450a0a 100%); position: relative; }
+    .stats-bar { padding: 25px; text-align: center; }
+    .round-complete { color: #22d3ee; font-family: monospace; font-size: 20px; font-weight: bold; letter-spacing: 2px; text-shadow: 0 0 16px rgba(34,211,238,0.8); margin-bottom: 12px; }
+    .ai-unplugged { color: #ef4444; font-family: monospace; font-size: 23px; font-weight: bold; letter-spacing: 2px; text-shadow: 0 0 20px rgba(239,68,68,1); }
+    .elimination-content { flex: 1; display: flex; align-items: center; justify-content: center; padding: 30px; }
+    .disconnected-title { font-family: monospace; font-size: 38px; font-weight: bold; color: #ef4444; text-shadow: 0 0 25px rgba(239,68,68,1); margin-bottom: 25px; letter-spacing: 3px; text-align: center; }
+    .eliminated-avatar { width: 120px; height: 120px; border-radius: 50%; margin: 0 auto 16px; display: flex; align-items: center; justify-content: center; font-size: 55px; font-weight: bold; color: #fff; border: 4px solid #ef4444; filter: saturate(0.5) contrast(1.3); }
+    .eliminated-name { color: #f87171; font-size: 24px; font-weight: bold; text-align: center; margin-bottom: 9px; }
+    .voted-by-text { color: #71717a; font-size: 12px; text-align: center; margin-bottom: 6px; }
+    .immunity-badge { position: absolute; bottom: 60px; right: 40px; background: linear-gradient(135deg, rgba(217,119,6,0.4), rgba(161,98,7,0.2)); backdrop-filter: blur(10px); border: 2px solid rgba(251,191,36,0.5); border-radius: 9px; padding: 16px 20px; display: flex; align-items: center; gap: 12px; box-shadow: 0 0 30px rgba(251,191,36,0.5); }
+    .immunity-label { color: #fbbf24; font-family: monospace; font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
+    .immune-avatar { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: bold; color: #fff; }
+    .no-immunity { position: absolute; bottom: 60px; right: 40px; background: rgba(71,85,105,0.3); backdrop-filter: blur(10px); border: 2px solid rgba(100,116,139,0.4); border-radius: 9px; padding: 16px 20px; color: #94a3b8; font-size: 12px; font-style: italic; }
+    .next-round-container { padding: 25px; display: flex; justify-content: center; }
+    .next-round-btn { width: 180px; height: 45px; position: relative; background: rgba(0,0,0,0.8); border: 2px solid #06b6d4; border-radius: 7px; cursor: pointer; overflow: hidden; transition: transform 0.3s; }
+    .next-round-btn:hover { transform: scale(1.05); }
+    .progress-bar { position: absolute; inset: 0; background: #22d3ee; width: 0%; transition: width 50ms linear; box-shadow: 0 0 12px rgba(34,211,238,0.8); }
+    .next-round-text { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 12px; letter-spacing: 2px; z-index: 10; }
+    .animate-fade-in { animation: fadeIn 0.4s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
+  </style>
+</head>
+<body>
+
+  <!-- WAITING ROOM -->
+  <div id="waiting-screen" class="screen active waiting-room">
+    <h1 class="waiting-title">Have you ever doubted<br>your own humanity?</h1>
+    <p class="waiting-subtitle">A game of deception and detection</p>
+    
+    <div class="player-setup">
+      <label class="setup-label">Your Username (required)</label>
+      <input type="text" id="username-input" class="setup-input" placeholder="Enter your username..." maxlength="15" value="">
+      
+      <label class="setup-label">Room Code (optional)</label>
+      <input type="text" id="room-input" class="setup-input" placeholder="Leave empty for random room..." maxlength="20" value="">
+      <div style="font-size: 10px; color: #64748b; margin-top: -8px; margin-bottom: 12px;">
+        💡 Share this code with friends to play together!
+      </div>
+      
+      <label class="setup-label">Your Avatar (optional)</label>
+      <div class="avatar-grid" id="avatar-grid">
+        <!-- Avatars will be inserted here -->
+      </div>
+      <button class="avatar-clear" onclick="clearAvatar()">Clear Avatar</button>
+    </div>
+    
+    <div class="player-grid" id="player-grid"></div>
+    <div id="room-code-display" style="display:none;background:rgba(6,182,212,0.1);border:1px solid rgba(6,182,212,0.3);border-radius:7px;padding:12px;margin-bottom:18px;max-width:420px;width:100%;text-align:center;">
+      <div style="color:#94a3b8;font-size:10px;margin-bottom:5px;">🔗 ROOM CODE</div>
+      <div id="room-code-text" style="color:#06b6d4;font-size:18px;font-weight:bold;font-family:monospace;letter-spacing:2px;"></div>
+      <div style="color:#64748b;font-size:9px;margin-top:5px;">Share this code with your friends!</div>
+    </div>
+    <button class="start-btn" id="start-btn" onclick="startGame()" disabled>ENTER YOUR USERNAME TO START</button>
+  </div>
+
+  <!-- QUESTION -->
+  <div id="question-screen" class="screen question-screen">
+    <div class="question-card">
+      <div class="question-label">QUESTION</div>
+      <div class="question-text">"What color are your socks right now?"</div>
+      <input type="text" id="answer-input" class="answer-input" placeholder="Type your answer..." maxlength="200">
+      <button class="submit-btn" id="submit-answer-btn" onclick="submitAnswer()">SUBMIT ANSWER (15s)</button>
+    </div>
+    <div class="players-status-grid" id="players-status-grid"></div>
+  </div>
+
+  <!-- GAME -->
+  <div id="game-screen" class="screen game-screen">
+    <div class="chat-area">
+      <div class="player-avatars-header" id="player-avatars-header"></div>
+      <div class="messages-container" id="messages-container">
+        <div class="messages-columns" id="messages-columns"></div>
+      </div>
+    </div>
+    <div class="game-panel">
+      <div>
+        <div class="timer-display" id="timer-display">100s</div>
+        <div class="round-info">
+          <div id="round-text">Round 1/8</div>
+          <div class="eliminated-circles" id="eliminated-circles"></div>
+        </div>
+        <button class="history-btn" id="history-btn" onmousedown="showVoteHistory()" onmouseup="hideVoteHistory()" onmouseleave="hideVoteHistory()" title="Hold to view">🔌</button>
+        <div style="text-align:center;margin:8px 0;">
+          <div style="color:#71717a;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px;">AI Remaining</div>
+          <div class="bot-counter" id="bot-counter">3/3 🤖</div>
+        </div>
+      </div>
+      <div style="flex: 1; display: flex; flex-direction: column; gap: 14px; justify-content: flex-end;">
+        <div class="vote-section">
+          <div class="vote-label">Vote:</div>
+          <select class="vote-select" id="vote-select"><option value="">Select...</option></select>
+          <button class="vote-btn" id="vote-btn" onclick="confirmVote()">CONFIRM VOTE</button>
+        </div>
+        <div class="message-section">
+          <div class="char-counter" id="char-counter">0/1000</div>
+          <div class="message-input-container">
+            <textarea class="message-textarea" id="message-textarea" placeholder="Type..." rows="3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage();}"></textarea>
+            <button class="send-btn" id="send-btn" onclick="sendMessage()">SEND</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- END ROUND -->
+  <div id="end-round-screen" class="screen end-round-screen">
+    <div class="stats-bar">
+      <div class="round-complete" id="round-complete-text">ROUND 1 COMPLETED</div>
+      <div class="ai-unplugged" id="ai-unplugged-text">1/3 AI UNPLUGGED</div>
+    </div>
+    <div class="elimination-content">
+      <div>
+        <div class="disconnected-title">DISCONNECTED</div>
+        <div class="eliminated-avatar" id="eliminated-avatar-display">P</div>
+        <div class="eliminated-name" id="eliminated-name-display">Player</div>
+        <div class="voted-by-text">Voted out by majority</div>
+        <div class="voted-by-text" id="voted-by-list">Voted by: Player1, Player2</div>
+      </div>
+    </div>
+    <div class="immunity-badge" id="immunity-badge" style="display: none;">
+      <div>
+        <div class="immunity-label">Immunity</div>
+        <div style="display: flex; align-items: center; gap: 7px; margin-top: 3px;">
+          <div class="immune-avatar" id="immune-avatar-display">P</div>
+          <div style="color: #fbbf24; font-weight: 600; font-size: 13px;" id="immune-name-display">Player</div>
+        </div>
+      </div>
+    </div>
+    <div class="no-immunity" id="no-immunity" style="display: none;">
+      No immunity this round
+    </div>
+    <div class="next-round-container">
+      <button class="next-round-btn" onclick="nextRound()">
+        <div class="progress-bar" id="progress-bar"></div>
+        <div class="next-round-text">NEXT ROUND</div>
+      </button>
+    </div>
+  </div>
+
+  <!-- Socket.io Client -->
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+
+  <script>
+const AVATARS=['🕵️','🔍','📜','🗝️','🌙','⚡','🦉','👁️','🎭','🎩','🔮','🃏','🎲','⚔️','🛡️','👻','🦇','🕷️','🐺','🦊'];
+const COLORS=[{n:'Red',h:'#ef4444'},{n:'Orange',h:'#f97316'},{n:'Gold',h:'#eab308'},{n:'Silver',h:'#94a3b8'},{n:'Purple',h:'#a855f7'},{n:'Turquoise',h:'#06b6d4'},{n:'Pink',h:'#ec4899'},{n:'Lime',h:'#84cc16'},{n:'Indigo',h:'#6366f1'}];
+const T=9,A=3;
+let G={s:'waiting',r:1,mr:T-1,t:100,qt:15,p:[],m:[],e:[],l:null,im:null,a:{},v:{},h:{},vh:{},sh:false,sa:null,ui:false};
+
+// === SOCKET.IO SETUP ===
+// Configuration automatique selon environnement
+const BACKEND_URL = (() => {
+  const hostname = window.location.hostname;
+  
+  // Dev local
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return 'http://localhost:3001';
+  }
+  
+  // Production - METTRE VOTRE URL RENDER/RAILWAY ICI
+  return 'https://turingarou-backend.onrender.com';
+})();
+
+console.log('🔗 Backend URL:', BACKEND_URL);
+
+const socket = io(BACKEND_URL, {
+  transports: ['websocket', 'polling'],
+  reconnection: true,
+  reconnectionAttempts: 5,
+  reconnectionDelay: 1000,
+  timeout: 60000,  // 60s pour gérer le cold start de Render
+});
+
+let playerId = null;
+let roomId = 'game-' + Math.random().toString(36).substr(2, 9);
+let isConnected = false;
+
+// Indicateur visuel de connexion
+socket.on('connect', () => {
+  console.log('✅ Connected to server');
+  isConnected = true;
+  document.body.style.borderTop = '3px solid #22c55e';
+  
+  const btn = document.getElementById('start-btn');
+  if (btn && btn.textContent.includes('CONNECTING')) {
+    btn.disabled = false;
+    btn.textContent = 'START SESSION';
+  }
+});
+
+socket.on('disconnect', () => {
+  console.log('❌ Disconnected from server');
+  isConnected = false;
+  document.body.style.borderTop = '3px solid #ef4444';
+});
+
+socket.on('reconnecting', (attemptNumber) => {
+  console.log(`🔄 Reconnecting... attempt ${attemptNumber}`);
+  document.body.style.borderTop = '3px solid #f59e0b';
+});
+
+socket.on('connect_error', (error) => {
+  console.error('Connection error:', error);
+  const btn = document.getElementById('start-btn');
+  if (btn) {
+    btn.textContent = 'SERVER STARTING... (30s)';
+  }
+});
+
+socket.on('joinSuccess', ({ playerId: id }) => {
+  playerId = id;
+  console.log('✅ Joined as player:', playerId);
+});
+
+socket.on('joinError', ({ message }) => {
+  console.error('❌ Join error:', message);
+  alert('Could not join game: ' + message);
+});
+
+socket.on('gameState', (state) => {
+  console.log('📊 Game state update:', state.phase);
+  updateGameFromServer(state);
+});
+
+function updateGameFromServer(state) {
+  // Synchroniser l'état global avec le serveur
+  G.s = state.phase;
+  G.r = state.currentRound;
+  
+  // Mettre à jour les joueurs
+  G.p = state.players.map((p, i) => ({
+    id: p.id,
+    username: p.username,
+    color: p.color,
+    colorName: p.colorName,
+    avatar: null, // TODO: gérer les avatars
+    isLocal: p.id === playerId,
+    isAI: false, // On ne révèle pas qui est IA côté client
+    hasAnswered: false,
+    hasVoted: false,
+    votesAgainst: []
+  }));
+  
+  // Identifier le joueur local
+  G.l = playerId;
+  
+  // Mettre à jour les messages
+  G.m = state.messages.map(msg => ({
+    id: msg.id,
+    playerId: msg.playerId,
+    color: state.players.find(p => p.id === msg.playerId)?.color || '#fff',
+    text: msg.content,
+    timestamp: msg.timestamp,
+    round: state.currentRound
+  }));
+  
+  // Mettre à jour les réponses à la question
+  if (state.answers && state.answers.length > 0) {
+    G.a = {};
+    state.answers.forEach(ans => {
+      G.a[ans.playerId] = ans.answer;
+    });
+  }
+  
+  // Mettre à jour les éliminés
+  G.e = state.players
+    .filter(p => p.isEliminated)
+    .map(p => p.id);
+  
+  // Mettre à jour l'immunité (protectedPlayerId)
+  G.im = state.protectedPlayerId;
+  
+  // Rafraîchir l'affichage selon la phase
+  switch (state.phase) {
+    case 'waiting':
+      showScreen('waiting');
+      renderWaitingRoom();
+      break;
+    case 'question':
+      showScreen('question');
+      const questionText = document.querySelector('.question-text');
+      if (questionText && state.currentQuestion) {
+        questionText.textContent = state.currentQuestion;
+      }
+      renderQuestionScreen();
+      break;
+    case 'discussion':
+      showScreen('game');
+      renderGameScreen();
+      if (state.discussionEndTime) {
+        startTimerFromServer(state.discussionEndTime);
+      }
+      break;
+    case 'voting':
+      showScreen('game');
+      renderGameScreen();
+      break;
+    case 'endround':
+      // Le backend gère la transition
+      break;
+  }
+}
+
+function startTimerFromServer(endTime) {
+  const updateTimer = () => {
+    const remaining = Math.max(0, Math.floor((endTime - Date.now()) / 1000));
+    const d = document.getElementById('timer-display');
+    if (d) {
+      d.textContent = remaining + 's';
+      if (remaining <= 30) d.classList.add('warning');
+      else d.classList.remove('warning');
+    }
+    
+    if (remaining > 0) {
+      setTimeout(updateTimer, 1000);
+    }
+  };
+  updateTimer();
+}
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', () => {
+  socket.disconnect();
+});
+
+
+function init(){
+const g=document.getElementById('avatar-grid');
+AVATARS.forEach((a,i)=>{
+const d=document.createElement('div');
+d.className='avatar-option';
+d.textContent=a;
+d.onclick=()=>selectAvatar(a);
+d.id='av-'+i;
+g.appendChild(d);
+});
+document.getElementById('username-input').oninput=updateLocalPlayer;
+renderWaitingRoom();
+}
+
+function selectAvatar(a){
+G.sa=a;
+document.querySelectorAll('.avatar-option').forEach(e=>e.classList.remove('selected'));
+document.getElementById('av-'+AVATARS.indexOf(a)).classList.add('selected');
+updateLocalPlayer();
+}
+
+function clearAvatar(){
+G.sa=null;
+document.querySelectorAll('.avatar-option').forEach(e=>e.classList.remove('selected'));
+updateLocalPlayer();
+}
+
+function updateLocalPlayer(){
+const u=document.getElementById('username-input').value.trim();
+G.ui=u.length>0;
+document.getElementById('start-btn').disabled=!G.ui;
+document.getElementById('start-btn').textContent=G.ui?'START SESSION (9 Players)':'ENTER YOUR USERNAME TO START';
+if(G.p.length===0||!G.p[0])return;
+G.p[0].username=u||'YOU';
+G.p[0].avatar=G.sa;
+renderWaitingRoom();
+}
+
+function renderWaitingRoom(){
+const g=document.getElementById('player-grid');
+g.innerHTML='';
+for(let i=0;i<T;i++){
+const c=document.createElement('div');
+c.className='player-card'+(i===0?' local':'')+(G.p[i]?'':' empty');
+if(G.p[i]){
+const av=document.createElement('div');
+av.className='player-avatar-waiting';
+av.style.background=COLORS[i].h;
+av.style.boxShadow='0 0 12px '+COLORS[i].h+'80';
+av.textContent=G.p[i].avatar||G.p[i].username.charAt(0);
+av.style.fontSize=G.p[i].avatar?'20px':'20px';
+const nm=document.createElement('div');
+nm.className='player-name-waiting';
+nm.textContent=G.p[i].username;
+c.appendChild(av);
+c.appendChild(nm);
+}else{
+c.innerHTML='<div style="color:#64748b;font-size:11px;">Waiting...</div>';
+}
+g.appendChild(c);
+}
+}
+
+function startGame(){
+  if(!G.ui) return;
+  
+  const username = document.getElementById('username-input').value.trim() || 'YOU';
+  const customRoom = document.getElementById('room-input')?.value.trim();
+  
+  // Utiliser room custom ou générer un ID aléatoire
+  roomId = customRoom || 'game-' + Math.random().toString(36).substr(2, 9);
+  
+  console.log('🎮 Starting game, joining room:', roomId);
+  
+  // Afficher feedback utilisateur
+  const btn = document.getElementById('start-btn');
+  btn.textContent = 'CONNECTING TO SERVER...';
+  btn.disabled = true;
+  
+  // Timeout si le serveur met trop de temps (cold start Render)
+  const connectTimeout = setTimeout(() => {
+    if (!isConnected) {
+      btn.textContent = 'SERVER WAKING UP... (30s)';
+    }
+  }, 5000);
+  
+  // Rejoindre la room sur le serveur
+  socket.emit('joinRoom', { 
+    roomId: roomId, 
+    username: username 
+  });
+  
+  // Nettoyer le timeout quand la connexion réussit
+  socket.once('joinSuccess', () => {
+    clearTimeout(connectTimeout);
+    
+    // Afficher le room code
+    const roomDisplay = document.getElementById('room-code-display');
+    const roomText = document.getElementById('room-code-text');
+    if (roomDisplay && roomText) {
+      roomDisplay.style.display = 'block';
+      roomText.textContent = roomId;
+    }
+    
+    console.log('📋 Room Code:', roomId);
+    console.log('💡 Share this code with friends!');
+  });
+  
+  // L'état viendra via l'event 'gameState'
+}
+
+// startQuestionTimer() supprimée - Le backend gère le timer de la question
+
+function renderQuestionScreen(){
+const g=document.getElementById('players-status-grid');
+g.innerHTML='';
+G.p.forEach(p=>{
+const c=document.createElement('div');
+c.className='player-status-card'+(p.hasAnswered?' answered':'');
+const av=document.createElement('div');
+av.className='status-avatar'+(p.hasAnswered?'':' waiting');
+av.style.background=p.color;
+av.style.boxShadow=p.hasAnswered?'0 0 12px '+p.color+'80':'none';
+av.textContent=p.avatar||p.username.charAt(0);
+av.style.fontSize=p.avatar?'16px':'16px';
+const tx=document.createElement('div');
+tx.style.flex='1';
+tx.innerHTML='<div style="color:'+(p.hasAnswered?'#fff':'#71717a')+';font-size:13px;font-weight:500;">'+p.username+'</div>';
+c.appendChild(av);
+c.appendChild(tx);
+if(p.hasAnswered){
+const ch=document.createElement('div');
+ch.className='status-check';
+ch.textContent='✓';
+c.appendChild(ch);
+}
+g.appendChild(c);
+});
+const inp=document.getElementById('answer-input');
+const btn=document.getElementById('submit-answer-btn');
+inp.oninput=()=>btn.disabled=!inp.value.trim();
+}
+
+function submitAnswer(){
+  const inp = document.getElementById('answer-input');
+  const ans = inp.value.trim() || '(no answer)';
+  
+  console.log('📝 Submitting answer:', ans);
+  socket.emit('answerQuestion', { answer: ans });
+  
+  // Désactiver l'input localement
+  inp.disabled = true;
+  const btn = document.getElementById('submit-answer-btn');
+  btn.textContent = '✓ SUBMITTED';
+  btn.disabled = true;
+  
+  // Le reste sera géré par le serveur via gameState
+}
+
+function startGameRound(){
+  renderGameScreen();
+  // Le timer est géré par le serveur via startTimerFromServer()
+  // Les messages IA sont gérés par le backend avec les LLM
+  setupScrollDetection();
+}
+
+function setupScrollDetection(){
+const container=document.getElementById('messages-container');
+container.addEventListener('scroll',function(){
+updateVisiblePlayersBasedOnScroll();
+});
+}
+
+function updateVisiblePlayersBasedOnScroll(){
+const container=document.getElementById('messages-container');
+const scrollTop=container.scrollTop;
+const containerHeight=container.clientHeight;
+const viewportCenter=scrollTop+(containerHeight/2);
+// Trouver les séparateurs de rounds
+const separators=Array.from(document.querySelectorAll('.round-separator'));
+if(separators.length===0){
+// Pas de séparateurs = round 1 ou round actuel
+updateHeaderAndColumnsForRound(G.r);
+return;
+}
+// Déterminer quel round est visible au centre du viewport
+let visibleRound=1; // Par défaut round 1
+for(let i=0;i<separators.length;i++){
+const sepTop=separators[i].offsetTop;
+if(viewportCenter>sepTop){
+// On est après ce séparateur, donc dans le round suivant
+visibleRound=i+2; // Le séparateur i correspond à la fin du round i+1
+}
+}
+// Si on est tout en bas, c'est le round actuel
+if(scrollTop+containerHeight>=container.scrollHeight-50){
+visibleRound=G.r;
+}
+// Afficher les joueurs actifs à ce round
+updateHeaderAndColumnsForRound(visibleRound);
+}
+
+function updateHeaderAndColumnsForRound(roundNum){
+// Déterminer qui était actif à ce round
+const eliminatedUntilRound=G.e.slice(0,Math.max(0,roundNum-1));
+const activeInRound=G.p.filter(p=>!eliminatedUntilRound.includes(p.id));
+// Réorganiser avec local à droite
+const localP=activeInRound.find(p=>p.isLocal);
+const othersP=activeInRound.filter(p=>!p.isLocal);
+const ordered=localP?[...othersP,localP]:activeInRound;
+// Mettre à jour le header
+const h=document.getElementById('player-avatars-header');
+h.innerHTML='';
+ordered.forEach(p=>{
+const im=p.id===G.im&&roundNum===G.r; // Immunité seulement pour le round actuel
+const va=Object.entries(G.v).filter(([vi,vf])=>vf===p.id).map(([vi])=>G.p.find(px=>px.id===vi)?.username||'?');
+const vt=va.length>0?'Voted by: '+va.join(', '):'No votes';
+const vi=p.hasVoted&&roundNum===G.r?'<div style="position:absolute;top:-3px;right:-3px;width:18px;height:18px;background:#22c55e;border-radius:50%;border:2px solid #000;display:flex;align-items:center;justify-content:center;font-size:10px;z-index:10;">✓</div>':'';
+let ah='';
+if(im){
+ah='<div class="heart-shape"><svg viewBox="0 0 64 64"><path d="M32 54C32 54,10 38,10 24C10 16,16 12,22 12C26 12,30 14,32 18C34 14,38 12,42 12C48 12,54 16,54 24C54 38,32 54,32 54Z" fill="'+p.color+'" stroke="#FFD700" stroke-width="2"/></svg><div class="heart-shape-text">'+(p.avatar||p.username.charAt(0))+'</div>'+vi+'</div>';
+}else{
+ah='<div class="avatar-circle" style="background:'+p.color+';box-shadow:0 0 18px '+p.color+'80;position:relative;">'+(p.avatar||p.username.charAt(0))+vi+'</div>';
+}
+const c=document.createElement('div');
+c.className='player-avatar-col';
+const showHistory=G.sh&&G.vh[p.id]&&roundNum===G.r;
+c.innerHTML='<div class="player-username">'+p.username+'</div>'+ah+'<div class="heart-icon'+(G.h[p.id]&&roundNum===G.r?' filled':'')+'" onclick="toggleHeart(\''+p.id+'\')"'+(p.isLocal?' style="cursor:default;opacity:0.2;"':'')+'>'+(G.h[p.id]&&roundNum===G.r?'❤️':'🤍')+'</div>'+(showHistory?'<div class="vote-history-overlay">'+G.vh[p.id].map(v=>'<div class="vote-history-item">R'+v.r+': '+v.vf+'</div>').join('')+(G.r>G.vh[p.id].length?'<div class="vote-history-item">R'+G.r+': ...</div>':'')+'</div>':'')+'<div class="avatar-tooltip">'+vt+'</div>';
+h.appendChild(c);
+});
+// Mettre à jour la visibilité des colonnes
+G.p.forEach(p=>{
+const col=document.getElementById('col-'+p.id);
+if(col){
+col.style.display=activeInRound.includes(p)?'block':'none';
+}
+});
+}
+
+function renderGameScreen(){
+const h=document.getElementById('player-avatars-header');
+const ap=G.p.filter(p=>!G.e.includes(p.id));
+// Réorganiser pour mettre le local à droite
+const localPlayer=ap.find(p=>p.isLocal);
+const otherPlayers=ap.filter(p=>!p.isLocal);
+const orderedPlayers=[...otherPlayers,localPlayer];
+h.innerHTML='';
+orderedPlayers.forEach(p=>{
+const im=p.id===G.im;
+const va=Object.entries(G.v).filter(([vi,vf])=>vf===p.id).map(([vi])=>G.p.find(px=>px.id===vi)?.username||'?');
+const vt=va.length>0?'Voted by: '+va.join(', '):'No votes';
+const vi=p.hasVoted?'<div style="position:absolute;top:-3px;right:-3px;width:18px;height:18px;background:#22c55e;border-radius:50%;border:2px solid #000;display:flex;align-items:center;justify-content:center;font-size:10px;z-index:10;">✓</div>':'';
+let ah='';
+if(im){
+ah='<div class="heart-shape"><svg viewBox="0 0 64 64"><path d="M32 54C32 54,10 38,10 24C10 16,16 12,22 12C26 12,30 14,32 18C34 14,38 12,42 12C48 12,54 16,54 24C54 38,32 54,32 54Z" fill="'+p.color+'" stroke="#FFD700" stroke-width="2"/></svg><div class="heart-shape-text">'+(p.avatar||p.username.charAt(0))+'</div>'+vi+'</div>';
+}else{
+ah='<div class="avatar-circle" style="background:'+p.color+';box-shadow:0 0 18px '+p.color+'80;position:relative;">'+(p.avatar||p.username.charAt(0))+vi+'</div>';
+}
+const c=document.createElement('div');
+c.className='player-avatar-col';
+c.innerHTML='<div class="player-username">'+p.username+'</div>'+ah+'<div class="heart-icon'+(G.h[p.id]?' filled':'')+'" onclick="toggleHeart(\''+p.id+'\')"'+(p.isLocal?' style="cursor:default;opacity:0.2;"':'')+'>'+(G.h[p.id]?'❤️':'🤍')+'</div>'+(G.sh&&G.vh[p.id]?'<div class="vote-history-overlay">'+G.vh[p.id].map(v=>'<div class="vote-history-item">R'+v.r+': '+v.vf+'</div>').join('')+(G.r>G.vh[p.id].length?'<div class="vote-history-item">R'+G.r+': ...</div>':'')+'</div>':'')+'<div class="avatar-tooltip">'+vt+'</div>';
+h.appendChild(c);
+});
+const cl=document.getElementById('messages-columns');
+// Ne clear que si c'est le premier render
+if(cl.children.length===0){
+// Créer les colonnes pour TOUS les joueurs (dans l'ordre avec local à droite)
+const allLocalP=G.p.find(p=>p.isLocal);
+const allOthersP=G.p.filter(p=>!p.isLocal);
+const allOrdered=[...allOthersP,allLocalP];
+allOrdered.forEach(p=>{
+const c=document.createElement('div');
+c.className='player-column';
+c.id='col-'+p.id;
+c.style.display=orderedPlayers.includes(p)?'block':'none';
+cl.appendChild(c);
+});
+}else{
+// Mettre à jour la visibilité des colonnes existantes
+G.p.forEach(p=>{
+const col=document.getElementById('col-'+p.id);
+if(col){
+col.style.display=orderedPlayers.includes(p)?'block':'none';
+}
+});
+}
+renderMessages();
+const vs=document.getElementById('vote-select');
+vs.innerHTML='<option value="">Select...</option>';
+const lp=G.p.find(p=>p.isLocal);
+const hasAlreadyVoted=lp.hasVoted;
+vs.disabled=hasAlreadyVoted;
+vs.value='';
+ap.forEach(p=>{
+if(!p.isLocal&&p.id!==G.im){
+const o=document.createElement('option');
+o.value=p.id;
+o.textContent=p.username;
+vs.appendChild(o);
+}
+});
+// Listener pour activer le bouton quand on sélectionne quelqu'un
+vs.onchange=function(){
+const vb=document.getElementById('vote-btn');
+vb.disabled=!this.value;
+};
+const vb=document.getElementById('vote-btn');
+if(hasAlreadyVoted){
+vb.disabled=true;
+vb.textContent='✓ CONFIRMED';
+}else{
+vb.disabled=true; // Désactivé par défaut jusqu'à sélection
+vb.textContent='CONFIRM VOTE';
+}
+document.getElementById('round-text').textContent='Round '+G.r+'/'+G.mr;
+const ec=document.getElementById('eliminated-circles');
+ec.innerHTML='';
+G.e.forEach(eid=>{
+const ep=G.p.find(p=>p.id===eid);
+if(ep){
+const c=document.createElement('div');
+c.className='eliminated-circle'+(ep.isAI?' robot':'');
+c.style.background=ep.color;
+c.style.boxShadow='0 0 7px '+ep.color+'60';
+c.innerHTML='<div class="eliminated-tooltip">'+ep.username+(ep.isAI?' 🤖':'')+'</div>';
+ec.appendChild(c);
+}
+});
+const aia=G.e.filter(id=>G.p.find(p=>p.id===id)?.isAI).length;
+const aiRemaining=A-aia;
+document.getElementById('bot-counter').textContent=aiRemaining+'/'+A+' 🤖';
+document.getElementById('bot-counter').style.color=aiRemaining===0?'#22c55e':'#ef4444';
+const mc=Math.floor((1000*ap.length)/T);
+const ta=document.getElementById('message-textarea');
+const cc=document.getElementById('char-counter');
+ta.oninput=()=>cc.textContent=ta.value.length+'/'+mc;
+cc.textContent='0/'+mc;
+}
+
+function renderMessages(){
+const ap=G.p.filter(p=>!G.e.includes(p.id));
+G.p.forEach(p=>{
+const c=document.getElementById('col-'+p.id);
+if(c)c.innerHTML='';
+});
+let pos=0;
+const mc=document.getElementById('messages-columns');
+if(G.r===1&&Object.keys(G.a).length>0){
+const oq=document.querySelector('.system-message');
+if(oq)oq.remove();
+const qd=document.createElement('div');
+qd.className='system-message';
+qd.style.top=pos+'px';
+qd.innerHTML='<div class="system-message-text">"What color are your socks right now?"</div>';
+mc.appendChild(qd);
+pos+=35;
+const ar=document.createElement('div');
+ar.className='answers-row';
+ar.style.top=pos+'px';
+const localP=G.p.find(p=>p.isLocal);
+const othersP=G.p.filter(p=>!p.isLocal);
+const orderedForAnswers=[...othersP,localP];
+orderedForAnswers.forEach(p=>{
+const ad=document.createElement('div');
+ad.className='answer-bubble';
+ad.style.background=p.color;
+ad.textContent=G.a[p.id]||'(no answer)';
+ar.appendChild(ad);
+});
+mc.appendChild(ar);
+const mal=Math.max(...Object.values(G.a).map(a=>a?a.length:10));
+const ln=Math.ceil(mal/15);
+pos+=(ln*17)+12+18;
+}
+const mbr={};
+G.m.forEach(m=>{
+if(!mbr[m.round])mbr[m.round]=[];
+mbr[m.round].push(m);
+});
+for(let rd=1;rd<=G.r;rd++){
+const rm=mbr[rd]||[];
+rm.forEach(m=>{
+const c=document.getElementById('col-'+m.playerId);
+if(!c)return;
+const b=document.createElement('div');
+b.className='message-bubble';
+b.textContent=m.text;
+b.style.background=m.color;
+b.style.position='absolute';
+b.style.top=pos+'px';
+b.style.left='2px';
+b.style.right='2px';
+c.appendChild(b);
+const ln=Math.ceil(m.text.length/20);
+pos+=(ln*17)+12+7;
+});
+if(rd<G.r){
+const sep=document.createElement('div');
+sep.className='round-separator';
+sep.style.top=pos+'px';
+const ep=rd<=G.e.length?G.p.find(p=>p.id===G.e[rd-1]):null;
+const robotClass=ep&&ep.isAI?' robot':'';
+sep.innerHTML='<div class="round-separator-line"><div class="round-separator-hr"></div><div class="round-separator-text">ROUND '+rd+' ENDED</div><div class="round-separator-hr"></div></div>'+(ep?'<div class="round-eliminated-info"><span>'+ep.username+(ep.isAI?' 🤖':'')+' eliminated</span><div class="round-eliminated-circle'+robotClass+'" style="background:'+ep.color+';box-shadow:0 0 5px '+ep.color+'60;"></div></div>':'');
+mc.appendChild(sep);
+pos+=55;
+}
+}
+const messagesColumns=document.getElementById('messages-columns');
+messagesColumns.style.height=(pos+300)+'px';
+messagesColumns.style.minHeight='100%';
+scrollToBottom();
+}
+
+function scrollToBottom(){
+const c=document.getElementById('messages-container');
+const nb=c.scrollHeight-c.scrollTop-c.clientHeight<90;
+if(nb)c.scrollTop=c.scrollHeight;
+}
+
+function toggleHeart(id){
+if(id===G.l)return;
+if(G.h[id]){
+delete G.h[id];
+}else{
+G.h={};
+G.h[id]=true;
+}
+renderGameScreen();
+}
+
+function sendMessage(){
+  const ta = document.getElementById('message-textarea');
+  const tx = ta.value.trim();
+  if (!tx) return;
+  
+  // Calculer la limite de caractères
+  const ap = G.p.filter(p => !G.e.includes(p.id));
+  const mc = Math.floor((1000 * ap.length) / T);
+  
+  if (tx.length > mc) {
+    alert('Message too long! Max: ' + mc + ' chars');
+    return;
+  }
+  
+  // Envoyer au serveur
+  console.log('💬 Sending message:', tx);
+  socket.emit('sendMessage', { message: tx });
+  
+  // Vider le textarea
+  ta.value = '';
+  const cc = document.getElementById('char-counter');
+  if (cc) cc.textContent = '0/' + mc;
+}
+
+function confirmVote(){
+  const s = document.getElementById('vote-select');
+  const vid = s.value;
+  if (!vid) return;
+  
+  console.log('🗳️  Voting for:', vid);
+  socket.emit('vote', { targetId: vid });
+  
+  // Marquer comme voté localement
+  const lp = G.p.find(p => p.isLocal);
+  if (lp) {
+    lp.hasVoted = true;
+    // Enregistrer dans l'historique local
+    if (!G.vh[lp.id]) G.vh[lp.id] = [];
+    const vp = G.p.find(p => p.id === vid);
+    if (vp) G.vh[lp.id].push({r:G.r,vf:vp.username});
+  }
+  
+  // Désactiver
+  s.disabled = true;
+  document.getElementById('vote-btn').textContent = '✓ CONFIRMED';
+  document.getElementById('vote-btn').disabled = true;
+  
+  renderGameScreen();
+}
+
+function showVoteHistory(){
+G.sh=true;
+renderGameScreen();
+}
+
+function hideVoteHistory(){
+G.sh=false;
+renderGameScreen();
+}
+
+function startTimer(){
+G.t=100;
+const iv=setInterval(()=>{
+G.t--;
+const d=document.getElementById('timer-display');
+d.textContent=G.t+'s';
+if(G.t<=30)d.classList.add('warning');
+if(G.t<=0){
+clearInterval(iv);
+endRound();
+}
+},1000);
+}
+
+// ❌ simulateAIMessages() SUPPRIMÉE - Le backend gère les messages IA via LLM
+
+// endRound() - Gérée par le backend, mais gardée pour compatibilité legacy
+function endRound(){
+  // Le backend gère la logique de fin de round
+  console.log('⚠️ endRound() appelée localement - devrait être géré par le backend');
+}
+
+function renderEndOfRound(eid,iid){
+const ep=G.p.find(p=>p.id===eid);
+const ip=G.p.find(p=>p.id===iid);
+document.getElementById('round-complete-text').textContent='ROUND '+G.r+' COMPLETED';
+const aia=G.e.filter(id=>G.p.find(p=>p.id===id)?.isAI).length;
+document.getElementById('ai-unplugged-text').textContent=aia+'/'+A+' AI UNPLUGGED';
+if(ep){
+const ea=document.getElementById('eliminated-avatar-display');
+ea.textContent=ep.avatar||ep.username.charAt(0);
+ea.style.fontSize=ep.avatar?'55px':'55px';
+ea.style.background=ep.color;
+ea.style.boxShadow='0 0 45px '+ep.color+'cc';
+document.getElementById('eliminated-name-display').textContent=ep.username;
+const vo=Object.entries(G.v).filter(([vid,vf])=>vf===eid).map(([vid])=>G.p.find(p=>p.id===vid).username);
+document.getElementById('voted-by-list').textContent='Voted by: '+(vo.join(', ')||'None');
+}
+if(ip){
+const ib=document.getElementById('immunity-badge');
+ib.style.display='flex';
+document.getElementById('no-immunity').style.display='none';
+const ia=document.getElementById('immune-avatar-display');
+ia.textContent=ip.avatar||ip.username.charAt(0);
+ia.style.fontSize=ip.avatar?'18px':'18px';
+ia.style.background=ip.color;
+ia.style.boxShadow='0 0 12px '+ip.color+'80';
+document.getElementById('immune-name-display').textContent=ip.username;
+}else{
+document.getElementById('immunity-badge').style.display='none';
+document.getElementById('no-immunity').style.display='block';
+}
+startProgressBar();
+}
+
+function startProgressBar(){
+const pb=document.getElementById('progress-bar');
+let pr=0;
+const du=8000,iv=50,inc=(iv/du)*100;
+const tm=setInterval(()=>{
+pr+=inc;
+pb.style.width=Math.min(pr,100)+'%';
+if(pr>=100){
+clearInterval(tm);
+setTimeout(()=>nextRound(),100);
+}
+},iv);
+}
+
+// nextRound() - Gérée par le backend, mais gardée pour compatibilité
+function nextRound(){
+  // Le backend gère la transition entre rounds
+  console.log('⚠️ nextRound() appelée localement - devrait être géré par le backend');
+  // On attend juste le prochain gameState du serveur
+}
+
+function showScreen(n){
+document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+document.getElementById(n+'-screen').classList.add('active');
+G.s=n;
+}
+
+init();
+  </script>
+</body>
+</html>
