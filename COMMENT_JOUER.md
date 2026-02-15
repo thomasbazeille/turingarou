@@ -63,6 +63,17 @@ Vous êtes dans le lobby public
 
 ---
 
+## ❌ "STILL LOADING PLEASE WAIT" ?
+
+Ce message **n’est pas** la page du jeu. C’est la page **Render** quand on ouvre l’URL du **serveur** au lieu de la page du jeu.
+
+- **À faire** : Ouvre le **jeu** → https://thomasbazeille.github.io/turingarou/turingarou-online.html  
+- **À ne pas ouvrir dans le navigateur** : https://turingarou.onrender.com (c’est uniquement le serveur ; tu verras "STILL LOADING PLEASE WAIT" le temps qu’il démarre).
+
+Si tu es sur la bonne page et que la connexion dépasse 90 s, un bouton **RETRY** apparaît.
+
+---
+
 ## 🎲 Configuration Actuelle
 
 ```

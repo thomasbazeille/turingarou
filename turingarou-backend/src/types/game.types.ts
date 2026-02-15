@@ -1,6 +1,6 @@
 // Types fondamentaux du jeu
 
-export type GamePhase = 'waiting' | 'question' | 'discussion' | 'voting' | 'endround';
+export type GamePhase = 'waiting' | 'question' | 'discussion' | 'voting' | 'endround' | 'gameover';
 
 export interface PlayerBase {
   id: string;
@@ -68,6 +68,19 @@ export interface GameRoomState {
   maxPlayers: number;
   minPlayers: number;
   aiCount: number; // Nombre d'IA dans la partie
+  eliminatedPlayerId?: string | null; // Set when phase is endround
+  gameOverReason?: 'humans_win' | 'ai_win' | 'draw' | null; // Set when phase is gameover
+}
+
+/** Game format passed to AI for prompt (timing, player counts, etc.) */
+export interface GameFormat {
+  maxPlayers: number;
+  humanCount: number;
+  aiCount: number;
+  questionSec: number;
+  discussionSec: number;
+  voteSec: number;
+  maxRounds: number;
 }
 
 export interface LLMMessage {

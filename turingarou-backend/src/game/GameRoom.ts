@@ -9,6 +9,7 @@ import {
   QuestionAnswer,
   Vote,
   AIPersonality,
+  GameFormat,
 } from '../types/game.types.js';
 import { LLMProvider } from '../llm/LLMProvider.js';
 
@@ -20,6 +21,11 @@ const COLORS = [
   { name: 'Purple', hex: '#a855f7' },
   { name: 'Turquoise', hex: '#06b6d4' },
 ];
+
+const QUESTION_PHASE_MS = 15000;
+const DISCUSSION_PHASE_MS = 60000;
+const VOTE_PHASE_MS = 10000;
+const MAX_ROUNDS = 5;
 
 const QUESTIONS = [
   "What color are your socks right now?",
@@ -55,6 +61,8 @@ export class GameRoom {
       maxPlayers: 3,
       minPlayers: 2,
       aiCount,
+      eliminatedPlayerId: null,
+      gameOverReason: null,
     };
   }
 
@@ -199,10 +207,27 @@ export class GameRoom {
     // Les IA répondent à la question
     this.aiAnswerQuestion();
 
-    // Timer pour passer à la discussion
+    this.setGameFormatForAllAI();
     setTimeout(() => {
       this.startDiscussion();
-    }, 15000); // 15 secondes comme dans le frontend
+    }, QUESTION_PHASE_MS);
+  }
+
+  private setGameFormatForAllAI(): void {
+    const format = this.getGameFormat();
+    this.aiPlayers.forEach((ai) => ai.setGameFormat(format));
+  }
+
+  getGameFormat(): GameFormat {
+    return {
+      maxPlayers: this.state.maxPlayers,
+      humanCount: this.state.maxPlayers - this.state.aiCount,
+      aiCount: this.state.aiCount,
+      questionSec: QUESTION_PHASE_MS / 1000,
+      discussionSec: DISCUSSION_PHASE_MS / 1000,
+      voteSec: VOTE_PHASE_MS / 1000,
+      maxRounds: MAX_ROUNDS,
+    };
   }
 
   private async aiAnswerQuestion(): Promise<void> {
@@ -216,13 +241,12 @@ export class GameRoom {
 
   private startDiscussion(): void {
     this.state.phase = 'discussion';
-    this.state.discussionEndTime = Date.now() + 60000; // 60 secondes de discussion
+    this.state.discussionEndTime = Date.now() + DISCUSSION_PHASE_MS;
     this.emitState();
 
-    // Démarrer le timer de discussion
     this.discussionTimer = setTimeout(() => {
       this.startVoting();
-    }, 60000);
+    }, DISCUSSION_PHASE_MS);
 
     // Les IA commencent à "penser" et réagir aux messages
     this.startAIThinking();
@@ -270,10 +294,9 @@ export class GameRoom {
     // Les IA votent automatiquement
     this.aiVote();
 
-    // Timer pour le résultat
     setTimeout(() => {
       this.processVotes();
-    }, 10000); // 10 secondes pour voter
+    }, VOTE_PHASE_MS);
   }
 
   private async aiVote(): Promise<void> {
@@ -323,11 +346,12 @@ export class GameRoom {
       this.state.protectedPlayerId = eligibleForProtection[protectedIndex].id;
     }
 
-    // Éliminer le joueur
+    // Éliminer le joueur (si pas d'égalité)
     const eliminatedPlayer = this.state.players.find((p) => p.id === eliminatedId);
     if (eliminatedPlayer) {
       eliminatedPlayer.isEliminated = true;
     }
+    this.state.eliminatedPlayerId = eliminatedId || null;
 
     this.state.phase = 'endround';
     this.emitState();
@@ -346,16 +370,18 @@ export class GameRoom {
     const remainingHumans = activePlayers.filter((p) => p.type === 'human').length;
 
     if (remainingAI === 0 || remainingHumans === 0 || activePlayers.length <= 2) {
-      this.endGame();
+      this.endGame(remainingAI, remainingHumans, activePlayers.length);
       return;
     }
 
     // Nouveau round
+    this.state.eliminatedPlayerId = null;
     this.state.currentRound++;
     this.state.currentQuestion = this.getRandomQuestion();
     this.state.answers = [];
     this.state.votes = [];
     this.state.messages = [];
+    this.state.protectedPlayerId = null;
     this.state.phase = 'question';
     this.emitState();
 
@@ -363,12 +389,20 @@ export class GameRoom {
 
     setTimeout(() => {
       this.startDiscussion();
-    }, 15000);
+    }, QUESTION_PHASE_MS);
   }
 
-  private endGame(): void {
-    // TODO: Logique de fin de partie
-    console.log('Game Over!');
+  private endGame(remainingAI: number, remainingHumans: number, activeCount: number): void {
+    if (remainingAI === 0) {
+      this.state.gameOverReason = 'humans_win';
+    } else if (remainingHumans === 0) {
+      this.state.gameOverReason = 'ai_win';
+    } else {
+      this.state.gameOverReason = 'draw';
+    }
+    this.state.phase = 'gameover';
+    this.state.eliminatedPlayerId = null;
+    this.emitState();
   }
 
   // ====== ACTIONS ======
@@ -434,7 +468,7 @@ export class GameRoom {
 
   private sanitizeState(): any {
     // Ne pas révéler qui est IA aux clients
-    return {
+    const out: any = {
       ...this.state,
       players: this.state.players.map((p) => ({
         id: p.id,
@@ -444,9 +478,17 @@ export class GameRoom {
         isReady: p.isReady,
         isEliminated: p.isEliminated,
         hearts: p.hearts,
-        // On cache le type (ai/human)
       })),
     };
+    if (this.state.phase === 'endround') {
+      out.eliminatedPlayerId = this.state.eliminatedPlayerId ?? null;
+      out.votes = this.state.votes;
+      out.eliminatedAiCount = this.state.players.filter((p) => p.isEliminated && p.type === 'ai').length;
+    }
+    if (this.state.phase === 'gameover') {
+      out.gameOverReason = this.state.gameOverReason ?? null;
+    }
+    return out;
   }
 
   getState(): GameRoomState {

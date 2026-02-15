@@ -3,7 +3,7 @@
  * Copier ce fichier dans le frontend si nécessaire
  */
 
-export type GamePhase = 'waiting' | 'question' | 'discussion' | 'voting' | 'endround';
+export type GamePhase = 'waiting' | 'question' | 'discussion' | 'voting' | 'endround' | 'gameover';
 
 export interface Player {
   id: string;

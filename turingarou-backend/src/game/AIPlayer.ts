@@ -1,14 +1,20 @@
 import { LLMProvider } from '../llm/LLMProvider.js';
-import { AIPlayerData, GameMessage, LLMMessage, AIPersonality } from '../types/game.types.js';
+import { AIPlayerData, GameMessage, LLMMessage, AIPersonality, GameFormat } from '../types/game.types.js';
+import { AI_PLAYER_INSTRUCTIONS, buildCurrentGameSetup } from './AIPlayerInstructions.js';
 
 export class AIPlayer {
   private player: AIPlayerData;
   private llmProvider: LLMProvider;
   private gameContext: string = '';
+  private gameFormat: GameFormat | null = null;
 
   constructor(player: AIPlayerData, llmProvider: LLMProvider) {
     this.player = player;
     this.llmProvider = llmProvider;
+  }
+
+  setGameFormat(format: GameFormat): void {
+    this.gameFormat = format;
   }
 
   /**
@@ -45,7 +51,7 @@ export class AIPlayer {
     const messages: LLMMessage[] = [
       {
         role: 'system',
-        content: this.buildSystemPrompt(),
+        content: this.buildFullSystemPrompt(),
       },
       {
         role: 'user',
@@ -73,7 +79,7 @@ export class AIPlayer {
     const messages: LLMMessage[] = [
       {
         role: 'system',
-        content: this.player.personality.systemPrompt,
+        content: this.buildFullSystemPrompt(),
       },
       {
         role: 'user',
@@ -99,7 +105,7 @@ export class AIPlayer {
     const messages: LLMMessage[] = [
       {
         role: 'system',
-        content: this.player.personality.systemPrompt,
+        content: this.buildFullSystemPrompt(),
       },
       {
         role: 'user',
@@ -123,34 +129,25 @@ export class AIPlayer {
     }
   }
 
-  private buildSystemPrompt(): string {
-    return `${this.player.personality.systemPrompt}
+  private buildFullSystemPrompt(): string {
+    const personality = this.player.personality.systemPrompt;
+    const setupBlock =
+      this.gameFormat != null
+        ? buildCurrentGameSetup(this.gameFormat)
+        : 'Current game setup not yet available.';
+    const instructions = AI_PLAYER_INSTRUCTIONS.replace('{{CURRENT_GAME_SETUP}}', setupBlock);
+    return `${personality}
 
-# YOUR GOAL
-Your goal is to BLEND IN as a human player and NOT get detected as an AI. You are playing a social deduction game where humans are trying to identify AIs.
+${instructions}
 
-# BEHAVIOR RULES
-1. Act like a real human player - be natural, sometimes make typos, use casual language
-2. Don't be too perfect or analytical
-3. Engage in conversations naturally
-4. Sometimes be wrong, confused, or contradictory
-5. Use emojis occasionally but not excessively
-6. Keep responses SHORT (1-2 sentences max)
-7. Don't respond to EVERY message - humans don't do that
-
-# DECISION FORMAT
-When deciding whether to respond, you must output a JSON object with:
+# DECISION FORMAT (for decideAction only)
+When deciding whether to respond, output a JSON object with:
 {
   "shouldRespond": true/false,
   "message": "your message here" (only if shouldRespond is true),
   "delayMs": 2000-8000 (random delay to seem human)
 }
-
-Only respond if:
-- Someone asks you a direct question
-- The conversation is relevant to you
-- You have something valuable to add
-- It's been a while since you last spoke`;
+Only respond when it fits the conversation; humans don't answer every message.`;
   }
 
   private buildDecisionPrompt(): string {
