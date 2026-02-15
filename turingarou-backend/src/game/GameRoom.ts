@@ -70,6 +70,7 @@ export class GameRoom {
       protectedPlayerId: null,
       discussionEndTime: null,
       questionEndTime: null,
+      voteEndTime: null,
       maxPlayers: 3,
       minPlayers: 2,
       aiCount,
@@ -155,6 +156,7 @@ export class GameRoom {
     });
   }
 
+  /** Fisher–Yates shuffle so the AI is not always in the same position (e.g. middle). */
   private shufflePlayers(): void {
     const arr = this.state.players;
     for (let i = arr.length - 1; i > 0; i--) {
@@ -295,6 +297,7 @@ export class GameRoom {
   private startVoting(): void {
     this.stopAIThinking();
     this.state.phase = 'voting';
+    this.state.voteEndTime = Date.now() + VOTE_PHASE_MS;
     // Keep existing votes (cast during discussion); no reset
     this.emitState();
 
@@ -320,53 +323,64 @@ export class GameRoom {
       
       setTimeout(async () => {
         const targetId = await aiPlayer.decideVote(activePlayers);
-        this.addVote(id, targetId);
+        if (targetId) this.addVote(id, targetId);
       }, delay);
     }
   }
 
   private processVotes(): void {
-    const voteCounts = new Map<string, number>();
+    if (this.state.phase !== 'voting') return;
+    try {
+      const voteCounts = new Map<string, number>();
 
-    this.state.votes.forEach((vote) => {
-      const count = voteCounts.get(vote.targetId) || 0;
-      voteCounts.set(vote.targetId, count + 1);
-    });
+      this.state.votes.forEach((vote) => {
+        const count = voteCounts.get(vote.targetId) || 0;
+        voteCounts.set(vote.targetId, count + 1);
+      });
 
-    // Trouver le joueur avec le plus de votes
-    let eliminatedId = '';
-    let maxVotes = 0;
+      // Trouver le joueur avec le plus de votes
+      let eliminatedId = '';
+      let maxVotes = 0;
 
-    voteCounts.forEach((count, playerId) => {
-      if (count > maxVotes) {
-        maxVotes = count;
-        eliminatedId = playerId;
+      voteCounts.forEach((count, playerId) => {
+        if (count > maxVotes) {
+          maxVotes = count;
+          eliminatedId = playerId;
+        }
+      });
+
+      // Protéger un joueur aléatoire (pas l'éliminé)
+      const eligibleForProtection = this.state.players.filter(
+        (p) => !p.isEliminated && p.id !== eliminatedId
+      );
+      if (eligibleForProtection.length > 0) {
+        const protectedIndex = Math.floor(Math.random() * eligibleForProtection.length);
+        this.state.protectedPlayerId = eligibleForProtection[protectedIndex].id;
       }
-    });
 
-    // Protéger un joueur aléatoire (pas l'éliminé)
-    const eligibleForProtection = this.state.players.filter(
-      (p) => !p.isEliminated && p.id !== eliminatedId
-    );
-    if (eligibleForProtection.length > 0) {
-      const protectedIndex = Math.floor(Math.random() * eligibleForProtection.length);
-      this.state.protectedPlayerId = eligibleForProtection[protectedIndex].id;
+      // Éliminer le joueur (si pas d'égalité)
+      const eliminatedPlayer = this.state.players.find((p) => p.id === eliminatedId);
+      if (eliminatedPlayer) {
+        eliminatedPlayer.isEliminated = true;
+      }
+      this.state.eliminatedPlayerId = eliminatedId || null;
+
+      this.state.phase = 'endround';
+      this.state.voteEndTime = null;
+      this.emitState();
+
+      // Passer au round suivant
+      setTimeout(() => {
+        this.nextRound();
+      }, 13000); // 13 secondes sur l'écran de fin de round
+    } catch (err) {
+      console.error('[GameRoom] processVotes error', err);
+      this.state.phase = 'endround';
+      this.state.eliminatedPlayerId = null;
+      this.state.voteEndTime = null;
+      this.emitState();
+      setTimeout(() => this.nextRound(), 13000);
     }
-
-    // Éliminer le joueur (si pas d'égalité)
-    const eliminatedPlayer = this.state.players.find((p) => p.id === eliminatedId);
-    if (eliminatedPlayer) {
-      eliminatedPlayer.isEliminated = true;
-    }
-    this.state.eliminatedPlayerId = eliminatedId || null;
-
-    this.state.phase = 'endround';
-    this.emitState();
-
-    // Passer au round suivant
-    setTimeout(() => {
-      this.nextRound();
-    }, 13000); // 13 secondes sur l'écran de fin de round
   }
 
   private nextRound(): void {
@@ -476,7 +490,7 @@ export class GameRoom {
     if (allVoted && this.votePhaseTimeout) {
       clearTimeout(this.votePhaseTimeout);
       this.votePhaseTimeout = null;
-      this.processVotes();
+      setImmediate(() => this.processVotes());
     }
   }
 

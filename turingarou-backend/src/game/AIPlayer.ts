@@ -119,10 +119,12 @@ export class AIPlayer {
   }
 
   /**
-   * L'IA décide pour qui voter (basé sur suspicion)
+   * L'IA décide pour qui voter (basé sur suspicion).
+   * Retourne null s'il n'y a personne d'autre à voter (ex: seul joueur actif).
    */
-  async decideVote(players: { id: string; username: string }[]): Promise<string> {
+  async decideVote(players: { id: string; username: string }[]): Promise<string | null> {
     const otherPlayers = players.filter((p) => p.id !== this.player.id);
+    if (otherPlayers.length === 0) return null;
 
     const messages: LLMMessage[] = [
       {
@@ -139,15 +141,14 @@ export class AIPlayer {
       const response = await this.llmProvider.query(messages);
       const voteName = response.message?.trim() || '';
 
-      // Trouver le joueur correspondant
       const targetPlayer = otherPlayers.find(
         (p) => p.username.toLowerCase() === voteName.toLowerCase()
       );
 
-      return targetPlayer?.id || otherPlayers[0].id; // Par défaut vote pour le premier
+      return targetPlayer?.id ?? otherPlayers[0].id;
     } catch (error) {
       console.error(`AI ${this.player.username} vote error:`, error);
-      return otherPlayers[0].id;
+      return otherPlayers[0]?.id ?? null;
     }
   }
 
