@@ -23,7 +23,7 @@ const COLORS = [
   { name: 'Turquoise', hex: '#06b6d4' },
 ];
 
-const QUESTION_PHASE_MS = 15000;
+const QUESTION_PHASE_MS = 20000;
 const DISCUSSION_PHASE_MS = 60000;
 const VOTE_PHASE_MS = 10000;
 const MAX_ROUNDS = 5;
@@ -69,6 +69,7 @@ export class GameRoom {
       votes: [],
       protectedPlayerId: null,
       discussionEndTime: null,
+      questionEndTime: null,
       maxPlayers: 3,
       minPlayers: 2,
       aiCount,
@@ -190,11 +191,10 @@ export class GameRoom {
     this.state.phase = 'question';
     this.state.currentRound = 1;
     this.state.currentQuestion = this.getRandomQuestion();
+    this.state.questionEndTime = Date.now() + QUESTION_PHASE_MS;
     this.emitState();
 
-    // Les IA répondent à la question
     this.aiAnswerQuestion();
-
     this.setGameFormatForAllAI();
     setTimeout(() => {
       this.startDiscussion();
@@ -223,7 +223,9 @@ export class GameRoom {
     for (const [id, aiPlayer] of this.aiPlayers) {
       if (this.state.currentQuestion) {
         const answer = await aiPlayer.answerQuestion(this.state.currentQuestion);
-        this.addAnswer(id, answer);
+        if (answer != null && answer.trim() !== '') {
+          this.addAnswer(id, answer);
+        }
       }
     }
   }
@@ -252,7 +254,8 @@ export class GameRoom {
           this.state.messages,
           this.state.currentQuestion,
           this.state.phase,
-          this.state.currentRound
+          this.state.currentRound,
+          this.state.answers
         );
 
         const decision = await aiPlayer.decideAction();
@@ -370,7 +373,6 @@ export class GameRoom {
       return;
     }
 
-    // Nouveau round
     this.state.eliminatedPlayerId = null;
     this.state.currentRound++;
     this.state.currentQuestion = this.getRandomQuestion();
@@ -379,6 +381,7 @@ export class GameRoom {
     this.state.messages = [];
     this.state.protectedPlayerId = null;
     this.state.phase = 'question';
+    this.state.questionEndTime = Date.now() + QUESTION_PHASE_MS;
     this.emitState();
 
     this.aiAnswerQuestion();

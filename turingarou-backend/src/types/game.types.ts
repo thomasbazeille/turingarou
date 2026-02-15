@@ -64,7 +64,8 @@ export interface GameRoomState {
   answers: QuestionAnswer[];
   votes: Vote[];
   protectedPlayerId: string | null;
-  discussionEndTime: number | null; // timestamp
+  discussionEndTime: number | null;
+  questionEndTime: number | null;
   maxPlayers: number;
   minPlayers: number;
   aiCount: number; // Nombre d'IA dans la partie

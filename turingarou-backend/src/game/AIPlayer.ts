@@ -1,5 +1,5 @@
 import { LLMProvider } from '../llm/LLMProvider.js';
-import { AIPlayerData, GameMessage, LLMMessage, AIPersonality, GameFormat } from '../types/game.types.js';
+import { AIPlayerData, GameMessage, LLMMessage, AIPersonality, GameFormat, QuestionAnswer } from '../types/game.types.js';
 import { AI_PLAYER_INSTRUCTIONS, buildCurrentGameSetup } from './AIPlayerInstructions.js';
 
 export class AIPlayer {
@@ -24,13 +24,22 @@ export class AIPlayer {
     messages: GameMessage[],
     currentQuestion: string | null,
     phase: string,
-    round: number
+    round: number,
+    answers: QuestionAnswer[] = []
   ): void {
     let context = `# GAME CONTEXT - Round ${round}\n\n`;
     context += `Current phase: ${phase}\n\n`;
 
     if (currentQuestion) {
       context += `Current question: "${currentQuestion}"\n\n`;
+    }
+
+    if (answers.length > 0) {
+      context += `## Answers to the question this round:\n`;
+      answers.forEach((a) => {
+        context += `[${a.playerName}]: ${a.answer}\n`;
+      });
+      context += `\n`;
     }
 
     if (phase === 'discussion') {
@@ -80,9 +89,9 @@ export class AIPlayer {
   }
 
   /**
-   * L'IA répond à la question posée
+   * L'IA répond à la question posée, ou retourne null pour ne pas répondre (comme un humain qui skip).
    */
-  async answerQuestion(question: string): Promise<string> {
+  async answerQuestion(question: string): Promise<string | null> {
     const messages: LLMMessage[] = [
       {
         role: 'system',
@@ -90,19 +99,22 @@ export class AIPlayer {
       },
       {
         role: 'user',
-        content: `You are playing as ${this.player.username}. Answer this question as a human would, staying in character.\n\nIMPORTANT: Keep your answer SHORT: one short sentence or a few words only. No paragraph, no list, no explanation.\n\n"${question}"\n\nProvide ONLY your short answer, nothing else.`,
+        content: `You are playing as ${this.player.username}. Answer this question as a human would, staying in character.\n\nIMPORTANT: Keep your answer SHORT: one short sentence or a few words only. No paragraph, no list.\n\nHumans often skip or don't answer. If you prefer not to answer, reply with exactly: SKIP\n\n"${question}"\n\nProvide ONLY your short answer, or exactly SKIP to not answer.`,
       },
     ];
 
     try {
       const response = await this.llmProvider.query(messages);
-      const raw = response.message || "I don't know.";
+      const raw = (response.message || '').trim();
+      if (!raw || raw.toUpperCase() === 'SKIP' || raw.toUpperCase().startsWith('SKIP')) {
+        return null;
+      }
       const firstSentence = raw.split(/[.!?]\s/)[0]?.trim() || raw;
       const short = firstSentence.length > 80 ? firstSentence.slice(0, 77) + '...' : firstSentence;
       return short || raw.slice(0, 80);
     } catch (error) {
       console.error(`AI ${this.player.username} answer error:`, error);
-      return "I'm not sure...";
+      return null;
     }
   }
 
