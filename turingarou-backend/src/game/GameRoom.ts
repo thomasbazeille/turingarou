@@ -163,6 +163,13 @@ export class GameRoom {
       const j = Math.floor(Math.random() * (i + 1));
       [arr[i], arr[j]] = [arr[j], arr[i]];
     }
+    // Reassign colors after shuffle so the AI doesn't always get the same color (e.g. Gold)
+    const shuffledColors = [...COLORS].sort(() => Math.random() - 0.5);
+    arr.forEach((p, idx) => {
+      const c = shuffledColors[idx % shuffledColors.length];
+      p.color = c.hex;
+      p.colorName = c.name;
+    });
   }
 
   private generateAIPersonalities(count: number): AIPersonality[] {

@@ -110,6 +110,10 @@
     .send-btn { background: #0891b2; color: #fff; border: none; padding: 9px 18px; border-radius: 5px; cursor: pointer; font-weight: bold; transition: all 0.3s; font-size: 11px; }
     .send-btn:hover:not(:disabled) { background: #0e7490; }
     .send-btn:disabled { background: #3f3f46; cursor: not-allowed; }
+    .eliminated-spectator-bar { background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.4); border-radius: 7px; padding: 12px; margin-top: 8px; text-align: center; }
+    .eliminated-spectator-bar p { color: #94a3b8; font-size: 12px; margin-bottom: 10px; }
+    .return-home-btn { background: rgba(6,182,212,0.2); border: 1px solid #06b6d4; color: #22d3ee; padding: 10px 20px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 13px; transition: all 0.2s; }
+    .return-home-btn:hover { background: rgba(6,182,212,0.3); box-shadow: 0 0 12px rgba(6,182,212,0.3); }
     .heart-shape { width: 44px; height: 44px; position: relative; display: flex; align-items: center; justify-content: center; }
     .heart-shape svg { width: 44px; height: 44px; filter: drop-shadow(0 0 7px rgba(255,215,0,0.4)); }
     .heart-shape-text { position: absolute; font-size: 16px; font-weight: bold; color: #fff; z-index: 10; margin-top: -2px; }
@@ -226,6 +230,10 @@
             <button class="send-btn" id="send-btn" onclick="sendMessage()">SEND</button>
           </div>
         </div>
+        <div class="eliminated-spectator-bar" id="eliminated-spectator-bar" style="display:none;">
+          <p id="eliminated-spectator-text">Tu es éliminé. Tu peux suivre le chat en lecture seule.</p>
+          <button type="button" class="return-home-btn" onclick="goHome()" id="return-home-btn">Retour à l'accueil</button>
+        </div>
       </div>
     </div>
   </div>
@@ -262,6 +270,7 @@
         <div class="progress-bar" id="progress-bar"></div>
         <div class="next-round-text" id="next-round-text">NEXT ROUND</div>
       </button>
+      <button type="button" class="return-home-btn" onclick="goHome()" style="margin-top:12px;display:block;margin-left:auto;margin-right:auto;" id="end-round-return-btn">Retour à l'accueil</button>
     </div>
   </div>
 
@@ -275,8 +284,8 @@
       <p style="color:#94a3b8;font-size:18px;margin:20px;" id="gameover-detail">Thanks for playing.</p>
     </div>
     <div class="next-round-container">
-      <button class="next-round-btn" onclick="location.reload()">
-        <div class="next-round-text">BACK TO LOBBY</div>
+      <button class="next-round-btn" onclick="goHome()">
+        <div class="next-round-text">Retour à l'accueil</div>
       </button>
     </div>
   </div>
@@ -540,25 +549,25 @@ renderWaitingRoom();
 function renderWaitingRoom(){
 const g=document.getElementById('player-grid');
 g.innerHTML='';
-
-// Afficher les joueurs actuels + emplacements vides
+// Ordre alphabétique par pseudo
+const sortedPlayers=[...G.p].sort((a,b)=>a.username.localeCompare(b.username,'fr'));
 const maxSlots = T;  // Maximum de slots à afficher
 for(let i=0;i<maxSlots;i++){
 const c=document.createElement('div');
-const isLocal = G.p[i] && G.p[i].isLocal;
-const hasPlayer = G.p[i];
+const hasPlayer = sortedPlayers[i];
+const isLocal = hasPlayer && hasPlayer.isLocal;
 
 c.className='player-card'+(isLocal?' local':'')+(hasPlayer?'':' empty');
 
 if(hasPlayer){
   const av=document.createElement('div');
   av.className='player-avatar-waiting';
-  av.style.background=G.p[i].color;
-  av.style.boxShadow='0 0 12px '+G.p[i].color+'80';
-  av.textContent=G.p[i].username.charAt(0);
+  av.style.background=hasPlayer.color;
+  av.style.boxShadow='0 0 12px '+hasPlayer.color+'80';
+  av.textContent=hasPlayer.username.charAt(0);
   const nm=document.createElement('div');
   nm.className='player-name-waiting';
-  nm.textContent=G.p[i].username;
+  nm.textContent=hasPlayer.username;
   c.appendChild(av);
   c.appendChild(nm);
 }else{
@@ -649,7 +658,7 @@ function startGame(){
 function renderQuestionScreen(){
 const g=document.getElementById('players-status-grid');
 g.innerHTML='';
-G.p.forEach(p=>{
+[...G.p].sort((a,b)=>a.username.localeCompare(b.username,'fr')).forEach(p=>{
 const c=document.createElement('div');
 c.className='player-status-card'+(p.hasAnswered?' answered':'');
 const av=document.createElement('div');
@@ -735,10 +744,8 @@ function updateHeaderAndColumnsForRound(roundNum){
 // Déterminer qui était actif à ce round
 const eliminatedUntilRound=G.e.slice(0,Math.max(0,roundNum-1));
 const activeInRound=G.p.filter(p=>!eliminatedUntilRound.includes(p.id));
-// Réorganiser avec local à droite
-const localP=activeInRound.find(p=>p.isLocal);
-const othersP=activeInRound.filter(p=>!p.isLocal);
-const ordered=localP?[...othersP,localP]:activeInRound;
+// Ordre alphabétique par pseudo
+const ordered=[...activeInRound].sort((a,b)=>a.username.localeCompare(b.username,'fr'));
 // Mettre à jour le header
 const h=document.getElementById('player-avatars-header');
 h.innerHTML='';
@@ -771,10 +778,8 @@ col.style.display=activeInRound.includes(p)?'block':'none';
 function renderGameScreen(){
 const h=document.getElementById('player-avatars-header');
 const ap=G.p.filter(p=>!G.e.includes(p.id));
-// Réorganiser pour mettre le local à droite
-const localPlayer=ap.find(p=>p.isLocal);
-const otherPlayers=ap.filter(p=>!p.isLocal);
-const orderedPlayers=[...otherPlayers,localPlayer];
+// Ordre alphabétique par pseudo
+const orderedPlayers=[...ap].sort((a,b)=>a.username.localeCompare(b.username,'fr'));
 h.innerHTML='';
 orderedPlayers.forEach(p=>{
 const im=p.id===G.im;
@@ -795,10 +800,8 @@ h.appendChild(c);
 const cl=document.getElementById('messages-columns');
 // Ne clear que si c'est le premier render
 if(cl.children.length===0){
-// Créer les colonnes pour TOUS les joueurs (dans l'ordre avec local à droite)
-const allLocalP=G.p.find(p=>p.isLocal);
-const allOthersP=G.p.filter(p=>!p.isLocal);
-const allOrdered=[...allOthersP,allLocalP];
+// Créer les colonnes pour TOUS les joueurs (ordre alphabétique)
+const allOrdered=[...G.p].sort((a,b)=>a.username.localeCompare(b.username,'fr'));
 allOrdered.forEach(p=>{
 const c=document.createElement('div');
 c.className='player-column';
@@ -855,6 +858,31 @@ vb.disabled=!vs.value;
 vb.textContent=G.lang==='fr'?'CONFIRMER LE VOTE':'CONFIRM VOTE';
 }
 document.getElementById('round-text').textContent='Round '+G.r+'/'+G.mr;
+// Si le joueur local est éliminé : chat en lecture seule + bouton retour accueil
+const localEliminated = G.l && G.e.includes(G.l);
+const spectatorBar = document.getElementById('eliminated-spectator-bar');
+const returnHomeBtn = document.getElementById('return-home-btn');
+const spectatorText = document.getElementById('eliminated-spectator-text');
+if (spectatorBar && returnHomeBtn && spectatorText) {
+  if (localEliminated) {
+    spectatorBar.style.display = 'block';
+    spectatorText.textContent = G.lang === 'fr' ? 'Tu es éliminé. Tu peux suivre le chat en lecture seule.' : 'You are eliminated. You can watch the chat (read-only).';
+    returnHomeBtn.textContent = G.lang === 'fr' ? "Retour à l'accueil" : 'Return home';
+  } else {
+    spectatorBar.style.display = 'none';
+  }
+}
+const voteSection = document.querySelector('.vote-section');
+if (voteSection) voteSection.style.display = localEliminated ? 'none' : 'block';
+const msgSection = document.querySelector('.message-section');
+if (msgSection) {
+  msgSection.style.opacity = localEliminated ? '0.7' : '1';
+  msgSection.style.pointerEvents = localEliminated ? 'none' : 'auto';
+}
+const ta = document.getElementById('message-textarea');
+const sb = document.getElementById('send-btn');
+if (ta) { ta.disabled = localEliminated; ta.placeholder = localEliminated ? (G.lang === 'fr' ? 'Éliminé — lecture seule' : 'Eliminated — read only') : 'Type...'; }
+if (sb) sb.disabled = localEliminated;
 const ec=document.getElementById('eliminated-circles');
 ec.innerHTML='';
 G.e.forEach(eid=>{
@@ -873,10 +901,9 @@ const aiRemaining=A-aia;
 document.getElementById('bot-counter').textContent=aiRemaining+'/'+A+' 🤖';
 document.getElementById('bot-counter').style.color=aiRemaining===0?'#22c55e':'#ef4444';
 const mc=Math.floor((1000*ap.length)/T);
-const ta=document.getElementById('message-textarea');
 const cc=document.getElementById('char-counter');
-ta.oninput=()=>cc.textContent=ta.value.length+'/'+mc;
-cc.textContent='0/'+mc;
+if(ta){ ta.oninput=()=>{ if(cc) cc.textContent=ta.value.length+'/'+mc; }; }
+if(cc) cc.textContent=(ta?ta.value.length:0)+'/'+mc;
 }
 
 function renderMessages(){
@@ -900,9 +927,7 @@ pos+=35;
 const ar=document.createElement('div');
 ar.className='answers-row';
 ar.style.top=pos+'px';
-const localP=G.p.find(p=>p.isLocal);
-const othersP=G.p.filter(p=>!p.isLocal);
-const orderedForAnswers=[...othersP,localP];
+const orderedForAnswers=[...G.p].sort((a,b)=>a.username.localeCompare(b.username,'fr'));
 orderedForAnswers.forEach(p=>{
 const ad=document.createElement('div');
 ad.className='answer-bubble';
@@ -1087,7 +1112,29 @@ document.getElementById('immune-name-display').textContent=ip.username;
 document.getElementById('immunity-badge').style.display='none';
 document.getElementById('no-immunity').style.display='block';
 }
+var endRoundReturnBtn = document.getElementById('end-round-return-btn');
+if (endRoundReturnBtn) endRoundReturnBtn.textContent = G.lang === 'fr' ? "Retour à l'accueil" : 'Return home';
 startProgressBar(13000);
+}
+
+function goHome(){
+  socket.disconnect();
+  G.p = [];
+  G.e = [];
+  G.l = null;
+  G.s = 'waiting';
+  G.m = [];
+  G.v = {};
+  G.r = 1;
+  showScreen('waiting');
+  renderWaitingRoom();
+  var btn = document.getElementById('start-btn');
+  if (btn) {
+    btn.disabled = !G.ui;
+    btn.textContent = G.ui ? 'START SESSION (3 Players: 2 Humans + 1 AI)' : 'ENTER YOUR USERNAME TO START';
+    btn.onclick = startGame;
+  }
+  if (!socket.connected) socket.connect();
 }
 
 function startProgressBar(durationMs){
@@ -1112,12 +1159,14 @@ function renderGameOver(reason){
 const title=document.getElementById('gameover-title');
 const msg=document.getElementById('gameover-message');
 const detail=document.getElementById('gameover-detail');
+const gameoverHomeBtn = document.querySelector('#gameover-screen .next-round-text');
 if(title) title.textContent='GAME OVER';
 if(msg){
 if(reason==='humans_win'){ msg.textContent='Humans win!'; if(detail) detail.textContent='You found the AI.'; }
 else if(reason==='ai_win'){ msg.textContent='AI wins!'; if(detail) detail.textContent='The AI stayed hidden.'; }
 else { msg.textContent='Draw'; if(detail) detail.textContent='Game ended.'; }
 }
+if(gameoverHomeBtn) gameoverHomeBtn.textContent = G.lang === 'fr' ? "Retour à l'accueil" : 'Return home';
 }
 
 // nextRound() - Gérée par le backend, mais gardée pour compatibilité
