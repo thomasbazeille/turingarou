@@ -249,12 +249,13 @@ export class GameRoom {
 
   private startDiscussion(): void {
     this.state.phase = 'discussion';
-    this.state.discussionEndTime = Date.now() + DISCUSSION_PHASE_MS;
+    const discussionMs = this.state.currentRound === 1 ? 100000 : DISCUSSION_PHASE_MS; // Premier round : 100 s
+    this.state.discussionEndTime = Date.now() + discussionMs;
     this.emitState();
 
     this.discussionTimer = setTimeout(() => {
       this.startVoting();
-    }, DISCUSSION_PHASE_MS);
+    }, discussionMs);
 
     // Les IA commencent à "penser" et réagir aux messages
     this.startAIThinking();

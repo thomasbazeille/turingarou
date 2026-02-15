@@ -114,6 +114,12 @@
     .eliminated-spectator-bar p { color: #94a3b8; font-size: 12px; margin-bottom: 10px; }
     .return-home-btn { background: rgba(6,182,212,0.2); border: 1px solid #06b6d4; color: #22d3ee; padding: 10px 20px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 13px; transition: all 0.2s; }
     .return-home-btn:hover { background: rgba(6,182,212,0.3); box-shadow: 0 0 12px rgba(6,182,212,0.3); }
+    .end-screen-history-wrap { margin-top: 24px; padding: 12px; background: rgba(0,0,0,0.4); border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); max-height: 280px; display: flex; flex-direction: column; }
+    .end-screen-history-title { color: #94a3b8; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+    .end-screen-history-scroll { overflow-y: auto; flex: 1; font-size: 12px; line-height: 1.5; }
+    .end-screen-history-scroll .hist-line { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .end-screen-history-scroll .hist-line.system { color: #94a3b8; font-style: italic; }
+    .end-screen-history-scroll .hist-name { color: #94a3b8; margin-right: 6px; }
     .heart-shape { width: 44px; height: 44px; position: relative; display: flex; align-items: center; justify-content: center; }
     .heart-shape svg { width: 44px; height: 44px; filter: drop-shadow(0 0 7px rgba(255,215,0,0.4)); }
     .heart-shape-text { position: absolute; font-size: 16px; font-weight: bold; color: #fff; z-index: 10; margin-top: -2px; }
@@ -272,6 +278,10 @@
       </button>
       <button type="button" class="return-home-btn" onclick="goHome()" style="margin-top:12px;display:block;margin-left:auto;margin-right:auto;" id="end-round-return-btn">Retour à l'accueil</button>
     </div>
+    <div class="end-screen-history-wrap">
+      <div class="end-screen-history-title" id="end-round-history-title">Historique</div>
+      <div class="end-screen-history-scroll" id="end-round-history"></div>
+    </div>
   </div>
 
   <!-- GAME OVER -->
@@ -287,6 +297,10 @@
       <button class="next-round-btn" onclick="goHome()">
         <div class="next-round-text">Retour à l'accueil</div>
       </button>
+    </div>
+    <div class="end-screen-history-wrap">
+      <div class="end-screen-history-title" id="gameover-history-title">Historique</div>
+      <div class="end-screen-history-scroll" id="gameover-history"></div>
     </div>
   </div>
 
@@ -1114,7 +1128,31 @@ document.getElementById('no-immunity').style.display='block';
 }
 var endRoundReturnBtn = document.getElementById('end-round-return-btn');
 if (endRoundReturnBtn) endRoundReturnBtn.textContent = G.lang === 'fr' ? "Retour à l'accueil" : 'Return home';
+renderEndScreenHistory('end-round-history', 'end-round-history-title');
 startProgressBar(13000);
+}
+
+function renderEndScreenHistory(containerId, titleId) {
+  var titleEl = document.getElementById(titleId);
+  var container = document.getElementById(containerId);
+  if (!container) return;
+  if (titleEl) titleEl.textContent = G.lang === 'fr' ? 'Historique' : 'History';
+  container.innerHTML = '';
+  if (!G.m || G.m.length === 0) {
+    container.innerHTML = '<div class="hist-line system">' + (G.lang === 'fr' ? 'Aucun message.' : 'No messages.') + '</div>';
+    return;
+  }
+  G.m.forEach(function(m) {
+    var line = document.createElement('div');
+    line.className = 'hist-line' + (m.playerId === 'system' ? ' system' : '');
+    if (m.playerId === 'system') {
+      line.textContent = m.text;
+    } else {
+      var name = (G.p && G.p.find(function(p) { return p.id === m.playerId; })) ? G.p.find(function(p) { return p.id === m.playerId; }).username : '?';
+      line.innerHTML = '<span class="hist-name">' + name + ':</span>' + (m.text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+    container.appendChild(line);
+  });
 }
 
 function goHome(){
@@ -1167,6 +1205,7 @@ else if(reason==='ai_win'){ msg.textContent='AI wins!'; if(detail) detail.textCo
 else { msg.textContent='Draw'; if(detail) detail.textContent='Game ended.'; }
 }
 if(gameoverHomeBtn) gameoverHomeBtn.textContent = G.lang === 'fr' ? "Retour à l'accueil" : 'Return home';
+renderEndScreenHistory('gameover-history', 'gameover-history-title');
 }
 
 // nextRound() - Gérée par le backend, mais gardée pour compatibilité

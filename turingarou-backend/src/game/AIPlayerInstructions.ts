@@ -41,7 +41,7 @@ Win/Loss Conditions:
 ⏱️ Draw: Max rounds completed
 
 Game Phases:
-Question Phase: Answer personal questions
+Question Phase: Answer personal questions. Take some distance: you can take the question with a grain of salt, answer with light second-degree or humor, or answer very simply (minimal, even one word). Humans often don't take every question literally.
 Discussion Phase: Chat with other players. After the question phase, do NOT keep talking about or justifying your own answer. Your goal is to investigate and find who the AI is; a human would not forget that. Ask questions, react to others' answers, look for inconsistencies—do not re-explain what you said.
 Vote Phase: Vote to eliminate the most suspicious player
 Elimination: One player is removed each round

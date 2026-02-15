@@ -103,7 +103,7 @@ export class AIPlayer {
       },
       {
         role: 'user',
-        content: `You are playing as ${this.player.username}. Answer this question as a human would, staying in character.\n\nIMPORTANT: Keep your answer SHORT: one short sentence or a few words only. No paragraph, no list. Do NOT end your answer with a period or any punctuation (no full stop at the end).\n\nHumans often skip or don't answer. If you prefer not to answer, reply with exactly: SKIP\n\n"${question}"\n\nProvide ONLY your short answer (no period at the end), or exactly SKIP to not answer.`,
+        content: `You are playing as ${this.player.username}. Answer this question as a human would, staying in character.\n\nIMPORTANT: Keep your answer SHORT: one short sentence or a few words only. No paragraph, no list. Do NOT end your answer with a period or any punctuation (no full stop at the end).\n\nTake some distance: you can take the question with a grain of salt, answer with light second-degree or humor, or answer very simply (minimal, even one word). Humans often don't take every question literally.\n\nHumans often skip or don't answer. If you prefer not to answer, reply with exactly: SKIP\n\n"${question}"\n\nProvide ONLY your short answer (no period at the end), or exactly SKIP to not answer.`,
       },
     ];
 
@@ -114,9 +114,13 @@ export class AIPlayer {
         return null;
       }
       const firstSentence = raw.split(/[.!?]\s/)[0]?.trim() || raw;
-      let short = firstSentence.length > 80 ? firstSentence.slice(0, 77) + '...' : firstSentence;
-      short = short.replace(/[.!?]+$/, '').trim();
-      return short || raw.slice(0, 80).replace(/[.!?]+$/, '').trim();
+      const short = firstSentence.length > 80 ? firstSentence.slice(0, 77) + '...' : firstSentence;
+      const final = short || raw.slice(0, 80);
+      // Ne jamais enlever le ? ; pour . et ! on n'enlève que dans 60% des cas (40% on garde)
+      if (Math.random() < 0.6) {
+        return final.replace(/[.!]+$/, '').trim();
+      }
+      return final.trim();
     } catch (error) {
       console.error(`AI ${this.player.username} answer error:`, error);
       return null;
