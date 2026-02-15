@@ -33,9 +33,16 @@ export class AIPlayer {
       context += `Current question: "${currentQuestion}"\n\n`;
     }
 
+    if (phase === 'discussion') {
+      const discussionMessages = messages.filter((m) => m.phase === 'discussion');
+      if (discussionMessages.length === 0) {
+        context += `\n⚠️ No one has posted in this discussion yet. Being the first to speak is suspicious. Prefer shouldRespond: false, or if you do respond use a long delay (delayMs: 15000-25000).\n\n`;
+      }
+    }
+
     if (messages.length > 0) {
       context += `## Recent conversation:\n`;
-      const recentMessages = messages.slice(-20); // Derniers 20 messages
+      const recentMessages = messages.slice(-20);
       recentMessages.forEach((msg) => {
         context += `[${msg.playerName}]: ${msg.content}\n`;
       });

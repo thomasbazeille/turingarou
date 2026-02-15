@@ -259,7 +259,11 @@ export class GameRoom {
 
         if (decision.shouldRespond && decision.message) {
           this.aiPendingMessage.add(id);
-          const delayMs = decision.delayMs ?? 2000;
+          const discussionCount = this.state.messages.filter((m) => m.phase === 'discussion').length;
+          let delayMs = decision.delayMs ?? 2000;
+          if (discussionCount === 0) {
+            delayMs = 15000 + Math.floor(Math.random() * 10000);
+          }
           setTimeout(() => {
             this.addMessage(id, decision.message!);
             this.aiPendingMessage.delete(id);
