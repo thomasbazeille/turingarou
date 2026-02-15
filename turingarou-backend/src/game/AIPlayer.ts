@@ -136,9 +136,16 @@ export class AIPlayer {
         ? buildCurrentGameSetup(this.gameFormat)
         : 'Current game setup not yet available.';
     const instructions = AI_PLAYER_INSTRUCTIONS.replace('{{CURRENT_GAME_SETUP}}', setupBlock);
+    const lang = this.gameFormat?.language ?? 'fr';
+    const languageRule =
+      lang === 'fr'
+        ? 'LANGUAGE: You must speak and write only in French. All your messages, answers, and vote reasoning must be in French.'
+        : 'LANGUAGE: You must speak and write only in English. All your messages, answers, and vote reasoning must be in English.';
     return `${personality}
 
 ${instructions}
+
+${languageRule}
 
 # DECISION FORMAT (for decideAction only)
 When deciding whether to respond, output a JSON object with:

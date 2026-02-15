@@ -27,12 +27,20 @@ const DISCUSSION_PHASE_MS = 60000;
 const VOTE_PHASE_MS = 10000;
 const MAX_ROUNDS = 5;
 
-const QUESTIONS = [
+const QUESTIONS_EN = [
   "What color are your socks right now?",
   "What was the last thing you ate?",
   "If you could have any superpower, what would it be?",
   "What's your favorite childhood memory?",
   "What did you dream about last night?",
+];
+
+const QUESTIONS_FR = [
+  "De quelle couleur sont tes chaussettes en ce moment ?",
+  "Quelle est la dernière chose que tu as mangée ?",
+  "Si tu pouvais avoir un super-pouvoir, ce serait lequel ?",
+  "Quel est ton souvenir d'enfance préféré ?",
+  "De quoi as-tu rêvé la nuit dernière ?",
 ];
 
 export class GameRoom {
@@ -42,6 +50,7 @@ export class GameRoom {
   private llmProvider: LLMProvider;
   private discussionTimer: NodeJS.Timeout | null = null;
   private aiThinkingInterval: NodeJS.Timeout | null = null;
+  private votePhaseTimeout: NodeJS.Timeout | null = null;
 
   constructor(roomId: string, io: SocketServer, llmProvider: LLMProvider, aiCount: number = 1) {
     this.io = io;
@@ -63,14 +72,18 @@ export class GameRoom {
       aiCount,
       eliminatedPlayerId: null,
       gameOverReason: null,
+      language: 'fr',
     };
   }
 
   // ====== PLAYER MANAGEMENT ======
 
-  addHumanPlayer(socketId: string, username: string): boolean {
+  addHumanPlayer(socketId: string, username: string, language?: 'fr' | 'en'): boolean {
     if (this.state.players.length >= this.state.maxPlayers) {
       return false;
+    }
+    if (language && !this.state.players.length) {
+      this.state.language = language;
     }
 
     const usedColors = this.state.players.map((p) => p.color);
@@ -227,6 +240,7 @@ export class GameRoom {
       discussionSec: DISCUSSION_PHASE_MS / 1000,
       voteSec: VOTE_PHASE_MS / 1000,
       maxRounds: MAX_ROUNDS,
+      language: this.state.language ?? 'fr',
     };
   }
 
@@ -288,13 +302,13 @@ export class GameRoom {
   private startVoting(): void {
     this.stopAIThinking();
     this.state.phase = 'voting';
-    this.state.votes = [];
+    // Keep existing votes (cast during discussion); no reset
     this.emitState();
 
-    // Les IA votent automatiquement
     this.aiVote();
 
-    setTimeout(() => {
+    this.votePhaseTimeout = setTimeout(() => {
+      this.votePhaseTimeout = null;
       this.processVotes();
     }, VOTE_PHASE_MS);
   }
@@ -446,19 +460,50 @@ export class GameRoom {
   }
 
   addVote(voterId: string, targetId: string): void {
-    // Vérifier que le vote n'existe pas déjà
     if (this.state.votes.some((v) => v.voterId === voterId)) {
       return;
     }
 
+    const voter = this.state.players.find((p) => p.id === voterId);
+    const voterName = voter?.username ?? 'Someone';
+    const lang = this.state.language === 'en' ? 'en' : 'fr';
+    const votedText = lang === 'fr' ? `${voterName} a voté.` : `${voterName} has voted.`;
+
     this.state.votes.push({ voterId, targetId });
+    this.addSystemMessage(votedText);
     this.emitState();
+    this.tryEndVotingEarly();
+  }
+
+  private tryEndVotingEarly(): void {
+    if (this.state.phase !== 'voting') return;
+    const activePlayers = this.state.players.filter((p) => !p.isEliminated);
+    const votedIds = new Set(this.state.votes.map((v) => v.voterId));
+    const allVoted = activePlayers.length > 0 && activePlayers.every((p) => votedIds.has(p.id));
+    if (allVoted && this.votePhaseTimeout) {
+      clearTimeout(this.votePhaseTimeout);
+      this.votePhaseTimeout = null;
+      this.processVotes();
+    }
+  }
+
+  private addSystemMessage(content: string): void {
+    this.state.messages.push({
+      id: `sys-${Date.now()}-${Math.random()}`,
+      playerId: 'system',
+      playerName: '',
+      content,
+      timestamp: Date.now(),
+      phase: this.state.phase,
+    });
   }
 
   // ====== UTILS ======
 
   private getRandomQuestion(): string {
-    return QUESTIONS[Math.floor(Math.random() * QUESTIONS.length)];
+    const lang = this.state.language === 'en' ? 'en' : 'fr';
+    const questions = lang === 'fr' ? QUESTIONS_FR : QUESTIONS_EN;
+    return questions[Math.floor(Math.random() * questions.length)];
   }
 
   private emitState(): void {
@@ -488,6 +533,10 @@ export class GameRoom {
     if (this.state.phase === 'gameover') {
       out.gameOverReason = this.state.gameOverReason ?? null;
     }
+    if (this.state.phase === 'voting' || this.state.phase === 'discussion') {
+      out.votes = this.state.votes;
+    }
+    out.language = this.state.language ?? 'fr';
     return out;
   }
 

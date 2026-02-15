@@ -70,6 +70,7 @@ export interface GameRoomState {
   aiCount: number; // Nombre d'IA dans la partie
   eliminatedPlayerId?: string | null; // Set when phase is endround
   gameOverReason?: 'humans_win' | 'ai_win' | 'draw' | null; // Set when phase is gameover
+  language?: 'fr' | 'en'; // Room language for UI and AI
 }
 
 /** Game format passed to AI for prompt (timing, player counts, etc.) */
@@ -81,6 +82,7 @@ export interface GameFormat {
   discussionSec: number;
   voteSec: number;
   maxRounds: number;
+  language: 'fr' | 'en';
 }
 
 export interface LLMMessage {

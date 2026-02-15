@@ -167,6 +167,12 @@
       </div>
       <p style="font-size:10px;color:#64748b;margin-top:4px;">⚠️ Use this page to play. If you see &quot;STILL LOADING PLEASE WAIT&quot;, you opened the server URL by mistake — come back here.</p>
       
+      <label class="setup-label">Language / Langue</label>
+      <select id="lang-select" class="setup-input" style="cursor:pointer;">
+        <option value="fr" selected>Français</option>
+        <option value="en">English</option>
+      </select>
+      
       <label class="setup-label">Your Avatar (optional)</label>
       <div class="avatar-grid" id="avatar-grid">
         <!-- Avatars will be inserted here -->
@@ -217,9 +223,12 @@
       </div>
       <div style="flex: 1; display: flex; flex-direction: column; gap: 14px; justify-content: flex-end;">
         <div class="vote-section">
-          <div class="vote-label">Vote:</div>
-          <select class="vote-select" id="vote-select"><option value="">Select...</option></select>
-          <button class="vote-btn" id="vote-btn" onclick="confirmVote()">CONFIRM VOTE</button>
+          <div class="vote-label" id="vote-label">Vote:</div>
+          <div id="vote-inputs">
+            <select class="vote-select" id="vote-select"><option value="">Select...</option></select>
+            <button class="vote-btn" id="vote-btn" onclick="confirmVote()">CONFIRM VOTE</button>
+          </div>
+          <div id="vote-confirmed" style="display:none;color:#22c55e;font-size:12px;font-weight:600;padding:6px 0;"></div>
         </div>
         <div class="message-section">
           <div class="char-counter" id="char-counter">0/1000</div>
@@ -290,7 +299,7 @@
 const AVATARS=['🕵️','🔍','📜','🗝️','🌙','⚡','🦉','👁️','🎭','🎩','🔮','🃏','🎲','⚔️','🛡️','👻','🦇','🕷️','🐺','🦊'];
 const COLORS=[{n:'Red',h:'#ef4444'},{n:'Orange',h:'#f97316'},{n:'Gold',h:'#eab308'},{n:'Silver',h:'#94a3b8'},{n:'Purple',h:'#a855f7'},{n:'Turquoise',h:'#06b6d4'},{n:'Pink',h:'#ec4899'},{n:'Lime',h:'#84cc16'},{n:'Indigo',h:'#6366f1'}];
 const T=3,A=1;  // 3 joueurs total (2 humains + 1 IA)
-let G={s:'waiting',r:1,mr:5,t:100,qt:15,p:[],m:[],e:[],l:null,im:null,a:{},v:{},h:{},vh:{},sh:false,sa:null,ui:false,eliminatedAiCount:0};
+let G={s:'waiting',r:1,mr:5,t:100,qt:15,p:[],m:[],e:[],l:null,im:null,a:{},v:{},h:{},vh:{},sh:false,sa:null,ui:false,eliminatedAiCount:0,lang:'fr'};
 
 // === SOCKET.IO SETUP ===
 // Configuration automatique selon environnement
@@ -376,17 +385,20 @@ function updateGameFromServer(state) {
   G.s = state.phase;
   G.r = state.currentRound;
   
+  // Langue de la room (pour UI)
+  if (state.language) G.lang = state.language;
+  const hasVotedFor = (pid) => state.votes && state.votes.some(function(v){ return v.voterId === pid; });
   // Mettre à jour les joueurs
   G.p = state.players.map((p, i) => ({
     id: p.id,
     username: p.username,
     color: p.color,
     colorName: p.colorName,
-    avatar: null, // TODO: gérer les avatars
+    avatar: null,
     isLocal: p.id === playerId,
-    isAI: false, // On ne révèle pas qui est IA côté client
+    isAI: false,
     hasAnswered: false,
-    hasVoted: false,
+    hasVoted: hasVotedFor(p.id),
     votesAgainst: []
   }));
   
@@ -597,10 +609,11 @@ function startGame(){
     }
   }, 90000);
   
-  // Rejoindre la room sur le serveur
+  const lang = (document.getElementById('lang-select') && document.getElementById('lang-select').value) || 'fr';
   socket.emit('joinRoom', { 
     roomId: roomId, 
-    username: username 
+    username: username,
+    language: lang
   });
   
   // Nettoyer les timeouts quand la connexion réussit
@@ -808,8 +821,10 @@ col.style.display=orderedPlayers.includes(p)?'block':'none';
 });
 }
 renderMessages();
+var vl=document.getElementById('vote-label');
+if(vl) vl.textContent=G.lang==='fr'?'Vote :':'Vote:';
 const vs=document.getElementById('vote-select');
-vs.innerHTML='<option value="">Select...</option>';
+vs.innerHTML='<option value="">'+(G.lang==='fr'?'Choisir...':'Select...')+'</option>';
 const lp=G.p.find(p=>p.isLocal);
 const hasAlreadyVoted=lp.hasVoted;
 vs.disabled=hasAlreadyVoted;
@@ -822,18 +837,27 @@ o.textContent=p.username;
 vs.appendChild(o);
 }
 });
-// Listener pour activer le bouton quand on sélectionne quelqu'un
+var voteInputs=document.getElementById('vote-inputs');
+var voteConfirmed=document.getElementById('vote-confirmed');
+if(hasAlreadyVoted){
+if(voteInputs) voteInputs.style.display='none';
+if(voteConfirmed){
+voteConfirmed.style.display='block';
+var myVoteTargetId=G.v[lp.id];
+var targetP=myVoteTargetId?G.p.find(function(p){return p.id===myVoteTargetId; }):null;
+var targetName=targetP?targetP.username:'?';
+voteConfirmed.textContent=(G.lang==='fr'?'✓ Tu as voté pour ':'✓ You voted for ')+targetName;
+}
+}else{
+if(voteInputs) voteInputs.style.display='block';
+if(voteConfirmed) voteConfirmed.style.display='none';
 vs.onchange=function(){
-const vb=document.getElementById('vote-btn');
+var vb=document.getElementById('vote-btn');
 vb.disabled=!this.value;
 };
-const vb=document.getElementById('vote-btn');
-if(hasAlreadyVoted){
-vb.disabled=true;
-vb.textContent='✓ CONFIRMED';
-}else{
-vb.disabled=true; // Désactivé par défaut jusqu'à sélection
-vb.textContent='CONFIRM VOTE';
+var vb=document.getElementById('vote-btn');
+vb.disabled=!vs.value;
+vb.textContent=G.lang==='fr'?'CONFIRMER LE VOTE':'CONFIRM VOTE';
 }
 document.getElementById('round-text').textContent='Round '+G.r+'/'+G.mr;
 const ec=document.getElementById('eliminated-circles');
@@ -903,6 +927,15 @@ mbr[m.round].push(m);
 for(let rd=1;rd<=G.r;rd++){
 const rm=mbr[rd]||[];
 rm.forEach(m=>{
+if(m.playerId==='system'){
+const sys=document.createElement('div');
+sys.className='system-vote-announce';
+sys.style.cssText='position:absolute;left:0;right:0;top:'+pos+'px;text-align:center;font-size:11px;color:#94a3b8;font-style:italic;padding:4px 8px;';
+sys.textContent=m.text;
+mc.appendChild(sys);
+pos+=28;
+return;
+}
 const c=document.getElementById('col-'+m.playerId);
 if(!c)return;
 const b=document.createElement('div');
@@ -983,21 +1016,14 @@ function confirmVote(){
   console.log('🗳️  Voting for:', vid);
   socket.emit('vote', { targetId: vid });
   
-  // Marquer comme voté localement
-  const lp = G.p.find(p => p.isLocal);
+  var lp = G.p.find(function(p){ return p.isLocal; });
   if (lp) {
     lp.hasVoted = true;
-    // Enregistrer dans l'historique local
+    G.v[lp.id] = vid;
     if (!G.vh[lp.id]) G.vh[lp.id] = [];
-    const vp = G.p.find(p => p.id === vid);
+    var vp = G.p.find(function(p){ return p.id === vid; });
     if (vp) G.vh[lp.id].push({r:G.r,vf:vp.username});
   }
-  
-  // Désactiver
-  s.disabled = true;
-  document.getElementById('vote-btn').textContent = '✓ CONFIRMED';
-  document.getElementById('vote-btn').disabled = true;
-  
   renderGameScreen();
 }
 

@@ -94,12 +94,12 @@ io.on('connection', (socket) => {
   let playerId: string | null = null;
 
   // Rejoindre une room
-  socket.on('joinRoom', ({ roomId, username }: { roomId: string; username: string }) => {
+  socket.on('joinRoom', ({ roomId, username, language }: { roomId: string; username: string; language?: 'fr' | 'en' }) => {
     console.log(`${username} joining room ${roomId}`);
 
     const room = getOrCreateRoom(roomId);
-    const actualRoomId = room.getState().roomId;  // Le vrai roomId de la room
-    const success = room.addHumanPlayer(socket.id, username);
+    const actualRoomId = room.getState().roomId;
+    const success = room.addHumanPlayer(socket.id, username, language);
 
     if (success) {
       socket.join(actualRoomId);  // Rejoindre la vraie room (pas "public-lobby")
