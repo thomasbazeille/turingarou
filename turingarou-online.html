@@ -382,7 +382,7 @@ socket.on('gameState', (state) => {
 });
 
 function updateGameFromServer(state) {
-  // Synchroniser l'état global avec le serveur
+  var prevPhase = G.s;
   G.s = state.phase;
   G.r = state.currentRound;
   
@@ -471,13 +471,28 @@ function updateGameFromServer(state) {
     case 'discussion':
       showScreen('game');
       renderGameScreen();
-      if (state.discussionEndTime) {
-        startTimerFromServer(state.discussionEndTime);
+      if (state.discussionEndTime && prevPhase !== 'discussion') {
+        startTimerFromServer(state.discussionEndTime, 'timer-display', null, function(remaining) {
+          var ta = document.getElementById('message-textarea');
+          var sb = document.getElementById('send-btn');
+          var ms = document.querySelector('.message-section');
+          var disable = remaining <= 10;
+          if (ta) { ta.disabled = disable; ta.placeholder = disable ? (G.lang === 'fr' ? 'Temps écoulé — allez voter' : 'Time\'s up — go vote') : 'Type...'; }
+          if (sb) sb.disabled = disable;
+          if (ms) ms.style.opacity = disable ? '0.5' : '1';
+          if (ms) ms.style.pointerEvents = disable ? 'none' : 'auto';
+        });
       }
       break;
     case 'voting':
       showScreen('game');
       renderGameScreen();
+      var _ta = document.getElementById('message-textarea');
+      var _sb = document.getElementById('send-btn');
+      var _ms = document.querySelector('.message-section');
+      if (_ta) _ta.disabled = false;
+      if (_sb) _sb.disabled = false;
+      if (_ms) { _ms.style.opacity = '1'; _ms.style.pointerEvents = 'auto'; }
       break;
     case 'endround':
       showScreen('end-round');
@@ -491,7 +506,7 @@ function updateGameFromServer(state) {
   }
 }
 
-function startTimerFromServer(endTime, elementId, onEnd) {
+function startTimerFromServer(endTime, elementId, onEnd, onTick) {
   elementId = elementId || 'timer-display';
   const updateTimer = () => {
     const remaining = Math.max(0, Math.floor((endTime - Date.now()) / 1000));
@@ -501,6 +516,7 @@ function startTimerFromServer(endTime, elementId, onEnd) {
       if (remaining <= 30) d.classList.add('warning');
       else d.classList.remove('warning');
     }
+    if (onTick && typeof onTick === 'function') onTick(remaining);
     if (remaining > 0) {
       setTimeout(function(){ updateTimer(); }, 1000);
     } else if (onEnd && typeof onEnd === 'function') {

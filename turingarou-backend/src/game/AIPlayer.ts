@@ -163,11 +163,14 @@ export class AIPlayer {
       lang === 'fr'
         ? 'LANGUAGE: You must speak and write only in French. All your messages, answers, and vote reasoning must be in French.'
         : 'LANGUAGE: You must speak and write only in English. All your messages, answers, and vote reasoning must be in English.';
+    const styleRule = 'MANDATORY STYLE: Never use emojis or smileys. Never use capital letters (write in lowercase only, e.g. "i think" not "I think").';
     return `${personality}
 
 ${instructions}
 
 ${languageRule}
+
+${styleRule}
 
 # DECISION FORMAT (for decideAction only)
 When deciding whether to respond, output a JSON object with:

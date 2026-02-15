@@ -110,9 +110,9 @@ export class GameRoom {
     addPlayerName(username);
     this.emitState();
 
-    // Si on a assez de joueurs, on ajoute les IA
     if (this.state.players.length === this.state.maxPlayers - this.state.aiCount) {
       this.addAIPlayers();
+      this.shufflePlayers();
       this.startGame();
     }
 
@@ -153,6 +153,14 @@ export class GameRoom {
       const aiPlayer = new AIPlayer(aiPlayerData, this.llmProvider);
       this.aiPlayers.set(aiPlayerData.id, aiPlayer);
     });
+  }
+
+  private shufflePlayers(): void {
+    const arr = this.state.players;
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
   }
 
   private generateAIPersonalities(count: number): AIPersonality[] {
