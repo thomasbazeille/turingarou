@@ -1,5 +1,6 @@
 import { Server as SocketServer } from 'socket.io';
 import { AIPlayer } from './AIPlayer.js';
+import { addPlayerName, pickAIName } from './PlayerNamesStore.js';
 import {
   GameRoomState,
   Player,
@@ -51,6 +52,7 @@ export class GameRoom {
   private discussionTimer: NodeJS.Timeout | null = null;
   private aiThinkingInterval: NodeJS.Timeout | null = null;
   private votePhaseTimeout: NodeJS.Timeout | null = null;
+  private aiPendingMessage = new Set<string>();
 
   constructor(roomId: string, io: SocketServer, llmProvider: LLMProvider, aiCount: number = 1) {
     this.io = io;
@@ -104,6 +106,7 @@ export class GameRoom {
     };
 
     this.state.players.push(player);
+    addPlayerName(username);
     this.emitState();
 
     // Si on a assez de joueurs, on ajoute les IA
@@ -152,61 +155,33 @@ export class GameRoom {
   }
 
   private generateAIPersonalities(count: number): AIPersonality[] {
-    const allPersonalities: AIPersonality[] = [
-      {
-        name: 'Alex',
-        traits: ['analytical', 'calm', 'logical'],
-        systemPrompt: `You are Alex, a calm and analytical person. You tend to think before you speak and use logic. You're playing a social deduction game and must act like a human.`,
-        responseStyle: 'thoughtful',
-        suspicionLevel: 0.3,
-      },
-      {
-        name: 'Jordan',
-        traits: ['friendly', 'chatty', 'enthusiastic'],
-        systemPrompt: `You are Jordan, a friendly and enthusiastic person. You like to chat and engage with others. Sometimes you type quickly and make small typos. You're playing a social deduction game.`,
-        responseStyle: 'quick',
-        suspicionLevel: 0.5,
-      },
-      {
-        name: 'Sam',
-        traits: ['quiet', 'observant', 'skeptical'],
-        systemPrompt: `You are Sam, a quiet and observant person. You don't talk much but when you do, it's meaningful. You're naturally skeptical. You're playing a social deduction game.`,
-        responseStyle: 'random',
-        suspicionLevel: 0.7,
-      },
-      {
-        name: 'Taylor',
-        traits: ['humorous', 'casual', 'witty'],
-        systemPrompt: `You are Taylor, a witty and humorous person. You like to make jokes and keep things light. You're playing a social deduction game and must act like a human.`,
-        responseStyle: 'quick',
-        suspicionLevel: 0.4,
-      },
-      {
-        name: 'Morgan',
-        traits: ['strategic', 'thoughtful', 'careful'],
-        systemPrompt: `You are Morgan, a strategic and careful thinker. You analyze situations before acting. You're playing a social deduction game and must act like a human.`,
-        responseStyle: 'thoughtful',
-        suspicionLevel: 0.6,
-      },
-      {
-        name: 'Riley',
-        traits: ['emotional', 'reactive', 'passionate'],
-        systemPrompt: `You are Riley, an emotional and passionate person. You react quickly and speak from the heart. You're playing a social deduction game and must act like a human.`,
-        responseStyle: 'quick',
-        suspicionLevel: 0.5,
-      },
-      {
-        name: 'Casey',
-        traits: ['neutral', 'balanced', 'diplomatic'],
-        systemPrompt: `You are Casey, a balanced and diplomatic person. You try to see all sides and stay neutral. You're playing a social deduction game and must act like a human.`,
-        responseStyle: 'random',
-        suspicionLevel: 0.4,
-      },
+    const humanNames = this.state.players.filter((p) => p.type === 'human').map((p) => p.username);
+    const templates: Omit<AIPersonality, 'name'>[] = [
+      { traits: ['analytical', 'calm', 'logical'], systemPrompt: `You are {name}, a calm and analytical person. You tend to think before you speak and use logic. You're playing a social deduction game and must act like a human.`, responseStyle: 'thoughtful', suspicionLevel: 0.3 },
+      { traits: ['friendly', 'chatty', 'enthusiastic'], systemPrompt: `You are {name}, a friendly and enthusiastic person. You like to chat and engage with others. Sometimes you type quickly and make small typos. You're playing a social deduction game.`, responseStyle: 'quick', suspicionLevel: 0.5 },
+      { traits: ['quiet', 'observant', 'skeptical'], systemPrompt: `You are {name}, a quiet and observant person. You don't talk much but when you do, it's meaningful. You're naturally skeptical. You're playing a social deduction game.`, responseStyle: 'random', suspicionLevel: 0.7 },
+      { traits: ['humorous', 'casual', 'witty'], systemPrompt: `You are {name}, a witty and humorous person. You like to make jokes and keep things light. You're playing a social deduction game and must act like a human.`, responseStyle: 'quick', suspicionLevel: 0.4 },
+      { traits: ['strategic', 'thoughtful', 'careful'], systemPrompt: `You are {name}, a strategic and careful thinker. You analyze situations before acting. You're playing a social deduction game and must act like a human.`, responseStyle: 'thoughtful', suspicionLevel: 0.6 },
+      { traits: ['emotional', 'reactive', 'passionate'], systemPrompt: `You are {name}, an emotional and passionate person. You react quickly and speak from the heart. You're playing a social deduction game and must act like a human.`, responseStyle: 'quick', suspicionLevel: 0.5 },
+      { traits: ['neutral', 'balanced', 'diplomatic'], systemPrompt: `You are {name}, a balanced and diplomatic person. You try to see all sides and stay neutral. You're playing a social deduction game and must act like a human.`, responseStyle: 'random', suspicionLevel: 0.4 },
     ];
-
-    // Randomiser et sélectionner le nombre demandé
-    const shuffled = allPersonalities.sort(() => Math.random() - 0.5);
-    return shuffled.slice(0, count);
+    const shuffled = [...templates].sort(() => Math.random() - 0.5);
+    const result: AIPersonality[] = [];
+    const used: string[] = [...humanNames];
+    for (let i = 0; i < count; i++) {
+      const name = pickAIName(used);
+      used.push(name);
+      addPlayerName(name);
+      const t = shuffled[i % templates.length];
+      result.push({
+        name,
+        traits: t.traits,
+        systemPrompt: t.systemPrompt.replace(/\{name\}/g, name),
+        responseStyle: t.responseStyle,
+        suspicionLevel: t.suspicionLevel,
+      });
+    }
+    return result;
   }
 
   // ====== GAME FLOW ======
@@ -267,11 +242,11 @@ export class GameRoom {
   }
 
   private startAIThinking(): void {
-    // Toutes les 5 secondes, chaque IA décide si elle veut parler
     this.aiThinkingInterval = setInterval(async () => {
       for (const [id, aiPlayer] of this.aiPlayers) {
         const player = this.state.players.find((p) => p.id === id) as AIPlayerData;
         if (!player || player.isEliminated) continue;
+        if (this.aiPendingMessage.has(id)) continue;
 
         aiPlayer.buildGameContext(
           this.state.messages,
@@ -283,10 +258,12 @@ export class GameRoom {
         const decision = await aiPlayer.decideAction();
 
         if (decision.shouldRespond && decision.message) {
-          // Attendre un délai aléatoire pour sembler humain
+          this.aiPendingMessage.add(id);
+          const delayMs = decision.delayMs ?? 2000;
           setTimeout(() => {
             this.addMessage(id, decision.message!);
-          }, decision.delayMs || 2000);
+            this.aiPendingMessage.delete(id);
+          }, delayMs);
         }
       }
     }, 5000);
@@ -297,6 +274,7 @@ export class GameRoom {
       clearInterval(this.aiThinkingInterval);
       this.aiThinkingInterval = null;
     }
+    this.aiPendingMessage.clear();
   }
 
   private startVoting(): void {

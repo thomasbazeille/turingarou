@@ -83,13 +83,16 @@ export class AIPlayer {
       },
       {
         role: 'user',
-        content: `You are playing as ${this.player.username}. Answer this question as a human would, staying in character:\n\n"${question}"\n\nProvide ONLY your answer, no JSON, no explanation.`,
+        content: `You are playing as ${this.player.username}. Answer this question as a human would, staying in character.\n\nIMPORTANT: Keep your answer SHORT: one short sentence or a few words only. No paragraph, no list, no explanation.\n\n"${question}"\n\nProvide ONLY your short answer, nothing else.`,
       },
     ];
 
     try {
       const response = await this.llmProvider.query(messages);
-      return response.message || "I don't know.";
+      const raw = response.message || "I don't know.";
+      const firstSentence = raw.split(/[.!?]\s/)[0]?.trim() || raw;
+      const short = firstSentence.length > 80 ? firstSentence.slice(0, 77) + '...' : firstSentence;
+      return short || raw.slice(0, 80);
     } catch (error) {
       console.error(`AI ${this.player.username} answer error:`, error);
       return "I'm not sure...";
