@@ -411,6 +411,7 @@ function updateGameFromServer(state) {
   if (state.questionEndTime) G.questionEndTime = state.questionEndTime;
   if (state.voteEndTime != null) G.voteEndTime = state.voteEndTime; else G.voteEndTime = null;
   const hasVotedFor = (pid) => state.votes && state.votes.some(function(v){ return v.voterId === pid; });
+  const hasAnsweredFor = (pid) => state.answers && state.answers.some(function(a){ return a.playerId === pid; });
   // Mettre à jour les joueurs
   G.p = state.players.map((p, i) => ({
     id: p.id,
@@ -419,7 +420,7 @@ function updateGameFromServer(state) {
     colorName: p.colorName,
     isLocal: p.id === playerId,
     isAI: false,
-    hasAnswered: false,
+    hasAnswered: hasAnsweredFor(p.id),
     hasVoted: hasVotedFor(p.id),
     votesAgainst: []
   }));
@@ -469,11 +470,18 @@ function updateGameFromServer(state) {
       break;
     case 'question':
       showScreen('question');
-      // Réinitialiser le formulaire à chaque round (évite bug tour 2+)
       var inp = document.getElementById('answer-input');
       var subBtn = document.getElementById('submit-answer-btn');
-      if (inp) { inp.disabled = false; inp.value = ''; inp.placeholder = G.lang === 'fr' ? 'Ta réponse...' : 'Type your answer...'; }
-      if (subBtn) { subBtn.disabled = false; subBtn.textContent = G.lang === 'fr' ? 'ENVOYER' : 'SUBMIT'; }
+      if (prevPhase !== 'question') {
+        // Réinitialiser le formulaire seulement à l'entrée en phase question (nouveau round)
+        if (inp) { inp.disabled = false; inp.value = ''; inp.placeholder = G.lang === 'fr' ? 'Ta réponse...' : 'Type your answer...'; }
+        if (subBtn) { subBtn.disabled = false; subBtn.textContent = G.lang === 'fr' ? 'ENVOYER' : 'SUBMIT'; }
+      } else {
+        // Pendant la phase : ne pas toucher au contenu du champ ; mettre à jour disabled/btn si le joueur a déjà répondu (state.answers)
+        var localHasAnswered = state.answers && state.answers.some(function(a){ return a.playerId === playerId; });
+        if (inp) { inp.disabled = !!localHasAnswered; if (!localHasAnswered) inp.placeholder = G.lang === 'fr' ? 'Ta réponse...' : 'Type your answer...'; }
+        if (subBtn) { subBtn.disabled = !!localHasAnswered; subBtn.textContent = localHasAnswered ? '✓ SUBMITTED' : (G.lang === 'fr' ? 'ENVOYER' : 'SUBMIT'); }
+      }
       const questionText = document.querySelector('.question-text');
       if (questionText && state.currentQuestion) {
         questionText.textContent = state.currentQuestion;
@@ -747,6 +755,12 @@ function submitAnswer(){
   inp.disabled = true;
   const btn = document.getElementById('submit-answer-btn');
   if (btn) { btn.textContent = '✓ SUBMITTED'; btn.disabled = true; }
+  if (typeof playerId !== 'undefined' && G.a) {
+    G.a[playerId] = ans;
+    var me = G.p && G.p.find(function(p){ return p.id === playerId; });
+    if (me) me.hasAnswered = true;
+    renderQuestionScreen();
+  }
 }
 
 function startGameRound(){
