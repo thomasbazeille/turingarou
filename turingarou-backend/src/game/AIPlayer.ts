@@ -1,6 +1,12 @@
 import { LLMProvider } from '../llm/LLMProvider.js';
 import { AIPlayerData, GameMessage, LLMMessage, AIPersonality, GameFormat, QuestionAnswer } from '../types/game.types.js';
-import { getInstructionsWithSetup } from './AIPlayerInstructions.js';
+import { getInstructionsWithSetup, AI_GOAL_BLOCK } from './AIPlayerInstructions.js';
+
+export interface GameContextOptions {
+  activePlayerIds: string[];
+  eliminatedNames: string[];
+  aiRemainingCount: number;
+}
 
 export class AIPlayer {
   private player: AIPlayerData;
@@ -20,17 +26,29 @@ export class AIPlayer {
   }
 
   /**
-   * Construit le contexte du jeu pour l'IA
+   * Construit le contexte du jeu pour l'IA.
+   * options: joueurs encore en jeu, exclus, nombre d'IA restantes — le chat ne contient que les messages des joueurs actifs.
    */
   buildGameContext(
     messages: GameMessage[],
     currentQuestion: string | null,
     phase: string,
     round: number,
-    answers: QuestionAnswer[] = []
+    answers: QuestionAnswer[] = [],
+    options?: GameContextOptions
   ): void {
+    const activeSet = options ? new Set(options.activePlayerIds) : null;
+    const messagesToShow = activeSet
+      ? messages.filter((m) => m.playerId === 'system' || activeSet.has(m.playerId))
+      : messages;
+
     let context = `# GAME CONTEXT - Round ${round}\n\n`;
     context += `Current phase: ${phase}\n\n`;
+
+    if (options && options.eliminatedNames.length > 0) {
+      context += `## Eliminated (out of the game, ignore them): ${options.eliminatedNames.join(', ')}\n`;
+      context += `AIs still in game: ${options.aiRemainingCount}. Focus only on the remaining players. Your goal: get humans voted out and stay with the other AIs to win.\n\n`;
+    }
 
     if (currentQuestion) {
       context += `Current question: "${currentQuestion}"\n\n`;
@@ -45,19 +63,19 @@ export class AIPlayer {
     }
 
     if (phase === 'discussion' && answers.length > 0) {
-      context += `⚠️ Do NOT keep talking about or justifying your own answer. The goal now is to investigate and find who the AI is (ask others, react to their answers, look for inconsistencies). A human would not forget that.\n\n`;
+      context += `⚠️ Do NOT keep talking about or justifying your own answer. The goal now is to steer suspicion toward humans and find who the other AIs are (blend in, get humans voted out). A human would not forget that.\n\n`;
     }
 
     if (phase === 'discussion') {
-      const discussionMessages = messages.filter((m) => m.phase === 'discussion');
+      const discussionMessages = messagesToShow.filter((m) => m.phase === 'discussion');
       if (discussionMessages.length === 0) {
         context += `\n⚠️ No one has posted in this discussion yet. Being the first to speak is suspicious. Prefer shouldRespond: false, or if you do respond use a long delay (delayMs: 15000-25000).\n\n`;
       }
     }
 
-    if (messages.length > 0) {
-      context += `## Recent conversation:\n`;
-      const recentMessages = messages.slice(-20);
+    if (messagesToShow.length > 0) {
+      context += `## Recent conversation (only players still in the game):\n`;
+      const recentMessages = messagesToShow.slice(-20);
       recentMessages.forEach((msg) => {
         context += `[${msg.playerName}]: ${msg.content}\n`;
       });
@@ -170,12 +188,15 @@ export class AIPlayer {
         ? getInstructionsWithSetup(this.strategyContent, this.gameFormat)
         : this.strategyContent.replace('{{CURRENT_GAME_SETUP}}', 'Current game setup not yet available.');
     const lang = this.gameFormat?.language ?? 'fr';
+    const goalBlock = AI_GOAL_BLOCK;
     const languageRule =
       lang === 'fr'
         ? 'LANGUAGE: You must speak and write only in French. All your messages, answers, and vote reasoning must be in French.'
         : 'LANGUAGE: You must speak and write only in English. All your messages, answers, and vote reasoning must be in English.';
     const styleRule = 'MANDATORY STYLE: Never use emojis or smileys. Never use capital letters (write in lowercase only, e.g. "i think" not "I think").';
     return `${personality}
+
+${goalBlock}
 
 ${instructions}
 

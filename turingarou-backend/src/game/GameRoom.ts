@@ -134,12 +134,15 @@ export class GameRoom {
     const availableColor = COLORS.find((c) => !usedColors.includes(c.hex));
     if (!availableColor) return false;
 
+    const humanNames = this.state.players.filter((p) => p.type === 'human').map((p) => p.username);
+    const inspectorUsername = pickAIName(humanNames);
+
     const inspectorId = `inspector-${Date.now()}-${Math.random()}`;
     const player: HumanPlayer = {
       type: 'human',
       id: inspectorId,
       socketId: '',
-      username: 'Inspector',
+      username: inspectorUsername,
       color: availableColor.hex,
       colorName: availableColor.name,
       isReady: true,
@@ -320,6 +323,13 @@ export class GameRoom {
 
   private startAIThinking(): void {
     this.aiThinkingInterval = setInterval(async () => {
+      const activePlayers = this.state.players.filter((p) => !p.isEliminated);
+      const contextOptions = {
+        activePlayerIds: activePlayers.map((p) => p.id),
+        eliminatedNames: this.state.players.filter((p) => p.isEliminated).map((p) => p.username),
+        aiRemainingCount: activePlayers.filter((p) => p.type === 'ai').length,
+      };
+
       for (const [id, aiPlayer] of this.aiPlayers) {
         const player = this.state.players.find((p) => p.id === id) as AIPlayerData;
         if (!player || player.isEliminated) continue;
@@ -330,7 +340,8 @@ export class GameRoom {
           this.state.currentQuestion,
           this.state.phase,
           this.state.currentRound,
-          this.state.answers
+          this.state.answers,
+          contextOptions
         );
 
         const decision = await aiPlayer.decideAction();
@@ -358,7 +369,8 @@ export class GameRoom {
           this.state.currentQuestion,
           this.state.phase,
           this.state.currentRound,
-          this.state.answers
+          this.state.answers,
+          contextOptions
         );
         const decision = await inspector.decideAction();
         if (decision.shouldRespond && decision.message) {
@@ -549,14 +561,13 @@ export class GameRoom {
   addAnswer(playerId: string, answer: string): void {
     const player = this.state.players.find((p) => p.id === playerId);
     if (!player) return;
-
+    this.state.answers = this.state.answers.filter((a) => a.playerId !== playerId);
     const questionAnswer: QuestionAnswer = {
       playerId,
       playerName: player.username,
       answer,
       timestamp: Date.now(),
     };
-
     this.state.answers.push(questionAnswer);
     this.emitState();
   }

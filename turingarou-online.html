@@ -437,9 +437,9 @@ function updateGameFromServer(state) {
     round: msg.round != null ? msg.round : state.currentRound
   }));
   
-  // Mettre à jour les réponses à la question
+  // Toujours synchroniser les réponses avec le serveur (conserver les réponses humaines + IA)
+  G.a = {};
   if (state.answers && state.answers.length > 0) {
-    G.a = {};
     state.answers.forEach(ans => {
       G.a[ans.playerId] = ans.answer;
     });
@@ -959,6 +959,8 @@ if(cc) cc.textContent=(ta?ta.value.length:0)+'/'+mc;
 }
 
 function renderMessages(){
+const container=document.getElementById('messages-container');
+const wasNearBottom=container&&(container.scrollHeight-container.scrollTop-container.clientHeight)<90;
 const ap=G.p.filter(p=>!G.e.includes(p.id));
 G.p.forEach(p=>{
 const c=document.getElementById('col-'+p.id);
@@ -1037,12 +1039,13 @@ pos+=55;
 const messagesColumns=document.getElementById('messages-columns');
 messagesColumns.style.height=(pos+300)+'px';
 messagesColumns.style.minHeight='100%';
-scrollToBottom();
+scrollToBottom(wasNearBottom);
 }
 
-function scrollToBottom(){
+function scrollToBottom(force){
 const c=document.getElementById('messages-container');
-const nb=c.scrollHeight-c.scrollTop-c.clientHeight<90;
+if(!c)return;
+const nb=force||(c.scrollHeight-c.scrollTop-c.clientHeight<90);
 if(nb)c.scrollTop=c.scrollHeight;
 }
 

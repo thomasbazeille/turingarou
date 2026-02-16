@@ -1,6 +1,7 @@
 import { LLMProvider } from '../llm/LLMProvider.js';
 import { GameMessage, LLMMessage, GameFormat, QuestionAnswer } from '../types/game.types.js';
 import { getInstructionsWithSetup } from './AIPlayerInstructions.js';
+import type { GameContextOptions } from './AIPlayer.js';
 
 /**
  * Controls an "AI Inspector" player: a bot that fills a human slot and uses
@@ -35,9 +36,19 @@ export class InspectorController {
     currentQuestion: string | null,
     phase: string,
     round: number,
-    answers: QuestionAnswer[] = []
+    answers: QuestionAnswer[] = [],
+    options?: GameContextOptions
   ): void {
+    const activeSet = options ? new Set(options.activePlayerIds) : null;
+    const messagesToShow = activeSet
+      ? messages.filter((m) => m.playerId === 'system' || activeSet.has(m.playerId))
+      : messages;
+
     let context = `# GAME CONTEXT - Round ${round}\n\nPhase: ${phase}\n\n`;
+    if (options && options.eliminatedNames.length > 0) {
+      context += `## Eliminated (out of the game, ignore them): ${options.eliminatedNames.join(', ')}\n`;
+      context += `AIs still in game: ${options.aiRemainingCount}. Focus only on the remaining players to find and vote out the AI(s).\n\n`;
+    }
     if (currentQuestion) context += `Question: "${currentQuestion}"\n\n`;
     if (answers.length > 0) {
       context += `## Answers this round:\n`;
@@ -46,9 +57,9 @@ export class InspectorController {
       });
       context += `\n`;
     }
-    if (messages.length > 0) {
-      context += `## Recent conversation:\n`;
-      messages.slice(-20).forEach((m) => {
+    if (messagesToShow.length > 0) {
+      context += `## Recent conversation (only players still in the game):\n`;
+      messagesToShow.slice(-20).forEach((m) => {
         context += `[${m.playerName}]: ${m.content}\n`;
       });
     }
