@@ -59,8 +59,8 @@ function getOrCreateRoom(roomId: string): GameRoom {
     for (const [id, room] of gameRooms) {
       if (id.startsWith('public-') && room.getState().phase === 'waiting') {
         const humanCount = room.getState().players.filter(p => p.type === 'human').length;
-        if (humanCount < 2) {
-          console.log(`Joining existing public room: ${id} (${humanCount}/2 players)`);
+        if (humanCount < 3) {
+          console.log(`Joining existing public room: ${id} (${humanCount}/3 players)`);
           return room;
         }
       }
@@ -68,7 +68,7 @@ function getOrCreateRoom(roomId: string): GameRoom {
     
     // Aucune room dispo, créer une nouvelle avec un ID unique
     const newRoomId = 'public-' + Date.now();
-    const aiCount = parseInt(process.env.AI_COUNT || '1');
+    const aiCount = parseInt(process.env.AI_COUNT || '2');
     const room = new GameRoom(newRoomId, io, llmProvider, aiCount);
     gameRooms.set(newRoomId, room);
     console.log(`Created new public room: ${newRoomId} with ${aiCount} AIs`);
@@ -77,7 +77,7 @@ function getOrCreateRoom(roomId: string): GameRoom {
   
   // Room privée avec code custom
   if (!gameRooms.has(roomId)) {
-    const aiCount = parseInt(process.env.AI_COUNT || '1');
+    const aiCount = parseInt(process.env.AI_COUNT || '2');
     const room = new GameRoom(roomId, io, llmProvider, aiCount);
     gameRooms.set(roomId, room);
     console.log(`Created private room: ${roomId} with ${aiCount} AIs`);
@@ -94,12 +94,12 @@ io.on('connection', (socket) => {
   let playerId: string | null = null;
 
   // Rejoindre une room
-  socket.on('joinRoom', ({ roomId, username, language }: { roomId: string; username: string; language?: 'fr' | 'en' }) => {
+  socket.on('joinRoom', async ({ roomId, username, language }: { roomId: string; username: string; language?: 'fr' | 'en' }) => {
     console.log(`${username} joining room ${roomId}`);
 
     const room = getOrCreateRoom(roomId);
     const actualRoomId = room.getState().roomId;
-    const success = room.addHumanPlayer(socket.id, username, language);
+    const success = await room.addHumanPlayer(socket.id, username, language);
 
     if (success) {
       socket.join(actualRoomId);  // Rejoindre la vraie room (pas "public-lobby")
@@ -142,6 +142,20 @@ io.on('connection', (socket) => {
 
     console.log(`Vote from ${playerId} for ${targetId}`);
     currentRoom.addVote(playerId, targetId);
+  });
+
+  // Ajouter un AI Inspector pour remplir le dernier slot humain (2 humains en attente)
+  socket.on('addInspector', async () => {
+    if (!currentRoom) {
+      socket.emit('joinError', { message: 'Not in a room' });
+      return;
+    }
+    const success = await currentRoom.addInspectorPlayer();
+    if (success) {
+      socket.emit('inspectorAdded', {});
+    } else {
+      socket.emit('joinError', { message: 'Cannot add inspector (room full or not 2 humans)' });
+    }
   });
 
   // Déconnexion

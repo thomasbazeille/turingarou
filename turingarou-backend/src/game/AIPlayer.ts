@@ -1,16 +1,18 @@
 import { LLMProvider } from '../llm/LLMProvider.js';
 import { AIPlayerData, GameMessage, LLMMessage, AIPersonality, GameFormat, QuestionAnswer } from '../types/game.types.js';
-import { AI_PLAYER_INSTRUCTIONS, buildCurrentGameSetup } from './AIPlayerInstructions.js';
+import { getInstructionsWithSetup } from './AIPlayerInstructions.js';
 
 export class AIPlayer {
   private player: AIPlayerData;
   private llmProvider: LLMProvider;
+  private strategyContent: string;
   private gameContext: string = '';
   private gameFormat: GameFormat | null = null;
 
-  constructor(player: AIPlayerData, llmProvider: LLMProvider) {
+  constructor(player: AIPlayerData, llmProvider: LLMProvider, strategyContent: string) {
     this.player = player;
     this.llmProvider = llmProvider;
+    this.strategyContent = strategyContent;
   }
 
   setGameFormat(format: GameFormat): void {
@@ -163,11 +165,10 @@ export class AIPlayer {
 
   private buildFullSystemPrompt(): string {
     const personality = this.player.personality.systemPrompt;
-    const setupBlock =
+    const instructions =
       this.gameFormat != null
-        ? buildCurrentGameSetup(this.gameFormat)
-        : 'Current game setup not yet available.';
-    const instructions = AI_PLAYER_INSTRUCTIONS.replace('{{CURRENT_GAME_SETUP}}', setupBlock);
+        ? getInstructionsWithSetup(this.strategyContent, this.gameFormat)
+        : this.strategyContent.replace('{{CURRENT_GAME_SETUP}}', 'Current game setup not yet available.');
     const lang = this.gameFormat?.language ?? 'fr';
     const languageRule =
       lang === 'fr'

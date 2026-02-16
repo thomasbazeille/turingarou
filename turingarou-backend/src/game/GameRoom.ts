@@ -1,5 +1,7 @@
 import { Server as SocketServer } from 'socket.io';
 import { AIPlayer } from './AIPlayer.js';
+import { InspectorController } from './InspectorController.js';
+import { getRandomAIPlayerStrategy, getInspectorPromptContent } from './StrategyLoader.js';
 import { addPlayerName, pickAIName } from './PlayerNamesStore.js';
 import {
   GameRoomState,
@@ -53,6 +55,8 @@ export class GameRoom {
   private aiThinkingInterval: NodeJS.Timeout | null = null;
   private votePhaseTimeout: NodeJS.Timeout | null = null;
   private aiPendingMessage = new Set<string>();
+  private inspectors: Map<string, InspectorController> = new Map();
+  private inspectorPendingMessage = new Set<string>();
 
   constructor(roomId: string, io: SocketServer, llmProvider: LLMProvider, aiCount: number = 1) {
     this.io = io;
@@ -71,8 +75,8 @@ export class GameRoom {
       discussionEndTime: null,
       questionEndTime: null,
       voteEndTime: null,
-      maxPlayers: 3,
-      minPlayers: 2,
+      maxPlayers: 5,
+      minPlayers: 3,
       aiCount,
       eliminatedPlayerId: null,
       gameOverReason: null,
@@ -82,7 +86,7 @@ export class GameRoom {
 
   // ====== PLAYER MANAGEMENT ======
 
-  addHumanPlayer(socketId: string, username: string, language?: 'fr' | 'en'): boolean {
+  async addHumanPlayer(socketId: string, username: string, language?: 'fr' | 'en'): Promise<boolean> {
     if (this.state.players.length >= this.state.maxPlayers) {
       return false;
     }
@@ -112,11 +116,54 @@ export class GameRoom {
     this.emitState();
 
     if (this.state.players.length === this.state.maxPlayers - this.state.aiCount) {
-      this.addAIPlayers();
+      await this.addAIPlayers();
       this.shufflePlayers();
       this.startGame();
     }
 
+    return true;
+  }
+
+  /** Add an AI Inspector to fill the last human slot (call when 2 humans waiting). */
+  async addInspectorPlayer(): Promise<boolean> {
+    const humanCount = this.state.players.filter((p) => p.type === 'human').length;
+    if (this.state.phase !== 'waiting' || humanCount !== 2 || this.state.players.length >= this.state.maxPlayers) {
+      return false;
+    }
+    const usedColors = this.state.players.map((p) => p.color);
+    const availableColor = COLORS.find((c) => !usedColors.includes(c.hex));
+    if (!availableColor) return false;
+
+    const inspectorId = `inspector-${Date.now()}-${Math.random()}`;
+    const player: HumanPlayer = {
+      type: 'human',
+      id: inspectorId,
+      socketId: '',
+      username: 'Inspector',
+      color: availableColor.hex,
+      colorName: availableColor.name,
+      isReady: true,
+      isEliminated: false,
+      hearts: 3,
+    };
+    this.state.players.push(player);
+    const inspectorPrompt = await getInspectorPromptContent();
+    const controller = new InspectorController(
+      inspectorId,
+      player.username,
+      inspectorPrompt,
+      this.llmProvider
+    );
+    controller.setGameFormat(this.getGameFormat());
+    this.inspectors.set(inspectorId, controller);
+    this.emitState();
+    console.log(`[GameRoom] AI Inspector added to room ${this.state.roomId}`);
+
+    if (this.state.players.length === this.state.maxPlayers - this.state.aiCount) {
+      await this.addAIPlayers();
+      this.shufflePlayers();
+      this.startGame();
+    }
     return true;
   }
 
@@ -127,10 +174,10 @@ export class GameRoom {
     this.emitState();
   }
 
-  private addAIPlayers(): void {
+  private async addAIPlayers(): Promise<void> {
     const aiPersonalities = this.generateAIPersonalities(this.state.aiCount);
 
-    aiPersonalities.forEach((personality) => {
+    for (const personality of aiPersonalities) {
       const usedColors = this.state.players.map((p) => p.color);
       const availableColor = COLORS.find((c) => !usedColors.includes(c.hex));
 
@@ -151,9 +198,10 @@ export class GameRoom {
 
       this.state.players.push(aiPlayerData);
 
-      const aiPlayer = new AIPlayer(aiPlayerData, this.llmProvider);
+      const { content: strategyContent } = await getRandomAIPlayerStrategy();
+      const aiPlayer = new AIPlayer(aiPlayerData, this.llmProvider, strategyContent);
       this.aiPlayers.set(aiPlayerData.id, aiPlayer);
-    });
+    }
   }
 
   /** Fisher–Yates shuffle so the AI is not always in the same position (e.g. middle). */
@@ -221,6 +269,7 @@ export class GameRoom {
   private setGameFormatForAllAI(): void {
     const format = this.getGameFormat();
     this.aiPlayers.forEach((ai) => ai.setGameFormat(format));
+    this.inspectors.forEach((insp) => insp.setGameFormat(format));
   }
 
   getGameFormat(): GameFormat {
@@ -237,12 +286,20 @@ export class GameRoom {
   }
 
   private async aiAnswerQuestion(): Promise<void> {
+    const question = this.state.currentQuestion;
+    if (!question) return;
     for (const [id, aiPlayer] of this.aiPlayers) {
-      if (this.state.currentQuestion) {
-        const answer = await aiPlayer.answerQuestion(this.state.currentQuestion);
-        if (answer != null && answer.trim() !== '') {
-          this.addAnswer(id, answer);
-        }
+      const answer = await aiPlayer.answerQuestion(question);
+      if (answer != null && answer.trim() !== '') {
+        this.addAnswer(id, answer);
+      }
+    }
+    for (const [id, inspector] of this.inspectors) {
+      const player = this.state.players.find((p) => p.id === id);
+      if (!player || player.isEliminated) continue;
+      const answer = await inspector.answerQuestion(question);
+      if (answer != null && answer.trim() !== '') {
+        this.addAnswer(id, answer);
       }
     }
   }
@@ -291,6 +348,28 @@ export class GameRoom {
           }, delayMs);
         }
       }
+      for (const [id, inspector] of this.inspectors) {
+        const player = this.state.players.find((p) => p.id === id);
+        if (!player || player.isEliminated) continue;
+        if (this.inspectorPendingMessage.has(id)) continue;
+
+        inspector.buildGameContext(
+          this.state.messages,
+          this.state.currentQuestion,
+          this.state.phase,
+          this.state.currentRound,
+          this.state.answers
+        );
+        const decision = await inspector.decideAction();
+        if (decision.shouldRespond && decision.message) {
+          this.inspectorPendingMessage.add(id);
+          const delayMs = decision.delayMs ?? 2000 + Math.floor(Math.random() * 3000);
+          setTimeout(() => {
+            this.addMessage(id, decision.message!);
+            this.inspectorPendingMessage.delete(id);
+          }, delayMs);
+        }
+      }
     }, 5000);
   }
 
@@ -300,6 +379,7 @@ export class GameRoom {
       this.aiThinkingInterval = null;
     }
     this.aiPendingMessage.clear();
+    this.inspectorPendingMessage.clear();
   }
 
   private startVoting(): void {
@@ -325,12 +405,18 @@ export class GameRoom {
     for (const [id, aiPlayer] of this.aiPlayers) {
       const player = this.state.players.find((p) => p.id === id);
       if (!player || player.isEliminated) continue;
-
-      // Vote avec un délai aléatoire pour sembler humain (2-6 secondes)
       const delay = Math.floor(Math.random() * 4000) + 2000;
-      
       setTimeout(async () => {
         const targetId = await aiPlayer.decideVote(activePlayers);
+        if (targetId) this.addVote(id, targetId);
+      }, delay);
+    }
+    for (const [id, inspector] of this.inspectors) {
+      const player = this.state.players.find((p) => p.id === id);
+      if (!player || player.isEliminated) continue;
+      const delay = Math.floor(Math.random() * 4000) + 2000;
+      setTimeout(async () => {
+        const targetId = await inspector.decideVote(activePlayers);
         if (targetId) this.addVote(id, targetId);
       }, delay);
     }
