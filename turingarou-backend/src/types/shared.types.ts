@@ -22,6 +22,8 @@ export interface GameMessage {
   content: string;
   timestamp: number;
   phase: GamePhase;
+  /** Round when the message was sent (for chat history across rounds). */
+  round?: number;
 }
 
 export interface QuestionAnswer {
