@@ -60,11 +60,11 @@ let cachedInspectorPrompt: string | null = null;
 export async function getInspectorPromptContent(): Promise<string> {
   if (cachedInspectorPrompt) return cachedInspectorPrompt;
   const base = path.join(process.cwd(), 'strategies');
-  const url = pathToFileURL(path.join(base, 'ai_inspector_condensed.js')).href;
+  const url = pathToFileURL(path.join(base, 'ai_inspector_humanlike.js')).href;
   const mod = await import(url);
-  const content = (mod as Record<string, string>).AI_INSPECTOR_CONDENSED;
-  if (typeof content !== 'string') throw new Error('Missing AI_INSPECTOR_CONDENSED in ai_inspector_condensed.js');
+  const content = (mod as Record<string, string>).AI_INSPECTOR_HUMANLIKE;
+  if (typeof content !== 'string') throw new Error('Missing AI_INSPECTOR_HUMANLIKE in ai_inspector_humanlike.js');
   cachedInspectorPrompt = content;
-  console.log('[StrategyLoader] Inspector prompt loaded (ai_inspector_condensed)');
+  console.log('[StrategyLoader] Inspector prompt loaded (ai_inspector_humanlike)');
   return content;
 }

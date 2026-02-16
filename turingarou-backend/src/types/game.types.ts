@@ -40,6 +40,7 @@ export interface GameMessage {
   content: string;
   timestamp: number;
   phase: GamePhase;
+  round: number; // round when the message was sent (for scroll history)
 }
 
 export interface QuestionAnswer {

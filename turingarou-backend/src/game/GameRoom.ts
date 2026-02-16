@@ -494,7 +494,7 @@ export class GameRoom {
     this.state.currentQuestion = this.getRandomQuestion();
     this.state.answers = [];
     this.state.votes = [];
-    this.state.messages = [];
+    // Garder state.messages pour permettre de remonter dans le chat (historique tous rounds)
     this.state.protectedPlayerId = null;
     this.state.phase = 'question';
     this.state.questionEndTime = Date.now() + QUESTION_PHASE_MS;
@@ -533,6 +533,7 @@ export class GameRoom {
       content,
       timestamp: Date.now(),
       phase: this.state.phase,
+      round: this.state.currentRound,
     };
 
     this.state.messages.push(message);
@@ -596,6 +597,7 @@ export class GameRoom {
       content,
       timestamp: Date.now(),
       phase: this.state.phase,
+      round: this.state.currentRound,
     });
   }
 

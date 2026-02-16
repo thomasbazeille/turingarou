@@ -427,14 +427,14 @@ function updateGameFromServer(state) {
   // Identifier le joueur local
   G.l = playerId;
   
-  // Mettre à jour les messages
+  // Mettre à jour les messages (chaque message a son round pour scroll historique)
   G.m = state.messages.map(msg => ({
     id: msg.id,
     playerId: msg.playerId,
     color: state.players.find(p => p.id === msg.playerId)?.color || '#fff',
     text: msg.content,
     timestamp: msg.timestamp,
-    round: state.currentRound
+    round: msg.round != null ? msg.round : state.currentRound
   }));
   
   // Mettre à jour les réponses à la question
@@ -469,14 +469,19 @@ function updateGameFromServer(state) {
       break;
     case 'question':
       showScreen('question');
+      // Réinitialiser le formulaire à chaque round (évite bug tour 2+)
+      var inp = document.getElementById('answer-input');
+      var subBtn = document.getElementById('submit-answer-btn');
+      if (inp) { inp.disabled = false; inp.value = ''; inp.placeholder = G.lang === 'fr' ? 'Ta réponse...' : 'Type your answer...'; }
+      if (subBtn) { subBtn.disabled = false; subBtn.textContent = G.lang === 'fr' ? 'ENVOYER' : 'SUBMIT'; }
       const questionText = document.querySelector('.question-text');
       if (questionText && state.currentQuestion) {
         questionText.textContent = state.currentQuestion;
       }
       if (state.questionEndTime) {
         startTimerFromServer(state.questionEndTime, 'question-timer', function questionTimerEnd() {
-          var inp = document.getElementById('answer-input');
-          if (inp && !inp.disabled) {
+          var inpT = document.getElementById('answer-input');
+          if (inpT && !inpT.disabled) {
             submitAnswer();
           }
         });
@@ -486,16 +491,23 @@ function updateGameFromServer(state) {
     case 'discussion':
       showScreen('game');
       renderGameScreen();
+      // Réactiver zone message à chaque entrée en discussion (round 2+)
+      var ta = document.getElementById('message-textarea');
+      var sb = document.getElementById('send-btn');
+      var ms = document.querySelector('.message-section');
+      if (ta) { ta.disabled = false; ta.placeholder = 'Type...'; }
+      if (sb) sb.disabled = false;
+      if (ms) { ms.style.opacity = '1'; ms.style.pointerEvents = 'auto'; }
       if (state.discussionEndTime && prevPhase !== 'discussion') {
         startTimerFromServer(state.discussionEndTime, 'timer-display', null, function(remaining) {
-          var ta = document.getElementById('message-textarea');
-          var sb = document.getElementById('send-btn');
-          var ms = document.querySelector('.message-section');
+          var ta2 = document.getElementById('message-textarea');
+          var sb2 = document.getElementById('send-btn');
+          var ms2 = document.querySelector('.message-section');
           var disable = remaining <= 10;
-          if (ta) { ta.disabled = disable; ta.placeholder = disable ? (G.lang === 'fr' ? 'Temps écoulé — allez voter' : 'Time\'s up — go vote') : 'Type...'; }
-          if (sb) sb.disabled = disable;
-          if (ms) ms.style.opacity = disable ? '0.5' : '1';
-          if (ms) ms.style.pointerEvents = disable ? 'none' : 'auto';
+          if (ta2) { ta2.disabled = disable; ta2.placeholder = disable ? (G.lang === 'fr' ? 'Temps écoulé — allez voter' : 'Time\'s up — go vote') : 'Type...'; }
+          if (sb2) sb2.disabled = disable;
+          if (ms2) ms2.style.opacity = disable ? '0.5' : '1';
+          if (ms2) ms2.style.pointerEvents = disable ? 'none' : 'auto';
         });
       }
       break;
@@ -508,7 +520,7 @@ function updateGameFromServer(state) {
       var _ta = document.getElementById('message-textarea');
       var _sb = document.getElementById('send-btn');
       var _ms = document.querySelector('.message-section');
-      if (_ta) _ta.disabled = false;
+      if (_ta) { _ta.disabled = false; _ta.placeholder = 'Type...'; }
       if (_sb) _sb.disabled = false;
       if (_ms) { _ms.style.opacity = '1'; _ms.style.pointerEvents = 'auto'; }
       break;
