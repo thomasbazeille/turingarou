@@ -26,7 +26,7 @@ const COLORS = [
 ];
 
 const QUESTION_PHASE_MS = 20000;
-const DISCUSSION_PHASE_MS = 60000;
+const DISCUSSION_PHASE_MS = 100000; // 100 s de discussion par round (+ temps de vote après)
 const VOTE_PHASE_MS = 10000;
 const MAX_ROUNDS = 5;
 
@@ -309,7 +309,7 @@ export class GameRoom {
 
   private startDiscussion(): void {
     this.state.phase = 'discussion';
-    const discussionMs = this.state.currentRound === 1 ? 100000 : DISCUSSION_PHASE_MS; // Premier round : 100 s
+    const discussionMs = DISCUSSION_PHASE_MS; // 100 s pour tous les rounds
     this.state.discussionEndTime = Date.now() + discussionMs;
     this.emitState();
 
