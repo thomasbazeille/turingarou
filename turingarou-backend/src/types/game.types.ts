@@ -63,6 +63,8 @@ export interface GameRoomState {
   messages: GameMessage[];
   currentQuestion: string | null;
   answers: QuestionAnswer[];
+  /** Réponses par round (1, 2, ...) pour l'historique du chat */
+  answersByRound?: Record<number, QuestionAnswer[]>;
   votes: Vote[];
   protectedPlayerId: string | null;
   discussionEndTime: number | null;

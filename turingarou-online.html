@@ -445,6 +445,7 @@ function updateGameFromServer(state) {
       G.a[ans.playerId] = ans.answer;
     });
   }
+  G.answersByRound = state.answersByRound || {};
   
   // Mettre à jour les éliminés
   G.e = state.players
@@ -982,10 +983,19 @@ if(c)c.innerHTML='';
 });
 let pos=0;
 const mc=document.getElementById('messages-columns');
-if(G.r>=1&&Object.keys(G.a).length>0){
-const oq=document.querySelector('.system-message');
-if(oq)oq.remove();
-var qText=(G.questions&&G.questions[G.r])||G.currentQuestion||'';
+const mbr={};
+G.m.forEach(m=>{
+if(!mbr[m.round])mbr[m.round]=[];
+mbr[m.round].push(m);
+});
+for(let rd=1;rd<=G.r;rd++){
+var answersForRd=(rd===G.r)?G.a:(function(){
+var arr=G.answersByRound&&G.answersByRound[rd];
+if(!arr||!arr.length)return {};
+var o={};arr.forEach(function(a){o[a.playerId]=a.answer;});return o;
+})();
+var qText=(G.questions&&G.questions[rd])||(rd===G.r?G.currentQuestion:null)||'';
+if(qText||Object.keys(answersForRd).length>0){
 const qd=document.createElement('div');
 qd.className='system-message';
 qd.style.top=pos+'px';
@@ -1000,20 +1010,14 @@ orderedForAnswers.forEach(p=>{
 const ad=document.createElement('div');
 ad.className='answer-bubble';
 ad.style.background=p.color;
-ad.textContent=G.a[p.id]||'(no answer)';
+ad.textContent=answersForRd[p.id]||'(no answer)';
 ar.appendChild(ad);
 });
 mc.appendChild(ar);
-const mal=Math.max(...Object.values(G.a).map(a=>a?a.length:10));
+const mal=Math.max(...Object.values(answersForRd).map(a=>a?a.length:10),10);
 const ln=Math.ceil(mal/15);
 pos+=(ln*17)+12+18;
 }
-const mbr={};
-G.m.forEach(m=>{
-if(!mbr[m.round])mbr[m.round]=[];
-mbr[m.round].push(m);
-});
-for(let rd=1;rd<=G.r;rd++){
 const rm=mbr[rd]||[];
 rm.forEach(m=>{
 if(m.playerId==='system'){

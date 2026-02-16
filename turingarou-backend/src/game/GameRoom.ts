@@ -15,6 +15,7 @@ import {
   GameFormat,
 } from '../types/game.types.js';
 import { LLMProvider } from '../llm/LLMProvider.js';
+import { getQuestionsForLanguage } from './QuestionBank.js';
 
 const COLORS = [
   { name: 'Red', hex: '#ef4444' },
@@ -29,22 +30,6 @@ const QUESTION_PHASE_MS = 20000;
 const DISCUSSION_PHASE_MS = 100000; // 100 s de discussion par round (+ temps de vote après)
 const VOTE_PHASE_MS = 10000;
 const MAX_ROUNDS = 5;
-
-const QUESTIONS_EN = [
-  "What color are your socks right now?",
-  "What was the last thing you ate?",
-  "If you could have any superpower, what would it be?",
-  "What's your favorite childhood memory?",
-  "What did you dream about last night?",
-];
-
-const QUESTIONS_FR = [
-  "De quelle couleur sont tes chaussettes en ce moment ?",
-  "Quelle est la dernière chose que tu as mangée ?",
-  "Si tu pouvais avoir un super-pouvoir, ce serait lequel ?",
-  "Quel est ton souvenir d'enfance préféré ?",
-  "De quoi as-tu rêvé la nuit dernière ?",
-];
 
 export class GameRoom {
   private state: GameRoomState;
@@ -201,8 +186,8 @@ export class GameRoom {
 
       this.state.players.push(aiPlayerData);
 
-      const { content: strategyContent } = await getRandomAIPlayerStrategy();
-      const aiPlayer = new AIPlayer(aiPlayerData, this.llmProvider, strategyContent);
+      const chosen = await getRandomAIPlayerStrategy(personality.name);
+      const aiPlayer = new AIPlayer(aiPlayerData, this.llmProvider, chosen.content);
       this.aiPlayers.set(aiPlayerData.id, aiPlayer);
     }
   }
@@ -322,7 +307,13 @@ export class GameRoom {
   }
 
   private startAIThinking(): void {
+    const DISCUSSION_LOCK_MS = 10000; // comme les humains : plus d'envoi dans les 10 dernières secondes
     this.aiThinkingInterval = setInterval(async () => {
+      const remainingDiscussion = this.state.phase === 'discussion' && this.state.discussionEndTime != null
+        ? this.state.discussionEndTime - Date.now()
+        : Infinity;
+      const discussionLocked = remainingDiscussion <= DISCUSSION_LOCK_MS;
+
       const activePlayers = this.state.players.filter((p) => !p.isEliminated);
       const contextOptions = {
         activePlayerIds: activePlayers.map((p) => p.id),
@@ -334,6 +325,7 @@ export class GameRoom {
         const player = this.state.players.find((p) => p.id === id) as AIPlayerData;
         if (!player || player.isEliminated) continue;
         if (this.aiPendingMessage.has(id)) continue;
+        if (discussionLocked) continue;
 
         aiPlayer.buildGameContext(
           this.state.messages,
@@ -354,6 +346,11 @@ export class GameRoom {
             delayMs = 15000 + Math.floor(Math.random() * 10000);
           }
           setTimeout(() => {
+            const remaining = this.state.phase === 'discussion' && this.state.discussionEndTime != null ? this.state.discussionEndTime - Date.now() : Infinity;
+            if (remaining <= DISCUSSION_LOCK_MS) {
+              this.aiPendingMessage.delete(id);
+              return;
+            }
             this.addMessage(id, decision.message!);
             this.aiPendingMessage.delete(id);
           }, delayMs);
@@ -363,6 +360,7 @@ export class GameRoom {
         const player = this.state.players.find((p) => p.id === id);
         if (!player || player.isEliminated) continue;
         if (this.inspectorPendingMessage.has(id)) continue;
+        if (discussionLocked) continue;
 
         inspector.buildGameContext(
           this.state.messages,
@@ -375,8 +373,15 @@ export class GameRoom {
         const decision = await inspector.decideAction();
         if (decision.shouldRespond && decision.message) {
           this.inspectorPendingMessage.add(id);
-          const delayMs = decision.delayMs ?? 2000 + Math.floor(Math.random() * 3000);
+          let delayMs = decision.delayMs ?? 5000 + Math.floor(Math.random() * 10000);
+          const discussionCount = this.state.messages.filter((m) => m.phase === 'discussion').length;
+          if (discussionCount === 0) delayMs = 15000 + Math.floor(Math.random() * 10000);
           setTimeout(() => {
+            const remaining = this.state.phase === 'discussion' && this.state.discussionEndTime != null ? this.state.discussionEndTime - Date.now() : Infinity;
+            if (remaining <= DISCUSSION_LOCK_MS) {
+              this.inspectorPendingMessage.delete(id);
+              return;
+            }
             this.addMessage(id, decision.message!);
             this.inspectorPendingMessage.delete(id);
           }, delayMs);
@@ -502,6 +507,8 @@ export class GameRoom {
     }
 
     this.state.eliminatedPlayerId = null;
+    if (!this.state.answersByRound) this.state.answersByRound = {};
+    this.state.answersByRound[this.state.currentRound] = [...this.state.answers];
     this.state.currentRound++;
     this.state.currentQuestion = this.getRandomQuestion();
     this.state.answers = [];
@@ -616,7 +623,7 @@ export class GameRoom {
 
   private getRandomQuestion(): string {
     const lang = this.state.language === 'en' ? 'en' : 'fr';
-    const questions = lang === 'fr' ? QUESTIONS_FR : QUESTIONS_EN;
+    const questions = getQuestionsForLanguage(lang);
     return questions[Math.floor(Math.random() * questions.length)];
   }
 

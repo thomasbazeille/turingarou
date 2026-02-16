@@ -42,12 +42,13 @@ async function loadStrategies(): Promise<StrategyEntry[]> {
   return loaded;
 }
 
-export async function getRandomAIPlayerStrategy(): Promise<StrategyEntry> {
+export async function getRandomAIPlayerStrategy(playerName?: string): Promise<StrategyEntry> {
   const strategies = await loadStrategies();
   if (strategies.length === 0) throw new Error('No AI player strategies loaded');
   const idx = Math.floor(Math.random() * strategies.length);
   const chosen = strategies[idx];
-  console.log(`[StrategyLoader] AI player strategy: ${chosen.name}`);
+  const namePart = playerName ? ` (joueur: ${playerName})` : '';
+  console.log(`[StrategyLoader] AI player strategy: ${chosen.name}${namePart}`);
   return chosen;
 }
 

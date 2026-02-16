@@ -63,6 +63,10 @@ export class InspectorController {
         context += `[${m.playerName}]: ${m.content}\n`;
       });
     }
+    const myMessages = messagesToShow.filter((m) => m.playerId === this.playerId);
+    const lastM = myMessages.length > 0 ? myMessages[myMessages.length - 1] : null;
+    const timeSinceLast = lastM ? Math.floor((Date.now() - lastM.timestamp) / 1000) : 99999;
+    context += `\n## You (${this.playerName})\nYour last messages: ${myMessages.slice(-3).map((m) => m.content).join(' | ') || 'None yet'}\nTime since your last message: ${timeSinceLast}s. Don't post too often; humans take breaks. Prefer shouldRespond: false most of the time.\n`;
     this.gameContext = context;
   }
 
@@ -76,7 +80,8 @@ export class InspectorController {
       lang === 'fr'
         ? 'LANGUAGE: You must speak and write only in French.'
         : 'LANGUAGE: You must speak and write only in English.';
-    return `${instructions}\n\n${languageRule}`;
+    const styleRule = 'MANDATORY STYLE: lowercase only, no emojis, short messages (one line). Talk like a normal player in chat.';
+    return `${instructions}\n\n${languageRule}\n\n${styleRule}`;
   }
 
   async answerQuestion(question: string): Promise<string | null> {
@@ -84,7 +89,7 @@ export class InspectorController {
       { role: 'system', content: this.getSystemPrompt() },
       {
         role: 'user',
-        content: `You are ${this.playerName} (Inspector). Answer this question briefly as a human would. Keep it short (a few words). No period at the end.\n\n"${question}"\n\nYour short answer:`,
+        content: `You are ${this.playerName}. Answer this question briefly as a human would. Keep it short (a few words). No period at the end. Same style as other players: lowercase, casual.\n\n"${question}"\n\nYour short answer:`,
       },
     ];
     try {
@@ -104,12 +109,15 @@ export class InspectorController {
       { role: 'user', content: this.gameContext },
       {
         role: 'user',
-        content: `As the inspector, do you want to send a message to probe or accuse? Reply with JSON: { "shouldRespond": true/false, "message": "your message or null", "delayMs": 2000-6000 }`,
+        content: `Should you send a message? Reply with JSON only: { "shouldRespond": true or false, "message": "your short message or null", "delayMs": 5000-15000 }
+Rule: prefer shouldRespond: false. Only respond sometimes, like a human. If you do respond, use delayMs between 5000 and 15000. One short line, lowercase, no emojis.`,
       },
     ];
     try {
       const response = await this.llmProvider.query(messages);
-      return response;
+      const out = { ...response };
+      if (out.shouldRespond && (out.delayMs == null || out.delayMs < 4000)) out.delayMs = 5000 + Math.floor(Math.random() * 10000);
+      return out;
     } catch (err) {
       console.error(`Inspector ${this.playerName} decideAction error:`, err);
       return { shouldRespond: false };
@@ -119,18 +127,21 @@ export class InspectorController {
   async decideVote(players: { id: string; username: string }[]): Promise<string | null> {
     const others = players.filter((p) => p.id !== this.playerId);
     if (others.length === 0) return null;
+    const namesList = others.map((p) => p.username).join(', ');
     const messages: LLMMessage[] = [
       { role: 'system', content: this.getSystemPrompt() },
       {
         role: 'user',
-        content: `${this.gameContext}\n\nWho do you vote to eliminate (most likely AI)? Players: ${others.map((p) => p.username).join(', ')}. Reply with ONLY the player's name.`,
+        content: `${this.gameContext}\n\nYou are ${this.playerName}. You must vote for ONE OTHER player to eliminate (the one you think is most likely the AI). You cannot vote for yourself. Vote for exactly one of: ${namesList}. Reply with ONLY that player's name, nothing else.`,
       },
     ];
     try {
       const response = await this.llmProvider.query(messages);
-      const voteName = (response.message || '').trim();
+      let voteName = (response.message || '').trim();
+      if (voteName.toLowerCase() === this.playerName.toLowerCase()) voteName = '';
       const target = others.find((p) => p.username.toLowerCase() === voteName.toLowerCase());
-      return target?.id ?? others[0]?.id ?? null;
+      if (target) return target.id;
+      return others[Math.floor(Math.random() * others.length)]?.id ?? others[0]?.id ?? null;
     } catch (err) {
       console.error(`Inspector ${this.playerName} vote error:`, err);
       return others[0]?.id ?? null;
