@@ -10,6 +10,9 @@ node_modules/
 # Build output
 dist/
 
+# Runtime data (player names pool)
+data/
+
 # Logs
 *.log
 npm-debug.log*

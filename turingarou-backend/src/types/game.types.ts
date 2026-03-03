@@ -74,6 +74,7 @@ export interface GameRoomState {
   minPlayers: number;
   aiCount: number; // Nombre d'IA dans la partie
   eliminatedPlayerId?: string | null; // Set when phase is endround
+  eliminatedPlayerIsAI?: boolean | null; // true = AI, false = human, null = tie/unknown
   gameOverReason?: 'humans_win' | 'ai_win' | 'draw' | null; // Set when phase is gameover
   language?: 'fr' | 'en'; // Room language for UI and AI
 }

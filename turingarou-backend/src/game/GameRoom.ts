@@ -475,6 +475,7 @@ export class GameRoom {
         eliminatedPlayer.isEliminated = true;
       }
       this.state.eliminatedPlayerId = eliminatedId || null;
+      this.state.eliminatedPlayerIsAI = eliminatedPlayer ? eliminatedPlayer.type !== 'human' : null;
 
       this.state.phase = 'endround';
       this.state.voteEndTime = null;
@@ -483,14 +484,14 @@ export class GameRoom {
       // Passer au round suivant
       setTimeout(() => {
         this.nextRound();
-      }, 13000); // 13 secondes sur l'écran de fin de round
+      }, 8000); // 8 secondes sur l'écran de fin de round
     } catch (err) {
       console.error('[GameRoom] processVotes error', err);
       this.state.phase = 'endround';
       this.state.eliminatedPlayerId = null;
       this.state.voteEndTime = null;
       this.emitState();
-      setTimeout(() => this.nextRound(), 13000);
+      setTimeout(() => this.nextRound(), 8000);
     }
   }
 
@@ -648,6 +649,7 @@ export class GameRoom {
     };
     if (this.state.phase === 'endround') {
       out.eliminatedPlayerId = this.state.eliminatedPlayerId ?? null;
+      out.eliminatedPlayerIsAI = this.state.eliminatedPlayerIsAI ?? null;
       out.votes = this.state.votes;
       out.eliminatedAiCount = this.state.players.filter((p) => p.isEliminated && p.type === 'ai').length;
     }
