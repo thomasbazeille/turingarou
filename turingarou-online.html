@@ -486,6 +486,9 @@ function updateGameFromServer(state) {
         if (_mc) _mc.innerHTML = '';
         var _ph = document.getElementById('player-avatars-header');
         if (_ph) _ph.innerHTML = '';
+        // Réinitialiser le mode de la local-input-row pour forcer la reconstruction
+        var _lir = document.getElementById('local-input-row');
+        if (_lir) { _lir.innerHTML = ''; _lir.dataset.mode = ''; }
       }
       showScreen('waiting');
       renderWaitingRoom();
@@ -739,11 +742,29 @@ return [...others.slice(0,mid),local,...others.slice(mid)];
 /**
  * Construit la local-input-row alignée sur les colonnes des joueurs.
  * mode: 'message' (discussion) | 'vote' (voting phase) | 'spectator' (eliminated)
+ * Ne recrée le DOM que si le mode change, pour ne pas perdre le texte en cours de frappe.
  */
 function renderLocalInputRow(orderedPlayers, mode){
 mode=mode||'message';
 const row=document.getElementById('local-input-row');
 if(!row) return;
+
+// Si on est déjà dans ce mode, ne pas reconstruire — juste mettre à jour le nb de joueurs
+const currentMode=row.dataset.mode||'';
+if(currentMode===mode){
+  // Mettre à jour le char-counter max si le nombre de joueurs a changé
+  const mc2=Math.floor((1000*orderedPlayers.length)/T);
+  const cc2=document.getElementById('char-counter');
+  const ta2=document.getElementById('message-textarea');
+  if(cc2&&ta2) cc2.textContent=ta2.value.length+'/'+mc2;
+  return;
+}
+row.dataset.mode=mode;
+
+// Sauvegarder le texte en cours si on passe d'un mode message à un autre message
+const prevTA=document.getElementById('message-textarea');
+const savedText=prevTA?prevTA.value:'';
+
 row.innerHTML='';
 const lp=G.p.find(p=>p.isLocal);
 const mc=Math.floor((1000*orderedPlayers.length)/T);
@@ -785,10 +806,13 @@ cell.innerHTML=
 }
 row.appendChild(cell);
 });
-// Attacher listeners
+// Attacher listeners et restaurer le texte
 const ta=document.getElementById('message-textarea');
 const cc=document.getElementById('char-counter');
-if(ta&&cc){ ta.oninput=()=>{ cc.textContent=ta.value.length+'/'+mc; }; }
+if(ta){
+  if(savedText) ta.value=savedText;
+  if(cc){ cc.textContent=ta.value.length+'/'+mc; ta.oninput=()=>{ cc.textContent=ta.value.length+'/'+mc; }; }
+}
 const vs=document.getElementById('vote-select');
 const vb=document.getElementById('vote-btn');
 if(vs&&vb){ vs.onchange=function(){ vb.disabled=!this.value; }; }
