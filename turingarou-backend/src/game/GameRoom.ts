@@ -52,6 +52,8 @@ export class GameRoom {
   private eliminationsByRound: Map<number, { name: string; isAI: boolean }> = new Map();
   /** Question asked per round */
   private questionsByRound: Map<number, string> = new Map();
+  /** True once all humans have left — blocks every further LLM call and timer */
+  private aborted = false;
 
   constructor(roomId: string, io: SocketServer, llmProvider: LLMProvider, aiCount: number = 1) {
     this.io = io;
@@ -169,6 +171,39 @@ export class GameRoom {
     this.state.players = this.state.players.filter(
       (p) => p.type !== 'human' || p.socketId !== socketId
     );
+
+    // Si la partie est en cours et qu'il ne reste plus aucun humain réel, abandonner
+    const gameInProgress = !['waiting', 'gameover'].includes(this.state.phase);
+    const humanCount = this.state.players.filter(
+      (p) => p.type === 'human' && !p.isEliminated
+    ).length;
+
+    if (gameInProgress && humanCount === 0) {
+      this.abortGame();
+    } else {
+      this.emitState();
+    }
+  }
+
+  /** Arrête la partie proprement quand tous les humains ont quitté. */
+  private abortGame(): void {
+    if (this.aborted) return;
+    this.aborted = true;
+
+    console.log(`[GameRoom ${this.state.roomId}] All humans disconnected — aborting game.`);
+
+    // Annuler tous les timers actifs
+    if (this.discussionTimer) { clearInterval(this.discussionTimer); this.discussionTimer = null; }
+    if (this.aiThinkingInterval) { clearInterval(this.aiThinkingInterval); this.aiThinkingInterval = null; }
+    if (this.votePhaseTimeout) { clearTimeout(this.votePhaseTimeout); this.votePhaseTimeout = null; }
+    if (this.questionPhaseTimeout) { clearTimeout(this.questionPhaseTimeout); this.questionPhaseTimeout = null; }
+
+    // Vider les sets de messages en attente pour ne pas poster en retard
+    this.aiPendingMessage.clear();
+    this.inspectorPendingMessage.clear();
+
+    // Remettre en waiting pour que le frontend affiche l'écran d'attente
+    this.state.phase = 'waiting';
     this.emitState();
   }
 
@@ -302,6 +337,7 @@ export class GameRoom {
   }
 
   private async aiAnswerQuestion(): Promise<void> {
+    if (this.aborted) return;
     const question = this.state.currentQuestion;
     if (!question) return;
     for (const [id, aiPlayer] of this.aiPlayers) {
@@ -337,6 +373,7 @@ export class GameRoom {
   private startAIThinking(): void {
     const DISCUSSION_LOCK_MS = 10000; // comme les humains : plus d'envoi dans les 10 dernières secondes
     this.aiThinkingInterval = setInterval(async () => {
+      if (this.aborted) return; // Plus d'humains — stopper silencieusement
       const remainingDiscussion = this.state.phase === 'discussion' && this.state.discussionEndTime != null
         ? this.state.discussionEndTime - Date.now()
         : Infinity;
@@ -443,6 +480,7 @@ export class GameRoom {
   }
 
   private async aiVote(): Promise<void> {
+    if (this.aborted) return;
     const activePlayers = this.state.players
       .filter((p) => !p.isEliminated)
       .map((p) => ({ id: p.id, username: p.username }));
@@ -452,6 +490,7 @@ export class GameRoom {
       if (!player || player.isEliminated) continue;
       const delay = Math.floor(Math.random() * 4000) + 2000;
       setTimeout(async () => {
+        if (this.aborted) return;
         const targetId = await aiPlayer.decideVote(activePlayers);
         if (targetId) this.addVote(id, targetId);
       }, delay);
@@ -461,6 +500,7 @@ export class GameRoom {
       if (!player || player.isEliminated) continue;
       const delay = Math.floor(Math.random() * 4000) + 2000;
       setTimeout(async () => {
+        if (this.aborted) return;
         const targetId = await inspector.decideVote(activePlayers);
         if (targetId) this.addVote(id, targetId);
       }, delay);
@@ -468,6 +508,7 @@ export class GameRoom {
   }
 
   private processVotes(): void {
+    if (this.aborted) return;
     if (this.state.phase !== 'voting') return;
     try {
       const voteCounts = new Map<string, number>();
@@ -538,6 +579,7 @@ export class GameRoom {
   }
 
   private nextRound(): void {
+    if (this.aborted) return;
     const activePlayers = this.state.players.filter((p) => !p.isEliminated);
 
     // Vérifier si le jeu est terminé
@@ -672,6 +714,7 @@ export class GameRoom {
   // ====== ACTIONS ======
 
   addMessage(playerId: string, content: string): void {
+    if (this.aborted) return;
     const player = this.state.players.find((p) => p.id === playerId);
     if (!player || player.isEliminated) return;
 
