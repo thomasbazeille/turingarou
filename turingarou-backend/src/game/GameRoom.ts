@@ -16,6 +16,7 @@ import {
 } from '../types/game.types.js';
 import { LLMProvider } from '../llm/LLMProvider.js';
 import { getQuestionsForLanguage } from './QuestionBank.js';
+import { saveGameLog, updateHumanProfiles, getRandomHumanProfile, RoundLog, MessageLog, PlayerLog } from './GameLogger.js';
 
 const COLORS = [
   { name: 'Red', hex: '#ef4444' },
@@ -39,9 +40,18 @@ export class GameRoom {
   private discussionTimer: NodeJS.Timeout | null = null;
   private aiThinkingInterval: NodeJS.Timeout | null = null;
   private votePhaseTimeout: NodeJS.Timeout | null = null;
+  private questionPhaseTimeout: NodeJS.Timeout | null = null;
   private aiPendingMessage = new Set<string>();
   private inspectors: Map<string, InspectorController> = new Map();
   private inspectorPendingMessage = new Set<string>();
+  /** Strategy name picked for each AI player id */
+  private aiStrategyNames: Map<string, string> = new Map();
+  /** Votes archived per round (round → list of {voter, target}) */
+  private votesByRound: Map<number, { voter: string; target: string }[]> = new Map();
+  /** Eliminations archived per round */
+  private eliminationsByRound: Map<number, { name: string; isAI: boolean }> = new Map();
+  /** Question asked per round */
+  private questionsByRound: Map<number, string> = new Map();
 
   constructor(roomId: string, io: SocketServer, llmProvider: LLMProvider, aiCount: number = 1) {
     this.io = io;
@@ -164,6 +174,7 @@ export class GameRoom {
 
   private async addAIPlayers(): Promise<void> {
     const aiPersonalities = this.generateAIPersonalities(this.state.aiCount);
+    const usedPersonaNames = new Set<string>();
 
     for (const personality of aiPersonalities) {
       const usedColors = this.state.players.map((p) => p.color);
@@ -187,8 +198,22 @@ export class GameRoom {
       this.state.players.push(aiPlayerData);
 
       const chosen = await getRandomAIPlayerStrategy(personality.name);
-      const aiPlayer = new AIPlayer(aiPlayerData, this.llmProvider, chosen.content);
+
+      // Tenter de trouver un profil humain non encore utilisé dans cette partie
+      let persona = getRandomHumanProfile();
+      let attempts = 0;
+      while (persona && usedPersonaNames.has(persona.username) && attempts < 5) {
+        persona = getRandomHumanProfile();
+        attempts++;
+      }
+      if (persona) {
+        usedPersonaNames.add(persona.username);
+        console.log(`[GameRoom] AI ${personality.name} uses human persona: ${persona.username} (${persona.sampleMessages.length} msgs)`);
+      }
+
+      const aiPlayer = new AIPlayer(aiPlayerData, this.llmProvider, chosen.content, persona);
       this.aiPlayers.set(aiPlayerData.id, aiPlayer);
+      this.aiStrategyNames.set(aiPlayerData.id, chosen.name);
     }
   }
 
@@ -244,12 +269,15 @@ export class GameRoom {
     this.state.phase = 'question';
     this.state.currentRound = 1;
     this.state.currentQuestion = this.getRandomQuestion();
+    this.questionsByRound.set(1, this.state.currentQuestion ?? '');
     this.state.questionEndTime = Date.now() + QUESTION_PHASE_MS;
     this.emitState();
 
     this.aiAnswerQuestion();
     this.setGameFormatForAllAI();
-    setTimeout(() => {
+    if (this.questionPhaseTimeout) clearTimeout(this.questionPhaseTimeout);
+    this.questionPhaseTimeout = setTimeout(() => {
+      this.questionPhaseTimeout = null;
       this.startDiscussion();
     }, QUESTION_PHASE_MS);
   }
@@ -477,6 +505,20 @@ export class GameRoom {
       this.state.eliminatedPlayerId = eliminatedId || null;
       this.state.eliminatedPlayerIsAI = eliminatedPlayer ? eliminatedPlayer.type !== 'human' : null;
 
+      // Archiver les votes de ce round pour le log
+      const roundVotes = this.state.votes.map((v) => {
+        const voter = this.state.players.find((p) => p.id === v.voterId);
+        const target = this.state.players.find((p) => p.id === v.targetId);
+        return { voter: voter?.username ?? v.voterId, target: target?.username ?? v.targetId };
+      });
+      this.votesByRound.set(this.state.currentRound, roundVotes);
+      if (eliminatedPlayer) {
+        this.eliminationsByRound.set(this.state.currentRound, {
+          name: eliminatedPlayer.username,
+          isAI: eliminatedPlayer.type !== 'human',
+        });
+      }
+
       this.state.phase = 'endround';
       this.state.voteEndTime = null;
       this.emitState();
@@ -512,6 +554,7 @@ export class GameRoom {
     this.state.answersByRound[this.state.currentRound] = [...this.state.answers];
     this.state.currentRound++;
     this.state.currentQuestion = this.getRandomQuestion();
+    this.questionsByRound.set(this.state.currentRound, this.state.currentQuestion ?? '');
     this.state.answers = [];
     this.state.votes = [];
     // Garder state.messages pour permettre de remonter dans le chat (historique tous rounds)
@@ -522,7 +565,9 @@ export class GameRoom {
 
     this.aiAnswerQuestion();
 
-    setTimeout(() => {
+    if (this.questionPhaseTimeout) clearTimeout(this.questionPhaseTimeout);
+    this.questionPhaseTimeout = setTimeout(() => {
+      this.questionPhaseTimeout = null;
       this.startDiscussion();
     }, QUESTION_PHASE_MS);
   }
@@ -538,6 +583,90 @@ export class GameRoom {
     this.state.phase = 'gameover';
     this.state.eliminatedPlayerId = null;
     this.emitState();
+    this.persistGameLog();
+  }
+
+  private persistGameLog(): void {
+    try {
+      const now = new Date().toISOString();
+
+      // ── Players ──────────────────────────────────────────────────────────
+      const playerLogs: PlayerLog[] = this.state.players.map((p) => {
+        // Find which round they were eliminated in
+        let eliminatedRound: number | undefined;
+        for (const [round, info] of this.eliminationsByRound) {
+          if (info.name === p.username) { eliminatedRound = round; break; }
+        }
+        const entry: PlayerLog = {
+          id: p.id,
+          name: p.username,
+          type: p.type === 'human' ? 'human' : (this.inspectors.has(p.id) ? 'inspector' : 'ai'),
+          eliminated: p.isEliminated,
+        };
+        if (eliminatedRound !== undefined) entry.eliminatedRound = eliminatedRound;
+        if (p.type !== 'human') {
+          const strategy = this.aiStrategyNames.get(p.id);
+          if (strategy) entry.strategy = strategy;
+        }
+        return entry;
+      });
+
+      // ── Rounds ───────────────────────────────────────────────────────────
+      const allAnswersByRound: Record<number, typeof this.state.answers> = {
+        ...(this.state.answersByRound ?? {}),
+        // Le dernier round n'est pas encore archivé dans answersByRound
+        [this.state.currentRound]: this.state.answers,
+      };
+
+      const roundLogs: RoundLog[] = [];
+      for (let rd = 1; rd <= this.state.currentRound; rd++) {
+        const question = this.questionsByRound.get(rd) ?? '';
+        const answers = (allAnswersByRound[rd] ?? []).map((a) => {
+          const p = this.state.players.find((pl) => pl.id === a.playerId);
+          return {
+            player: a.playerName,
+            type: p?.type === 'human' ? 'human' : 'ai',
+            answer: a.answer,
+          };
+        });
+        roundLogs.push({
+          round: rd,
+          question,
+          answers,
+          votes: this.votesByRound.get(rd) ?? [],
+          eliminated: this.eliminationsByRound.get(rd) ?? null,
+        });
+      }
+
+      // ── Messages ─────────────────────────────────────────────────────────
+      const messageLogs: MessageLog[] = this.state.messages
+        .filter((m) => m.playerId !== 'system')
+        .map((m) => {
+          const p = this.state.players.find((pl) => pl.id === m.playerId);
+          return {
+            round: m.round,
+            player: m.playerName,
+            type: p?.type === 'human' ? 'human' : 'ai',
+            content: m.content,
+            timestamp: m.timestamp,
+          };
+        });
+
+      const data = {
+        gameId: this.state.roomId,
+        date: now,
+        language: (this.state.language ?? 'fr') as 'fr' | 'en',
+        result: (this.state.gameOverReason ?? 'draw') as 'humans_win' | 'ai_win' | 'draw',
+        players: playerLogs,
+        rounds: roundLogs,
+        messages: messageLogs,
+      };
+
+      saveGameLog(data);
+      updateHumanProfiles(data);
+    } catch (err) {
+      console.error('[GameRoom] persistGameLog error:', err);
+    }
   }
 
   // ====== ACTIONS ======
@@ -567,6 +696,7 @@ export class GameRoom {
   }
 
   addAnswer(playerId: string, answer: string): void {
+    if (this.state.phase !== 'question') return;
     const player = this.state.players.find((p) => p.id === playerId);
     if (!player) return;
     this.state.answers = this.state.answers.filter((a) => a.playerId !== playerId);
@@ -578,6 +708,16 @@ export class GameRoom {
     };
     this.state.answers.push(questionAnswer);
     this.emitState();
+
+    // Si tous les joueurs actifs ont répondu, passer immédiatement à la discussion
+    const activePlayers = this.state.players.filter((p) => !p.isEliminated);
+    const answeredIds = new Set(this.state.answers.map((a) => a.playerId));
+    const allAnswered = activePlayers.every((p) => answeredIds.has(p.id));
+    if (allAnswered && this.questionPhaseTimeout) {
+      clearTimeout(this.questionPhaseTimeout);
+      this.questionPhaseTimeout = null;
+      this.startDiscussion();
+    }
   }
 
   addVote(voterId: string, targetId: string): void {

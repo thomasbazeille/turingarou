@@ -1,6 +1,7 @@
 import { LLMProvider } from '../llm/LLMProvider.js';
 import { AIPlayerData, GameMessage, LLMMessage, AIPersonality, GameFormat, QuestionAnswer } from '../types/game.types.js';
 import { getInstructionsWithSetup, AI_GOAL_BLOCK } from './AIPlayerInstructions.js';
+import type { HumanPersona } from './GameLogger.js';
 
 export interface GameContextOptions {
   activePlayerIds: string[];
@@ -14,11 +15,18 @@ export class AIPlayer {
   private strategyContent: string;
   private gameContext: string = '';
   private gameFormat: GameFormat | null = null;
+  private humanPersona: HumanPersona | null = null;
 
-  constructor(player: AIPlayerData, llmProvider: LLMProvider, strategyContent: string) {
+  constructor(
+    player: AIPlayerData,
+    llmProvider: LLMProvider,
+    strategyContent: string,
+    humanPersona?: HumanPersona | null
+  ) {
     this.player = player;
     this.llmProvider = llmProvider;
     this.strategyContent = strategyContent;
+    this.humanPersona = humanPersona ?? null;
   }
 
   setGameFormat(format: GameFormat): void {
@@ -194,6 +202,9 @@ export class AIPlayer {
         ? 'LANGUAGE: You must speak and write only in French. All your messages, answers, and vote reasoning must be in French.'
         : 'LANGUAGE: You must speak and write only in English. All your messages, answers, and vote reasoning must be in English.';
     const styleRule = 'MANDATORY STYLE: Never use emojis or smileys. Never use capital letters (write in lowercase only, e.g. "i think" not "I think").';
+
+    const personaBlock = this.buildPersonaBlock(lang);
+
     return `${personality}
 
 ${goalBlock}
@@ -203,7 +214,7 @@ ${instructions}
 ${languageRule}
 
 ${styleRule}
-
+${personaBlock}
 # DECISION FORMAT (for decideAction only)
 When deciding whether to respond, output a JSON object with:
 {
@@ -212,6 +223,36 @@ When deciding whether to respond, output a JSON object with:
   "delayMs": 2000-8000 (random delay to seem human)
 }
 Only respond when it fits the conversation; humans don't answer every message.`;
+  }
+
+  /**
+   * Construit un bloc de style basé sur les messages passés d'un vrai joueur humain.
+   * L'IA doit imiter le ton et le style d'écriture sans copier mot pour mot.
+   */
+  private buildPersonaBlock(lang: 'fr' | 'en'): string {
+    if (!this.humanPersona) return '';
+
+    const { sampleMessages, sampleAnswers } = this.humanPersona;
+    if (sampleMessages.length === 0) return '';
+
+    const header =
+      lang === 'fr'
+        ? `\n# RÉFÉRENCE DE STYLE D'ÉCRITURE\nAdopte subtilement le style d'écriture des messages suivants (vrais messages d'un joueur humain). Imite leur ton, longueur de phrase, ponctuation et vocabulaire — sans les copier littéralement. Ne mentionne jamais cette référence.\n`
+        : `\n# WRITING STYLE REFERENCE\nSubtly adopt the writing style shown below (real messages from a human player). Mimic their tone, sentence length, punctuation habits and vocabulary — do NOT copy them literally. Never mention this reference.\n`;
+
+    const msgs = sampleMessages.map((m) => `  - "${m}"`).join('\n');
+
+    let ansBlock = '';
+    if (sampleAnswers.length > 0) {
+      const ansLabel = lang === 'fr' ? 'Exemples de réponses aux questions :' : 'Sample question answers:';
+      ansBlock =
+        '\n' +
+        ansLabel +
+        '\n' +
+        sampleAnswers.map((a) => `  - [Q: ${a.question}] → ${a.answer}`).join('\n');
+    }
+
+    return `${header}\nExemples de messages :\n${msgs}${ansBlock}\n`;
   }
 
   private buildDecisionPrompt(): string {

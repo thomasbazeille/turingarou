@@ -62,14 +62,19 @@
     .heart-icon { font-size: 14px; cursor: pointer; opacity: 0.3; transition: opacity 0.2s; }
     .heart-icon:hover { opacity: 1; }
     .heart-icon.filled { opacity: 1; }
-    .messages-container { flex: 1; background: #000; padding: 12px; overflow-y: scroll !important; overflow-x: hidden; position: relative; }
+    .messages-container { flex: 1; background: #000; padding: 12px 12px 0 12px; overflow-y: scroll !important; overflow-x: hidden; position: relative; }
     .messages-container::-webkit-scrollbar { width: 10px; }
     .messages-container::-webkit-scrollbar-track { background: rgba(30,30,30,0.8); border-radius: 5px; }
     .messages-container::-webkit-scrollbar-thumb { background: rgba(6,182,212,0.6); border-radius: 5px; border: 2px solid rgba(0,0,0,0.3); }
     .messages-container::-webkit-scrollbar-thumb:hover { background: rgba(6,182,212,0.8); }
     .messages-columns { display: flex; gap: 5px; position: relative; min-height: 100%; }
     .player-column { flex: 1; position: relative; min-width: 0; }
-    .message-bubble { position: absolute; left: 2px; right: 2px; padding: 6px 9px; border-radius: 6px; font-size: 11px; line-height: 1.3; color: #fff; word-wrap: break-word; box-shadow: 0 2px 5px rgba(0,0,0,0.3); }
+    .player-column.local-col { z-index: 2; }
+    .message-bubble { position: absolute; left: 2px; right: 2px; padding: 5px 8px; border-radius: 6px; font-size: 11px; line-height: 1.25; color: #fff; word-wrap: break-word; box-shadow: 0 1px 4px rgba(0,0,0,0.4); }
+    .local-input-row { display: flex; gap: 5px; padding: 4px 12px 6px 12px; background: #000; border-top: 1px solid rgba(251,191,36,0.15); flex-shrink: 0; }
+    .local-input-cell { flex: 1; min-width: 0; }
+    .local-input-cell.active { display: flex; flex-direction: column; gap: 4px; }
+    .local-input-cell:not(.active) { visibility: hidden; }
     .system-message { position: absolute; left: 0; right: 0; display: flex; justify-content: center; padding: 0 12px; width: 100%; }
     .system-message-text { color: #fff; font-style: italic; font-size: 14px; text-align: center; }
     .answers-row { position: absolute; left: 0; right: 0; display: flex; gap: 5px; padding: 0 12px; }
@@ -210,6 +215,8 @@
           <div style="font-size:72px;font-weight:900;color:#ef4444;text-shadow:0 0 30px #ef444499,0 0 60px #ef444444;letter-spacing:10px;opacity:0.85;animation:votepulse 1.2s ease-in-out infinite alternate;">VOTE</div>
         </div>
       </div>
+      <!-- Zone de saisie ancrée en bas, alignée sur la colonne du joueur local -->
+      <div class="local-input-row" id="local-input-row"></div>
     </div>
     <div class="game-panel">
       <div>
@@ -232,13 +239,6 @@
             <button class="vote-btn" id="vote-btn" onclick="confirmVote()">CONFIRM VOTE</button>
           </div>
           <div id="vote-confirmed" style="display:none;color:#22c55e;font-size:12px;font-weight:600;padding:6px 0;"></div>
-        </div>
-        <div class="message-section">
-          <div class="char-counter" id="char-counter">0/1000</div>
-          <div class="message-input-container">
-            <textarea class="message-textarea" id="message-textarea" placeholder="Type..." rows="3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage();}"></textarea>
-            <button class="send-btn" id="send-btn" onclick="sendMessage()">SEND</button>
-          </div>
         </div>
         <div class="eliminated-spectator-bar" id="eliminated-spectator-bar" style="display:none;">
           <p id="eliminated-spectator-text">Tu es éliminé. Tu peux suivre le chat en lecture seule.</p>
@@ -467,6 +467,26 @@ function updateGameFromServer(state) {
   // Rafraîchir l'affichage selon la phase
   switch (state.phase) {
     case 'waiting':
+      // Réinitialiser l'état de jeu entre deux parties
+      if (prevPhase && prevPhase !== 'waiting') {
+        G.m = [];
+        G.e = [];
+        G.a = {};
+        G.v = {};
+        G.vh = {};
+        G.h = {};
+        G.questions = {};
+        G.answersByRound = {};
+        G.r = 1;
+        G.im = null;
+        G.eliminatedAiCount = 0;
+        G.eliminatedPlayerIsAI = null;
+        // Vider les colonnes DOM de la partie précédente
+        var _mc = document.getElementById('messages-columns');
+        if (_mc) _mc.innerHTML = '';
+        var _ph = document.getElementById('player-avatars-header');
+        if (_ph) _ph.innerHTML = '';
+      }
       showScreen('waiting');
       renderWaitingRoom();
       break;
@@ -506,7 +526,7 @@ function updateGameFromServer(state) {
       // Réactiver zone message à chaque entrée en discussion (round 2+)
       var ta = document.getElementById('message-textarea');
       var sb = document.getElementById('send-btn');
-      var ms = document.querySelector('.message-section');
+      var ms = document.getElementById('local-input-row');
       if (ta) { ta.disabled = false; ta.placeholder = 'Type...'; }
       if (sb) sb.disabled = false;
       if (ms) { ms.style.opacity = '1'; ms.style.pointerEvents = 'auto'; }
@@ -514,7 +534,7 @@ function updateGameFromServer(state) {
         startTimerFromServer(state.discussionEndTime, 'timer-display', null, function(remaining) {
           var ta2 = document.getElementById('message-textarea');
           var sb2 = document.getElementById('send-btn');
-          var ms2 = document.querySelector('.message-section');
+          var ms2 = document.getElementById('local-input-row');
           var disable = remaining <= 10;
           if (ta2) { ta2.disabled = disable; ta2.placeholder = disable ? (G.lang === 'fr' ? 'Temps écoulé — allez voter' : 'Time\'s up — go vote') : 'Type...'; }
           if (sb2) sb2.disabled = disable;
@@ -531,7 +551,7 @@ function updateGameFromServer(state) {
       }
       var _ta = document.getElementById('message-textarea');
       var _sb = document.getElementById('send-btn');
-      var _ms = document.querySelector('.message-section');
+      var _ms = document.getElementById('local-input-row');
       if (_ta) { _ta.disabled = false; _ta.placeholder = 'Type...'; }
       if (_sb) _sb.disabled = false;
       if (_ms) { _ms.style.opacity = '1'; _ms.style.pointerEvents = 'auto'; }
@@ -722,6 +742,43 @@ const local=players.find(p=>p.isLocal);
 const others=players.filter(p=>!p.isLocal).sort((a,b)=>a.username.localeCompare(b.username,'fr'));
 return local?[...others,local]:others;
 }
+/** Ordre d'affichage chat : joueur local au centre, autres autour. */
+function playersWithLocalCenter(players){
+const local=players.find(p=>p.isLocal);
+const others=players.filter(p=>!p.isLocal).sort((a,b)=>a.username.localeCompare(b.username,'fr'));
+if(!local) return others;
+const mid=Math.floor(others.length/2);
+return [...others.slice(0,mid),local,...others.slice(mid)];
+}
+/** Construit la local-input-row alignée sur la colonne du joueur local. */
+function renderLocalInputRow(orderedPlayers){
+const row=document.getElementById('local-input-row');
+if(!row) return;
+row.innerHTML='';
+const lp=G.p.find(p=>p.isLocal);
+const isElim=lp&&G.e.includes(lp.id);
+orderedPlayers.forEach(p=>{
+const cell=document.createElement('div');
+cell.className='local-input-cell'+(p.isLocal?' active':'');
+if(p.isLocal){
+const mc=Math.floor((1000*orderedPlayers.length)/T);
+cell.innerHTML='<div style="display:flex;align-items:center;gap:4px;">'
+  +'<textarea class="message-textarea" id="message-textarea" placeholder="Type..." rows="2" style="flex:1;font-size:11px;padding:5px 7px;min-height:36px;" onkeydown="if(event.key===\'Enter\'&&!event.shiftKey){event.preventDefault();sendMessage();}"></textarea>'
+  +'<button class="send-btn" id="send-btn" onclick="sendMessage()">SEND</button>'
+  +'</div>'
+  +'<div class="char-counter" id="char-counter" style="font-size:9px;color:#64748b;text-align:right;">0/'+mc+'</div>';
+if(isElim){
+cell.innerHTML='<div style="font-size:10px;color:#71717a;text-align:center;padding:4px;font-style:italic;">'+(G.lang==='fr'?'Éliminé — lecture seule':'Eliminated — read only')+'</div>';
+}
+}
+row.appendChild(cell);
+});
+// Réattacher les event listeners
+const ta=document.getElementById('message-textarea');
+const cc=document.getElementById('char-counter');
+const mc2=Math.floor((1000*orderedPlayers.length)/T);
+if(ta&&cc){ ta.oninput=()=>{ cc.textContent=ta.value.length+'/'+mc2; }; }
+}
 
 function renderQuestionScreen(){
 const g=document.getElementById('players-status-grid');
@@ -817,8 +874,8 @@ updateHeaderAndColumnsForRound(visibleRound);
 function updateHeaderAndColumnsForRound(roundNum){
 // Toujours masquer les éliminés, peu importe le round affiché
 const activeInRound=G.p.filter(p=>!G.e.includes(p.id));
-// Autres joueurs puis joueur local à droite
-const ordered=playersWithLocalLast(activeInRound);
+// Joueur local au centre
+const ordered=playersWithLocalCenter(activeInRound);
 // Mettre à jour le header
 const h=document.getElementById('player-avatars-header');
 h.innerHTML='';
@@ -851,8 +908,8 @@ col.style.display=activeInRound.includes(p)?'block':'none';
 function renderGameScreen(){
 const h=document.getElementById('player-avatars-header');
 const ap=G.p.filter(p=>!G.e.includes(p.id));
-// Autres joueurs puis joueur local à droite
-const orderedPlayers=playersWithLocalLast(ap);
+// Joueur local au centre
+const orderedPlayers=playersWithLocalCenter(ap);
 h.innerHTML='';
 orderedPlayers.forEach(p=>{
 const im=p.id===G.im;
@@ -873,11 +930,11 @@ h.appendChild(c);
 const cl=document.getElementById('messages-columns');
 // Ne clear que si c'est le premier render
 if(cl.children.length===0){
-// Créer les colonnes : autres joueurs puis joueur local à droite
-const allOrdered=playersWithLocalLast(G.p);
+// Créer les colonnes : joueur local au centre
+const allOrdered=playersWithLocalCenter(G.p);
 allOrdered.forEach(p=>{
 const c=document.createElement('div');
-c.className='player-column';
+c.className='player-column'+(p.isLocal?' local-col':'');
 c.id='col-'+p.id;
 c.style.display=orderedPlayers.includes(p)?'block':'none';
 cl.appendChild(c);
@@ -892,6 +949,7 @@ col.style.display=orderedPlayers.includes(p)?'block':'none';
 });
 }
 renderMessages();
+renderLocalInputRow(orderedPlayers);
 var vl=document.getElementById('vote-label');
 if(vl) vl.textContent=G.lang==='fr'?'Vote :':'Vote:';
 const vs=document.getElementById('vote-select');
@@ -947,7 +1005,7 @@ if (spectatorBar && returnHomeBtn && spectatorText) {
 }
 const voteSection = document.querySelector('.vote-section');
 if (voteSection) voteSection.style.display = localEliminated ? 'none' : 'block';
-const msgSection = document.querySelector('.message-section');
+const msgSection = document.getElementById('local-input-row');
 if (msgSection) {
   msgSection.style.opacity = localEliminated ? '0.7' : '1';
   msgSection.style.pointerEvents = localEliminated ? 'none' : 'auto';
@@ -987,13 +1045,33 @@ G.p.forEach(p=>{
 const c=document.getElementById('col-'+p.id);
 if(c)c.innerHTML='';
 });
-let pos=0;
+
+// Curseurs par colonne + minimum global pour l'ordre temporel inter-colonnes
+const colPos={};
+G.p.forEach(p=>{ colPos[p.id]=0; });
+let globalMin=0; // avance légèrement à chaque message (ordre temporel)
+const TIGHT_GAP=3;      // espace entre messages d'une même colonne
+const ORDER_STEP=7;     // décalage temporel minimal entre messages de colonnes différentes
+
 const mc=document.getElementById('messages-columns');
+
+// Helper : place un élément pleine-largeur (question, séparateur…)
+// et aligne tous les curseurs sur la position suivante
+function placeFullWidth(el,height){
+const y=Math.max(globalMin,...Object.values(colPos));
+el.style.top=y+'px';
+mc.appendChild(el);
+const nextY=y+height;
+G.p.forEach(p=>{ colPos[p.id]=nextY; });
+globalMin=nextY;
+}
+
 const mbr={};
 G.m.forEach(m=>{
 if(!mbr[m.round])mbr[m.round]=[];
 mbr[m.round].push(m);
 });
+
 for(let rd=1;rd<=G.r;rd++){
 var answersForRd=(rd===G.r)?G.a:(function(){
 var arr=G.answersByRound&&G.answersByRound[rd];
@@ -1004,14 +1082,11 @@ var qText=(G.questions&&G.questions[rd])||(rd===G.r?G.currentQuestion:null)||'';
 if(qText||Object.keys(answersForRd).length>0){
 const qd=document.createElement('div');
 qd.className='system-message';
-qd.style.top=pos+'px';
 qd.innerHTML='<div class="system-message-text">'+(qText?'"'+qText+'"':'')+'</div>';
-mc.appendChild(qd);
-pos+=35;
+placeFullWidth(qd,32);
 const ar=document.createElement('div');
 ar.className='answers-row';
-ar.style.top=pos+'px';
-const orderedForAnswers=playersWithLocalLast(ap);
+const orderedForAnswers=playersWithLocalCenter(ap);
 orderedForAnswers.forEach(p=>{
 const ad=document.createElement('div');
 ad.className='answer-bubble';
@@ -1019,49 +1094,52 @@ ad.style.background=p.color;
 ad.textContent=answersForRd[p.id]||'(no answer)';
 ar.appendChild(ad);
 });
-mc.appendChild(ar);
 const mal=Math.max(...Object.values(answersForRd).map(a=>a?a.length:10),10);
-const ln=Math.ceil(mal/15);
-pos+=(ln*17)+12+18;
+const ansH=(Math.ceil(mal/15)*17)+12+16;
+placeFullWidth(ar,ansH);
 }
+
 const rm=mbr[rd]||[];
 rm.forEach(m=>{
 if(m.playerId==='system'){
 const sys=document.createElement('div');
 sys.className='system-vote-announce';
-sys.style.cssText='position:absolute;left:0;right:0;top:'+pos+'px;text-align:center;font-size:11px;color:#94a3b8;font-style:italic;padding:4px 8px;';
-sys.textContent=m.text;
-mc.appendChild(sys);
-pos+=28;
+sys.style.cssText='position:absolute;left:0;right:0;text-align:center;font-size:11px;color:#94a3b8;font-style:italic;padding:4px 8px;';
+placeFullWidth(sys,26);
 return;
 }
 const c=document.getElementById('col-'+m.playerId);
 if(!c)return;
+
+// Position : max(curseur de cette colonne, minimum global)
+const y=Math.max(colPos[m.playerId]||0, globalMin);
 const b=document.createElement('div');
 b.className='message-bubble';
 b.textContent=m.text;
 b.style.background=m.color;
-b.style.position='absolute';
-b.style.top=pos+'px';
-b.style.left='2px';
-b.style.right='2px';
+b.style.top=y+'px';
 c.appendChild(b);
-const ln=Math.ceil(m.text.length/20);
-pos+=(ln*17)+12+7;
+
+// Hauteur réelle du message (chars / ~22 par ligne à 11px dans la colonne)
+const lh=Math.ceil(m.text.length/22);
+const mh=(lh*16)+10; // line-height*lines + padding
+colPos[m.playerId]=y+mh+TIGHT_GAP;
+globalMin=y+ORDER_STEP; // décalage temporel minimal pour les prochains messages
 });
+
 if(rd<G.r){
 const sep=document.createElement('div');
 sep.className='round-separator';
-sep.style.top=pos+'px';
 const ep=rd<=G.e.length?G.p.find(p=>p.id===G.e[rd-1]):null;
 const robotClass=ep&&ep.isAI?' robot':'';
 sep.innerHTML='<div class="round-separator-line"><div class="round-separator-hr"></div><div class="round-separator-text">ROUND '+rd+' ENDED</div><div class="round-separator-hr"></div></div>'+(ep?'<div class="round-eliminated-info"><span>'+ep.username+(ep.isAI?' 🤖':'')+' eliminated</span><div class="round-eliminated-circle'+robotClass+'" style="background:'+ep.color+';box-shadow:0 0 5px '+ep.color+'60;"></div></div>':'');
-mc.appendChild(sep);
-pos+=55;
+placeFullWidth(sep,50);
 }
 }
+
+const maxY=Math.max(...Object.values(colPos),globalMin);
 const messagesColumns=document.getElementById('messages-columns');
-messagesColumns.style.height=(pos+300)+'px';
+messagesColumns.style.height=(maxY+120)+'px';
 messagesColumns.style.minHeight='100%';
 scrollToBottom(wasNearBottom);
 }
