@@ -272,7 +272,69 @@
       /* --- End-round avatar smaller --- */
       .eliminated-avatar { width: 80px; height: 80px; font-size: 36px; }
 
+      /* --- Chat toggle button: mobile only --- */
+      .chat-toggle-btn {
+        background: none;
+        border: 1px solid rgba(255,255,255,0.15);
+        border-radius: 5px;
+        color: rgba(255,255,255,0.45);
+        font-size: 14px;
+        padding: 4px 7px;
+        cursor: pointer;
+        line-height: 1;
+        transition: color 0.2s, border-color 0.2s;
+        flex-shrink: 0;
+      }
+      .chat-toggle-btn.active {
+        color: #06b6d4;
+        border-color: #06b6d4;
+      }
+
     }
+    /* Desktop: hide toggle button entirely */
+    @media (min-width: 601px) {
+      .chat-toggle-btn { display: none; }
+    }
+
+    /* ---- Single-chat mode layout ---- */
+    .messages-columns.single-chat {
+      display: flex !important;
+      flex-direction: column;
+      position: static !important;
+      height: auto !important;
+      min-height: unset !important;
+      padding: 4px 0 8px;
+      gap: 0;
+    }
+    .messages-columns.single-chat .round-separator,
+    .messages-columns.single-chat .system-message,
+    .messages-columns.single-chat .system-vote-announce,
+    .messages-columns.single-chat .answers-row {
+      position: static !important;
+    }
+    .sc-msg {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 5px 10px;
+    }
+    .sc-avatar {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: bold;
+      color: #fff;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .sc-body { flex: 1; min-width: 0; }
+    .sc-name { font-size: 10px; font-weight: 700; margin-bottom: 2px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .sc-text { font-size: 13px; color: #e2e8f0; line-height: 1.4; word-wrap: break-word; }
+    .sc-text.sc-answer { font-style: italic; color: #cbd5e1; }
   </style>
 </head>
 <body>
@@ -332,6 +394,7 @@
           <div class="eliminated-circles" id="eliminated-circles"></div>
           <div class="bot-counter" id="bot-counter">🤖</div>
           <button class="history-btn" id="history-btn" onmousedown="showVoteHistory()" onmouseup="hideVoteHistory()" onmouseleave="hideVoteHistory()" ontouchstart="showVoteHistory();event.preventDefault();" ontouchend="hideVoteHistory();" title="Hold to view">🔌</button>
+          <button class="chat-toggle-btn" id="chat-toggle-btn" onclick="toggleSingleChat()" title="Passer en chat unique">☰</button>
         </div>
       </div>
       <!-- Messages -->
@@ -420,7 +483,7 @@
 const COLORS=[{n:'Red',h:'#ef4444'},{n:'Orange',h:'#f97316'},{n:'Gold',h:'#eab308'},{n:'Silver',h:'#94a3b8'},{n:'Purple',h:'#a855f7'},{n:'Turquoise',h:'#06b6d4'},{n:'Pink',h:'#ec4899'},{n:'Lime',h:'#84cc16'},{n:'Indigo',h:'#6366f1'}];
 const T=5,A=2;  // 5 joueurs total (3 humains + 2 IA)
 const HUMAN_NEEDED=3;
-let G={s:'waiting',r:1,mr:5,t:100,qt:15,p:[],m:[],e:[],eliminationOrder:[],l:null,im:null,a:{},v:{},h:{},vh:{},sh:false,sa:null,ui:false,eliminatedAiCount:0,lang:'fr',currentQuestion:null,questions:{},questionEndTime:null};
+let G={s:'waiting',r:1,mr:5,t:100,qt:15,p:[],m:[],e:[],eliminationOrder:[],l:null,im:null,a:{},v:{},h:{},vh:{},sh:false,sa:null,ui:false,eliminatedAiCount:0,lang:'fr',currentQuestion:null,questions:{},questionEndTime:null,singleChat:false};
 
 // === SOCKET.IO SETUP ===
 // Configuration automatique selon environnement
@@ -1164,6 +1227,9 @@ document.getElementById('bot-counter').style.color='#ef4444';
 }
 
 function renderMessages(){
+if(G.singleChat){renderSingleChat();return;}
+const mc0=document.getElementById('messages-columns');
+if(mc0){mc0.className='messages-columns';mc0.style.position='';}
 const container=document.getElementById('messages-container');
 const wasNearBottom=container&&(container.scrollHeight-container.scrollTop-container.clientHeight)<90;
 const ap=G.p.filter(p=>!G.e.includes(p.id));
@@ -1281,6 +1347,97 @@ const c=document.getElementById('messages-container');
 if(!c)return;
 const nb=force||(c.scrollHeight-c.scrollTop-c.clientHeight<90);
 if(nb)c.scrollTop=c.scrollHeight;
+}
+
+function toggleSingleChat(){
+G.singleChat=!G.singleChat;
+const btn=document.getElementById('chat-toggle-btn');
+if(btn)btn.classList.toggle('active',G.singleChat);
+renderMessages();
+}
+
+function renderSingleChat(){
+const container=document.getElementById('messages-container');
+const wasNearBottom=container&&(container.scrollHeight-container.scrollTop-container.clientHeight)<90;
+const mc=document.getElementById('messages-columns');
+mc.innerHTML='';
+mc.className='messages-columns single-chat';
+mc.style.height='';
+mc.style.minHeight='';
+
+const ap=G.p.filter(p=>!G.e.includes(p.id));
+const mbr={};
+G.m.forEach(m=>{if(!mbr[m.round])mbr[m.round]=[];mbr[m.round].push(m);});
+
+function scRow(p,text,isAnswer){
+const row=document.createElement('div');
+row.className='sc-msg';
+const av=document.createElement('div');
+av.className='sc-avatar';
+av.style.background=p.color;
+av.textContent=p.username.charAt(0);
+const body=document.createElement('div');
+body.className='sc-body';
+const nameDiv=document.createElement('div');
+nameDiv.className='sc-name';
+nameDiv.style.color=p.color;
+nameDiv.textContent=p.username;
+const textDiv=document.createElement('div');
+textDiv.className='sc-text'+(isAnswer?' sc-answer':'');
+textDiv.textContent=text;
+body.appendChild(nameDiv);
+body.appendChild(textDiv);
+row.appendChild(av);
+row.appendChild(body);
+return row;
+}
+
+for(let rd=1;rd<=G.r;rd++){
+var answersForRd=(rd===G.r)?G.a:(function(){
+var arr=G.answersByRound&&G.answersByRound[rd];
+if(!arr||!arr.length)return{};
+var o={};arr.forEach(function(a){o[a.playerId]=a.answer;});return o;
+})();
+var qText=(G.questions&&G.questions[rd])||(rd===G.r?G.currentQuestion:null)||'';
+
+if(qText||Object.keys(answersForRd).length>0){
+if(qText){
+const qd=document.createElement('div');
+qd.className='system-message';
+qd.innerHTML='<div class="system-message-text">"'+qText+'"</div>';
+mc.appendChild(qd);
+}
+const orderedForAnswers=playersWithLocalCenter(ap);
+orderedForAnswers.forEach(p=>{
+if(answersForRd[p.id])mc.appendChild(scRow(p,answersForRd[p.id],true));
+});
+}
+
+const rm=mbr[rd]||[];
+rm.forEach(m=>{
+if(m.playerId==='system'){
+const sys=document.createElement('div');
+sys.className='system-vote-announce';
+sys.style.cssText='text-align:center;font-size:11px;color:#94a3b8;font-style:italic;padding:4px 8px;';
+sys.textContent=m.text;
+mc.appendChild(sys);
+return;
+}
+const p=G.p.find(pp=>pp.id===m.playerId);
+if(p)mc.appendChild(scRow(p,m.text,false));
+});
+
+if(rd<G.r){
+const sep=document.createElement('div');
+sep.className='round-separator';
+const ep=rd<=G.eliminationOrder.length?G.p.find(p=>p.id===G.eliminationOrder[rd-1]):null;
+const robotClass=ep&&ep.isAI?' robot':'';
+sep.innerHTML='<div class="round-separator-line"><div class="round-separator-hr"></div><div class="round-separator-text">ROUND '+rd+' ENDED</div><div class="round-separator-hr"></div></div>'+(ep?'<div class="round-eliminated-info"><span>'+ep.username+(ep.isAI?' 🤖':'')+' eliminated</span><div class="round-eliminated-circle'+robotClass+'" style="background:'+ep.color+';box-shadow:0 0 5px '+ep.color+'60;"></div></div>':'');
+mc.appendChild(sep);
+}
+}
+
+scrollToBottom(wasNearBottom);
 }
 
 function toggleHeart(id){
