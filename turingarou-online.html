@@ -460,6 +460,7 @@ function updateGameFromServer(state) {
   if (state.votes && state.votes.length) {
     state.votes.forEach(function(v) { G.v[v.voterId] = v.targetId; });
   }
+  if (state.aiCount != null) G.aiCount = state.aiCount;
   if (state.phase === 'endround' && state.eliminatedAiCount != null) {
     G.eliminatedAiCount = state.eliminatedAiCount;
     G.eliminatedPlayerIsAI = state.eliminatedPlayerIsAI ?? null;
@@ -856,7 +857,8 @@ if(inp){ inp.oninput=()=>{ if(btn) btn.disabled=!inp.value.trim(); }; }
 function submitAnswer(){
   const inp = document.getElementById('answer-input');
   if (!inp || inp.disabled) return;
-  const ans = inp.value.trim() || '(no answer)';
+  const ans = inp.value.trim();
+  if (!ans) return; // don't submit empty answers on timer expiry
   
   console.log('📝 Submitting answer:', ans);
   socket.emit('answerQuestion', { answer: ans });
@@ -1052,7 +1054,7 @@ c.innerHTML='<div class="eliminated-tooltip">'+ep.username+(ep.isAI?' 🤖':'')+
 ec.appendChild(c);
 }
 });
-document.getElementById('bot-counter').textContent='🤖 ?/'+A;
+document.getElementById('bot-counter').textContent='🤖 ?/'+(G.aiCount||A);
 document.getElementById('bot-counter').style.color='#ef4444';
 }
 
@@ -1267,7 +1269,7 @@ const ep=eid?G.p.find(p=>p.id===eid):null;
 const ip=iid?G.p.find(p=>p.id===iid):null;
 document.getElementById('round-complete-text').textContent='ROUND '+G.r+' COMPLETED';
 const aia=typeof G.eliminatedAiCount==='number'?G.eliminatedAiCount:G.e.length;
-document.getElementById('ai-unplugged-text').textContent=aia+'/'+A+' AI UNPLUGGED';
+document.getElementById('ai-unplugged-text').textContent=aia+'/'+(G.aiCount||A)+' AI UNPLUGGED';
 if(ep){
 const ea=document.getElementById('eliminated-avatar-display');
 ea.textContent=ep.username.charAt(0);

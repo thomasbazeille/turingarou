@@ -186,6 +186,10 @@ export class GameRoom {
       this.abortGame();
     } else {
       this.emitState();
+      // If a player disconnects during voting, check if all remaining players have now voted
+      if (this.state.phase === 'voting') {
+        this.tryEndVotingEarly();
+      }
     }
   }
 
@@ -639,8 +643,9 @@ export class GameRoom {
     this.questionsByRound.set(this.state.currentRound, this.state.currentQuestion ?? '');
     this.state.answers = [];
     this.state.votes = [];
-    // Garder state.messages pour permettre de remonter dans le chat (historique tous rounds)
-    this.state.protectedPlayerId = null;
+    // protectedPlayerId is intentionally NOT reset here — it must persist through
+    // the next round's voting phase so the immunity assigned in processVotes() is honoured.
+    // It will be overwritten by the new processVotes() at the end of the next round.
     this.state.phase = 'question';
     this.state.questionEndTime = Date.now() + QUESTION_PHASE_MS;
     this.emitState();
@@ -755,8 +760,12 @@ export class GameRoom {
 
   addMessage(playerId: string, content: string): void {
     if (this.aborted) return;
+    if (this.state.phase !== 'discussion') return;
     const player = this.state.players.find((p) => p.id === playerId);
     if (!player || player.isEliminated) return;
+    // Enforce the 10-second lock at end of discussion (same rule as AI)
+    const DISCUSSION_LOCK_MS = 10000;
+    if (this.state.discussionEndTime != null && Date.now() > this.state.discussionEndTime - DISCUSSION_LOCK_MS) return;
 
     const message: GameMessage = {
       id: `msg-${Date.now()}-${Math.random()}`,
