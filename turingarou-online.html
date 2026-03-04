@@ -1618,8 +1618,8 @@ function goHome(){
   if(scl){scl.style.display='none';scl.innerHTML='';}
   const mc=document.getElementById('messages-columns');
   if(mc)mc.style.display='';
-  const btn=document.getElementById('chat-toggle-btn');
-  if(btn)btn.classList.remove('active');
+  const ctb=document.getElementById('chat-toggle-btn');
+  if(ctb)ctb.classList.remove('active');
   showScreen('waiting');
   renderWaitingRoom();
   var btn = document.getElementById('start-btn');
