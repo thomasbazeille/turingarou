@@ -276,7 +276,7 @@
       No immunity this round
     </div>
     <div class="next-round-container">
-      <button class="next-round-btn" id="next-round-btn">
+      <button class="next-round-btn" id="next-round-btn" style="cursor:default;pointer-events:none;">
         <div class="progress-bar" id="progress-bar"></div>
         <div class="next-round-text" id="next-round-text">NEXT ROUND</div>
       </button>
@@ -315,7 +315,7 @@
 const COLORS=[{n:'Red',h:'#ef4444'},{n:'Orange',h:'#f97316'},{n:'Gold',h:'#eab308'},{n:'Silver',h:'#94a3b8'},{n:'Purple',h:'#a855f7'},{n:'Turquoise',h:'#06b6d4'},{n:'Pink',h:'#ec4899'},{n:'Lime',h:'#84cc16'},{n:'Indigo',h:'#6366f1'}];
 const T=5,A=2;  // 5 joueurs total (3 humains + 2 IA)
 const HUMAN_NEEDED=3;
-let G={s:'waiting',r:1,mr:5,t:100,qt:15,p:[],m:[],e:[],l:null,im:null,a:{},v:{},h:{},vh:{},sh:false,sa:null,ui:false,eliminatedAiCount:0,lang:'fr',currentQuestion:null,questions:{},questionEndTime:null};
+let G={s:'waiting',r:1,mr:5,t:100,qt:15,p:[],m:[],e:[],eliminationOrder:[],l:null,im:null,a:{},v:{},h:{},vh:{},sh:false,sa:null,ui:false,eliminatedAiCount:0,lang:'fr',currentQuestion:null,questions:{},questionEndTime:null};
 
 // === SOCKET.IO SETUP ===
 // Configuration automatique selon environnement
@@ -451,6 +451,7 @@ function updateGameFromServer(state) {
   G.e = state.players
     .filter(p => p.isEliminated)
     .map(p => p.id);
+  G.eliminationOrder = state.eliminationOrder || [];
   
   // Mettre à jour l'immunité (protectedPlayerId)
   G.im = state.protectedPlayerId;
@@ -511,7 +512,7 @@ function updateGameFromServer(state) {
       if (questionText && state.currentQuestion) {
         questionText.textContent = state.currentQuestion;
       }
-      if (state.questionEndTime) {
+      if (state.questionEndTime && prevPhase !== 'question') {
         startTimerFromServer(state.questionEndTime, 'question-timer', function questionTimerEnd() {
           var inpT = document.getElementById('answer-input');
           if (inpT && !inpT.disabled) {
@@ -642,7 +643,10 @@ statusMsg.style.cssText = 'text-align:center;color:#94a3b8;font-size:12px;margin
 statusMsg.textContent = humanCount < HUMAN_NEEDED 
   ? (G.lang === 'fr' ? `⏳ En attente de ${HUMAN_NEEDED - humanCount} joueur(s)...` : `⏳ Waiting for ${HUMAN_NEEDED - humanCount} more player(s)...`)
   : '✅ Ready to start!';
-if(!document.querySelector('.waiting-status')) {
+const existingStatus = document.querySelector('.waiting-status');
+if (existingStatus) {
+  existingStatus.textContent = statusMsg.textContent;
+} else {
   statusMsg.className = 'waiting-status';
   g.parentElement?.insertBefore(statusMsg, g.nextSibling);
 }
@@ -1048,10 +1052,8 @@ c.innerHTML='<div class="eliminated-tooltip">'+ep.username+(ep.isAI?' 🤖':'')+
 ec.appendChild(c);
 }
 });
-const aia=G.e.filter(id=>G.p.find(p=>p.id===id)?.isAI).length;
-const aiRemaining=A-aia;
-document.getElementById('bot-counter').textContent=aiRemaining+'/'+A+' 🤖';
-document.getElementById('bot-counter').style.color=aiRemaining===0?'#22c55e':'#ef4444';
+document.getElementById('bot-counter').textContent='🤖 ?/'+A;
+document.getElementById('bot-counter').style.color='#ef4444';
 }
 
 function renderMessages(){
@@ -1124,6 +1126,7 @@ if(m.playerId==='system'){
 const sys=document.createElement('div');
 sys.className='system-vote-announce';
 sys.style.cssText='position:absolute;left:0;right:0;text-align:center;font-size:11px;color:#94a3b8;font-style:italic;padding:4px 8px;';
+sys.textContent=m.text;
 placeFullWidth(sys,26);
 return;
 }
@@ -1152,7 +1155,7 @@ globalMin=y+ORDER_STEP; // décalage temporel minimal pour les prochains message
 if(rd<G.r){
 const sep=document.createElement('div');
 sep.className='round-separator';
-const ep=rd<=G.e.length?G.p.find(p=>p.id===G.e[rd-1]):null;
+const ep=rd<=G.eliminationOrder.length?G.p.find(p=>p.id===G.eliminationOrder[rd-1]):null;
 const robotClass=ep&&ep.isAI?' robot':'';
 sep.innerHTML='<div class="round-separator-line"><div class="round-separator-hr"></div><div class="round-separator-text">ROUND '+rd+' ENDED</div><div class="round-separator-hr"></div></div>'+(ep?'<div class="round-eliminated-info"><span>'+ep.username+(ep.isAI?' 🤖':'')+' eliminated</span><div class="round-eliminated-circle'+robotClass+'" style="background:'+ep.color+';box-shadow:0 0 5px '+ep.color+'60;"></div></div>':'');
 placeFullWidth(sep,50);
@@ -1331,6 +1334,7 @@ function goHome(){
   socket.disconnect();
   G.p = [];
   G.e = [];
+  G.eliminationOrder = [];
   G.l = null;
   G.s = 'waiting';
   G.m = [];

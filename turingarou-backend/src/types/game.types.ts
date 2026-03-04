@@ -9,7 +9,6 @@ export interface PlayerBase {
   colorName: string;
   isReady: boolean;
   isEliminated: boolean;
-  hearts: number; // Vie restante (pour les protégés)
 }
 
 export interface HumanPlayer extends PlayerBase {
@@ -73,10 +72,12 @@ export interface GameRoomState {
   maxPlayers: number;
   minPlayers: number;
   aiCount: number; // Nombre d'IA dans la partie
-  eliminatedPlayerId?: string | null; // Set when phase is endround
-  eliminatedPlayerIsAI?: boolean | null; // true = AI, false = human, null = tie/unknown
-  gameOverReason?: 'humans_win' | 'ai_win' | 'draw' | null; // Set when phase is gameover
-  language?: 'fr' | 'en'; // Room language for UI and AI
+  eliminatedPlayerId?: string | null;
+  eliminatedPlayerIsAI?: boolean | null;
+  gameOverReason?: 'humans_win' | 'ai_win' | 'draw' | null;
+  language?: 'fr' | 'en';
+  /** Ordered list of eliminated player IDs (index 0 = eliminated in round 1, etc.) */
+  eliminationOrder?: string[];
 }
 
 /** Game format passed to AI for prompt (timing, player counts, etc.) */

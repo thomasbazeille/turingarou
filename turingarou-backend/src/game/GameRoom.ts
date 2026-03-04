@@ -54,6 +54,8 @@ export class GameRoom {
   private questionsByRound: Map<number, string> = new Map();
   /** True once all humans have left — blocks every further LLM call and timer */
   private aborted = false;
+  /** Chronological list of eliminated player IDs (index 0 = round 1 elimination) */
+  private eliminationOrder: string[] = [];
   /** Last time each AI sent a discussion message (for rate limiting) */
   private lastAIMessageTime: Map<string, number> = new Map();
   /** Whether the last message sent by each AI was short (< 80 chars) */
@@ -109,7 +111,6 @@ export class GameRoom {
       colorName: availableColor.name,
       isReady: true,
       isEliminated: false,
-      hearts: 3,
     };
 
     this.state.players.push(player);
@@ -148,7 +149,6 @@ export class GameRoom {
       colorName: availableColor.name,
       isReady: true,
       isEliminated: false,
-      hearts: 3,
     };
     this.state.players.push(player);
     const inspectorPrompt = await getInspectorPromptContent();
@@ -229,7 +229,6 @@ export class GameRoom {
         colorName: availableColor.name,
         isReady: true,
         isEliminated: false,
-        hearts: 3,
         personality,
         messageHistory: [],
       };
@@ -522,7 +521,7 @@ export class GameRoom {
   private async aiVote(): Promise<void> {
     if (this.aborted) return;
     const activePlayers = this.state.players
-      .filter((p) => !p.isEliminated)
+      .filter((p) => !p.isEliminated && p.id !== this.state.protectedPlayerId)
       .map((p) => ({ id: p.id, username: p.username }));
 
     for (const [id, aiPlayer] of this.aiPlayers) {
@@ -558,16 +557,15 @@ export class GameRoom {
         voteCounts.set(vote.targetId, count + 1);
       });
 
-      // Trouver le joueur avec le plus de votes
+      // Trouver le(s) joueur(s) avec le plus de votes — tie-break aléatoire
       let eliminatedId = '';
-      let maxVotes = 0;
-
-      voteCounts.forEach((count, playerId) => {
-        if (count > maxVotes) {
-          maxVotes = count;
-          eliminatedId = playerId;
-        }
-      });
+      if (voteCounts.size > 0) {
+        const maxVotes = Math.max(...Array.from(voteCounts.values()));
+        const topPlayers = Array.from(voteCounts.entries())
+          .filter(([, count]) => count === maxVotes)
+          .map(([id]) => id);
+        eliminatedId = topPlayers[Math.floor(Math.random() * topPlayers.length)];
+      }
 
       // Protéger un joueur aléatoire (pas l'éliminé)
       const eligibleForProtection = this.state.players.filter(
@@ -598,6 +596,7 @@ export class GameRoom {
           name: eliminatedPlayer.username,
           isAI: eliminatedPlayer.type !== 'human',
         });
+        this.eliminationOrder.push(eliminatedPlayer.id);
       }
 
       this.state.phase = 'endround';
@@ -626,7 +625,7 @@ export class GameRoom {
     const remainingAI = activePlayers.filter((p) => p.type === 'ai').length;
     const remainingHumans = activePlayers.filter((p) => p.type === 'human').length;
 
-    if (remainingAI === 0 || remainingHumans === 0 || activePlayers.length <= 2) {
+    if (remainingAI === 0 || remainingHumans === 0 || activePlayers.length <= 2 || this.state.currentRound >= MAX_ROUNDS) {
       this.endGame(remainingAI, remainingHumans, activePlayers.length);
       return;
     }
@@ -804,9 +803,12 @@ export class GameRoom {
   }
 
   addVote(voterId: string, targetId: string): void {
-    if (this.state.votes.some((v) => v.voterId === voterId)) {
-      return;
-    }
+    if (this.state.phase !== 'voting') return;
+    if (voterId === targetId) return;
+    if (this.state.votes.some((v) => v.voterId === voterId)) return;
+
+    const target = this.state.players.find((p) => p.id === targetId && !p.isEliminated);
+    if (!target) return;
 
     const voter = this.state.players.find((p) => p.id === voterId);
     const voterName = voter?.username ?? 'Someone';
@@ -867,8 +869,8 @@ export class GameRoom {
         colorName: p.colorName,
         isReady: p.isReady,
         isEliminated: p.isEliminated,
-        hearts: p.hearts,
       })),
+      eliminationOrder: [...this.eliminationOrder],
     };
     if (this.state.phase === 'endround') {
       out.eliminatedPlayerId = this.state.eliminatedPlayerId ?? null;

@@ -164,9 +164,29 @@ io.on('connection', (socket) => {
 
     if (currentRoom) {
       currentRoom.removePlayer(socket.id);
+      // Clean up the room immediately if no humans remain
+      const rid = currentRoom.getRoomId();
+      const humans = currentRoom.getState().players.filter((p) => p.type === 'human');
+      if (humans.length === 0) {
+        gameRooms.delete(rid);
+        console.log(`Room ${rid} deleted (no humans left)`);
+      }
     }
   });
 });
+
+// ====== ROOM CLEANUP ======
+// Periodic cleanup of finished/empty rooms every 5 minutes
+setInterval(() => {
+  for (const [id, room] of gameRooms) {
+    const state = room.getState();
+    const humans = state.players.filter((p) => p.type === 'human');
+    if (humans.length === 0 || state.phase === 'gameover') {
+      gameRooms.delete(id);
+      console.log(`[Cleanup] Room ${id} removed (phase=${state.phase}, humans=${humans.length})`);
+    }
+  }
+}, 5 * 60 * 1000);
 
 // ====== HTTP ROUTES ======
 
