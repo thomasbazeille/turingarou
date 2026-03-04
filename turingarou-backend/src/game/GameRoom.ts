@@ -54,6 +54,10 @@ export class GameRoom {
   private questionsByRound: Map<number, string> = new Map();
   /** True once all humans have left — blocks every further LLM call and timer */
   private aborted = false;
+  /** Last time each AI sent a discussion message (for rate limiting) */
+  private lastAIMessageTime: Map<string, number> = new Map();
+  /** Whether the last message sent by each AI was short (< 80 chars) */
+  private lastAIMessageShort: Map<string, boolean> = new Map();
 
   constructor(roomId: string, io: SocketServer, llmProvider: LLMProvider, aiCount: number = 1) {
     this.io = io;
@@ -340,10 +344,33 @@ export class GameRoom {
     if (this.aborted) return;
     const question = this.state.currentQuestion;
     if (!question) return;
+    const phaseStart = Date.now();
+
+    // Wait until: at least minDelay ms have passed AND a human has answered (fallback: 15s)
+    const waitBeforeSubmit = (minDelay: number): Promise<void> =>
+      new Promise<void>((resolve) => {
+        const check = () => {
+          if (this.aborted) return resolve();
+          const elapsed = Date.now() - phaseStart;
+          const humanAnswered = this.state.answers.some((a) => {
+            const p = this.state.players.find((pl) => pl.id === a.playerId);
+            return p && (p as any).type === 'human';
+          });
+          if (elapsed >= minDelay && (humanAnswered || elapsed >= 15000)) {
+            resolve();
+          } else {
+            setTimeout(check, 500);
+          }
+        };
+        check();
+      });
+
     for (const [id, aiPlayer] of this.aiPlayers) {
       const answer = await aiPlayer.answerQuestion(question);
       if (answer != null && answer.trim() !== '') {
-        this.addAnswer(id, answer);
+        const minDelay = 5000 + Math.random() * 8000; // 5–13s
+        await waitBeforeSubmit(minDelay);
+        if (!this.aborted) this.addAnswer(id, answer);
       }
     }
     for (const [id, inspector] of this.inspectors) {
@@ -351,7 +378,9 @@ export class GameRoom {
       if (!player || player.isEliminated) continue;
       const answer = await inspector.answerQuestion(question);
       if (answer != null && answer.trim() !== '') {
-        this.addAnswer(id, answer);
+        const minDelay = 5000 + Math.random() * 8000;
+        await waitBeforeSubmit(minDelay);
+        if (!this.aborted) this.addAnswer(id, answer);
       }
     }
   }
@@ -392,6 +421,12 @@ export class GameRoom {
         if (this.aiPendingMessage.has(id)) continue;
         if (discussionLocked) continue;
 
+        // Rate limiting: 10s between messages, or 4s if last message was short (burst mode)
+        const lastMsgTime = this.lastAIMessageTime.get(id) ?? 0;
+        const lastWasShort = this.lastAIMessageShort.get(id) ?? false;
+        const minGap = lastWasShort ? 4000 : 10000;
+        if (Date.now() - lastMsgTime < minGap) continue;
+
         aiPlayer.buildGameContext(
           this.state.messages,
           this.state.currentQuestion,
@@ -410,13 +445,16 @@ export class GameRoom {
           if (discussionCount === 0) {
             delayMs = 15000 + Math.floor(Math.random() * 10000);
           }
+          const msgContent = decision.message;
           setTimeout(() => {
             const remaining = this.state.phase === 'discussion' && this.state.discussionEndTime != null ? this.state.discussionEndTime - Date.now() : Infinity;
             if (remaining <= DISCUSSION_LOCK_MS) {
               this.aiPendingMessage.delete(id);
               return;
             }
-            this.addMessage(id, decision.message!);
+            this.lastAIMessageTime.set(id, Date.now());
+            this.lastAIMessageShort.set(id, msgContent.length < 80);
+            this.addMessage(id, msgContent);
             this.aiPendingMessage.delete(id);
           }, delayMs);
         }
@@ -462,6 +500,8 @@ export class GameRoom {
     }
     this.aiPendingMessage.clear();
     this.inspectorPendingMessage.clear();
+    this.lastAIMessageTime.clear();
+    this.lastAIMessageShort.clear();
   }
 
   private startVoting(): void {

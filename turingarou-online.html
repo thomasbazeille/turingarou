@@ -914,8 +914,8 @@ updateHeaderAndColumnsForRound(visibleRound);
 function updateHeaderAndColumnsForRound(roundNum){
 // Toujours masquer les éliminés, peu importe le round affiché
 const activeInRound=G.p.filter(p=>!G.e.includes(p.id));
-// Joueur local au centre
-const ordered=playersWithLocalCenter(activeInRound);
+// Ordre fixe basé sur TOUS les joueurs puis filtre les éliminés — garantit l'alignement avec les colonnes DOM
+const ordered=playersWithLocalCenter(G.p).filter(p=>activeInRound.includes(p));
 // Mettre à jour le header
 const h=document.getElementById('player-avatars-header');
 h.innerHTML='';
@@ -948,8 +948,8 @@ col.style.display=activeInRound.includes(p)?'block':'none';
 function renderGameScreen(){
 const h=document.getElementById('player-avatars-header');
 const ap=G.p.filter(p=>!G.e.includes(p.id));
-// Joueur local au centre
-const orderedPlayers=playersWithLocalCenter(ap);
+// Ordre fixe basé sur TOUS les joueurs puis filtre les éliminés — garantit l'alignement avec les colonnes DOM
+const orderedPlayers=playersWithLocalCenter(G.p).filter(p=>ap.includes(p));
 h.innerHTML='';
 orderedPlayers.forEach(p=>{
 const im=p.id===G.im;
@@ -1390,7 +1390,6 @@ function nextRound(){
 function showScreen(n){
 document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
 document.getElementById(n+'-screen').classList.add('active');
-G.s=n;
 }
 
 init();

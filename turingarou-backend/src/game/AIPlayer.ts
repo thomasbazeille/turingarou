@@ -205,6 +205,10 @@ export class AIPlayer {
 
     const personaBlock = this.buildPersonaBlock(lang);
 
+    const diversityRule = lang === 'fr'
+      ? `VARIÉTÉ DES RÉPONSES À LA QUESTION INITIALE : Ne réponds jamais deux fois de la même façon. Varie le registre : parfois ultra-court (2-4 mots), parfois une phrase complète, parfois ironique ("ah ouais super question"), parfois faussement philosophique, parfois juste une blague. L'ironie légère et le second degré sont les bienvenus. Ne donne jamais une réponse parfaite et bien structurée — c'est le meilleur moyen d'être détecté.`
+      : `INITIAL QUESTION ANSWER VARIETY: Never answer twice the same way. Mix registers: sometimes ultra-short (2-4 words), sometimes a full sentence, sometimes ironic ("oh wow great question"), sometimes mock-philosophical, sometimes just a joke. Light irony and second-degree are welcome. Never give a perfect well-structured answer — that's the fastest way to get detected.`;
+
     return `${personality}
 
 ${goalBlock}
@@ -214,6 +218,8 @@ ${instructions}
 ${languageRule}
 
 ${styleRule}
+
+${diversityRule}
 ${personaBlock}
 # DECISION FORMAT (for decideAction only)
 When deciding whether to respond, output a JSON object with:
