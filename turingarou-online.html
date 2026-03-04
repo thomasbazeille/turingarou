@@ -7,7 +7,7 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #000; color: #fff; overflow: hidden; }
-    .screen { display: none; width: 100vw; height: 100vh; }
+    .screen { display: none; width: 100vw; height: 100vh; height: 100svh; }
     .screen.active { display: flex; }
 
     /* Force scrollbar to always show */
@@ -168,6 +168,111 @@
     .animate-fade-in { animation: fadeIn 0.4s ease-out; }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes votepulse { from { opacity: 0.6; transform: scale(0.95); } to { opacity: 1; transform: scale(1.05); } }
+
+    /* ============================================================
+       RESPONSIVE MOBILE  (≤ 600px)
+       ============================================================ */
+    @media (max-width: 600px) {
+
+      /* --- Viewport height: svh excludes browser chrome bar ---
+         Fallback: 100vh for browsers that don't support svh yet  */
+      .screen { height: 100svh; }
+
+      /* --- Hide desktop scrollbars on touch --- */
+      ::-webkit-scrollbar { width: 0 !important; height: 0 !important; }
+      * { scrollbar-width: none !important; }
+      .messages-container { -webkit-overflow-scrolling: touch; overflow-y: auto !important; }
+
+      /* --- Game top bar: stack game-info-bar above avatars ---
+         This removes the need for the 130px right padding on the
+         3 content areas (header / messages / input).              */
+      .game-top-bar { flex-direction: column; }
+      .game-info-bar {
+        position: static;
+        flex-direction: row;
+        justify-content: center;
+        align-items: center;
+        gap: 14px;
+        padding: 4px 12px;
+        border-left: none;
+        border-top: 1px solid rgba(255,255,255,0.06);
+        min-width: unset;
+        width: 100%;
+        order: -1; /* put above avatars */
+      }
+      .timer-display { font-size: 20px; }
+
+      /* --- Content areas: symmetric small padding ---
+         Was: left 40px / right 130px → now 8px both sides
+         => 375 - 16 = 359px ÷ 5 columns ≈ 71px each          */
+      .player-avatars-header { padding: 6px 8px; }
+      .messages-container    { padding: 8px 8px 0 8px; }
+      .local-input-row       { padding: 5px 8px calc(7px + env(safe-area-inset-bottom)) 8px; }
+
+      /* --- C1: inactive input cells must not take space ---
+         visibility:hidden keeps space; display:none removes it.
+         The single active cell then fills the full row width.  */
+      .local-input-cell:not(.active) { display: none !important; }
+
+      /* --- C4: font-size ≥ 16px on all inputs prevents iOS auto-zoom --- */
+      .message-textarea,
+      .setup-input,
+      .answer-input,
+      .vote-select { font-size: 16px !important; }
+
+      /* --- C5: immunity badge in normal flow on small screens --- */
+      .immunity-badge,
+      .no-immunity {
+        position: static;
+        margin: 0 auto 12px;
+        width: fit-content;
+        display: flex;
+      }
+      .next-round-container { padding: 12px 25px; }
+
+      /* --- Bigger touch targets (min 44px) --- */
+      .send-btn      { padding: 10px 16px; font-size: 13px; }
+      .heart-icon    { padding: 6px; }
+      .history-btn   { padding: 6px 10px; font-size: 12px; }
+      .vote-btn      { padding: 12px; font-size: 14px; }
+      .vote-select   { padding: 10px 8px; }
+      .return-home-btn { padding: 10px 18px; font-size: 13px; }
+
+      /* --- Clamp large text to prevent overflow at 320px --- */
+      .waiting-title      { font-size: clamp(22px, 7vw, 40px); }
+      .disconnected-title { font-size: clamp(22px, 8vw, 38px); letter-spacing: 1px; }
+      .ai-unplugged       { font-size: clamp(15px, 5vw, 23px); letter-spacing: 1px; }
+      .round-complete     { font-size: clamp(14px, 4vw, 20px); letter-spacing: 1px; }
+      .eliminated-name    { font-size: clamp(18px, 5vw, 24px); }
+
+      /* --- Vote overlay VOTE text --- */
+      #vote-phase-overlay > div {
+        font-size: clamp(40px, 18vw, 72px) !important;
+        letter-spacing: clamp(4px, 2vw, 10px) !important;
+      }
+
+      /* --- Username overflow in avatar header --- */
+      .player-username {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        width: 100%;
+        text-align: center;
+        max-width: 100%;
+      }
+      .player-avatar-col { min-width: 0; }
+
+      /* --- 2-column grids on waiting/question screens --- */
+      .player-grid            { grid-template-columns: repeat(2, 1fr); }
+      .players-status-grid    { grid-template-columns: repeat(2, 1fr); }
+
+      /* --- Waiting room setup form full width --- */
+      .player-setup { max-width: 100%; }
+
+      /* --- End-round avatar smaller --- */
+      .eliminated-avatar { width: 80px; height: 80px; font-size: 36px; }
+
+    }
   </style>
 </head>
 <body>
@@ -226,7 +331,7 @@
           <div class="round-info" id="round-text">R1/5</div>
           <div class="eliminated-circles" id="eliminated-circles"></div>
           <div class="bot-counter" id="bot-counter">🤖</div>
-          <button class="history-btn" id="history-btn" onmousedown="showVoteHistory()" onmouseup="hideVoteHistory()" onmouseleave="hideVoteHistory()" title="Hold to view">🔌</button>
+          <button class="history-btn" id="history-btn" onmousedown="showVoteHistory()" onmouseup="hideVoteHistory()" onmouseleave="hideVoteHistory()" ontouchstart="showVoteHistory();event.preventDefault();" ontouchend="hideVoteHistory();" title="Hold to view">🔌</button>
         </div>
       </div>
       <!-- Messages -->
