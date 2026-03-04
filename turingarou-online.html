@@ -297,20 +297,11 @@
     }
 
     /* ---- Single-chat mode layout ---- */
-    .messages-columns.single-chat {
-      display: flex !important;
-      flex-direction: column;
+    #single-chat-list .round-separator,
+    #single-chat-list .system-message,
+    #single-chat-list .system-vote-announce {
       position: static !important;
-      height: auto !important;
-      min-height: unset !important;
-      padding: 4px 0 8px;
-      gap: 0;
-    }
-    .messages-columns.single-chat .round-separator,
-    .messages-columns.single-chat .system-message,
-    .messages-columns.single-chat .system-vote-announce,
-    .messages-columns.single-chat .answers-row {
-      position: static !important;
+      width: 100%;
     }
     .sc-msg {
       display: flex;
@@ -401,6 +392,7 @@
       <div style="position:relative;flex:1;display:flex;flex-direction:column;overflow:hidden;">
         <div class="messages-container" id="messages-container">
           <div class="messages-columns" id="messages-columns"></div>
+          <div id="single-chat-list" style="display:none;width:100%;flex-direction:column;padding:4px 0 8px;"></div>
         </div>
         <div id="vote-phase-overlay" style="display:none;position:absolute;inset:0;pointer-events:none;z-index:50;align-items:center;justify-content:center;">
           <div style="font-size:72px;font-weight:900;color:#ef4444;text-shadow:0 0 30px #ef444499,0 0 60px #ef444444;letter-spacing:10px;opacity:0.85;animation:votepulse 1.2s ease-in-out infinite alternate;">VOTE</div>
@@ -653,7 +645,12 @@ function updateGameFromServer(state) {
         G.eliminatedPlayerIsAI = null;
         // Vider les colonnes DOM de la partie précédente
         var _mc = document.getElementById('messages-columns');
-        if (_mc) _mc.innerHTML = '';
+        if (_mc) { _mc.innerHTML = ''; _mc.style.display = ''; }
+        var _scl = document.getElementById('single-chat-list');
+        if (_scl) { _scl.innerHTML = ''; _scl.style.display = 'none'; }
+        G.singleChat = false;
+        var _ctb = document.getElementById('chat-toggle-btn');
+        if (_ctb) _ctb.classList.remove('active');
         var _ph = document.getElementById('player-avatars-header');
         if (_ph) _ph.innerHTML = '';
         // Réinitialiser le mode de la local-input-row pour forcer la reconstruction
@@ -1228,8 +1225,11 @@ document.getElementById('bot-counter').style.color='#ef4444';
 
 function renderMessages(){
 if(G.singleChat){renderSingleChat();return;}
+// Ensure single-chat div is hidden and messages-columns is visible
+const scl0=document.getElementById('single-chat-list');
+if(scl0)scl0.style.display='none';
 const mc0=document.getElementById('messages-columns');
-if(mc0){mc0.className='messages-columns';mc0.style.position='';}
+if(mc0){mc0.style.display='';}
 const container=document.getElementById('messages-container');
 const wasNearBottom=container&&(container.scrollHeight-container.scrollTop-container.clientHeight)<90;
 const ap=G.p.filter(p=>!G.e.includes(p.id));
@@ -1357,13 +1357,19 @@ renderMessages();
 }
 
 function renderSingleChat(){
+// Uses a SEPARATE div (#single-chat-list) so messages-columns and its
+// col-{id} children are NEVER modified — all normal game mechanics stay intact.
 const container=document.getElementById('messages-container');
 const wasNearBottom=container&&(container.scrollHeight-container.scrollTop-container.clientHeight)<90;
+
 const mc=document.getElementById('messages-columns');
-mc.innerHTML='';
-mc.className='messages-columns single-chat';
-mc.style.height='';
-mc.style.minHeight='';
+const scl=document.getElementById('single-chat-list');
+if(!mc||!scl)return;
+
+// Switch visibility: hide columns, show single-chat list
+mc.style.display='none';
+scl.style.display='flex';
+scl.innerHTML='';
 
 const ap=G.p.filter(p=>!G.e.includes(p.id));
 const mbr={};
@@ -1404,12 +1410,13 @@ if(qText||Object.keys(answersForRd).length>0){
 if(qText){
 const qd=document.createElement('div');
 qd.className='system-message';
+qd.style.cssText='position:static;width:100%;';
 qd.innerHTML='<div class="system-message-text">"'+qText+'"</div>';
-mc.appendChild(qd);
+scl.appendChild(qd);
 }
 const orderedForAnswers=playersWithLocalCenter(ap);
 orderedForAnswers.forEach(p=>{
-if(answersForRd[p.id])mc.appendChild(scRow(p,answersForRd[p.id],true));
+if(answersForRd[p.id])scl.appendChild(scRow(p,answersForRd[p.id],true));
 });
 }
 
@@ -1418,22 +1425,23 @@ rm.forEach(m=>{
 if(m.playerId==='system'){
 const sys=document.createElement('div');
 sys.className='system-vote-announce';
-sys.style.cssText='text-align:center;font-size:11px;color:#94a3b8;font-style:italic;padding:4px 8px;';
+sys.style.cssText='text-align:center;font-size:11px;color:#94a3b8;font-style:italic;padding:4px 8px;width:100%;';
 sys.textContent=m.text;
-mc.appendChild(sys);
+scl.appendChild(sys);
 return;
 }
 const p=G.p.find(pp=>pp.id===m.playerId);
-if(p)mc.appendChild(scRow(p,m.text,false));
+if(p)scl.appendChild(scRow(p,m.text,false));
 });
 
 if(rd<G.r){
 const sep=document.createElement('div');
 sep.className='round-separator';
+sep.style.cssText='position:static;width:100%;';
 const ep=rd<=G.eliminationOrder.length?G.p.find(p=>p.id===G.eliminationOrder[rd-1]):null;
 const robotClass=ep&&ep.isAI?' robot':'';
 sep.innerHTML='<div class="round-separator-line"><div class="round-separator-hr"></div><div class="round-separator-text">ROUND '+rd+' ENDED</div><div class="round-separator-hr"></div></div>'+(ep?'<div class="round-eliminated-info"><span>'+ep.username+(ep.isAI?' 🤖':'')+' eliminated</span><div class="round-eliminated-circle'+robotClass+'" style="background:'+ep.color+';box-shadow:0 0 5px '+ep.color+'60;"></div></div>':'');
-mc.appendChild(sep);
+scl.appendChild(sep);
 }
 }
 
@@ -1604,6 +1612,14 @@ function goHome(){
   G.m = [];
   G.v = {};
   G.r = 1;
+  // Reset single-chat mode
+  G.singleChat = false;
+  const scl=document.getElementById('single-chat-list');
+  if(scl){scl.style.display='none';scl.innerHTML='';}
+  const mc=document.getElementById('messages-columns');
+  if(mc)mc.style.display='';
+  const btn=document.getElementById('chat-toggle-btn');
+  if(btn)btn.classList.remove('active');
   showScreen('waiting');
   renderWaitingRoom();
   var btn = document.getElementById('start-btn');
