@@ -304,6 +304,7 @@ export class GameRoom {
   // ====== GAME FLOW ======
 
   private startGame(): void {
+    this.eliminationOrder = [];
     this.state.phase = 'question';
     this.state.currentRound = 1;
     this.state.currentQuestion = this.getRandomQuestion();
@@ -809,6 +810,7 @@ export class GameRoom {
 
     const target = this.state.players.find((p) => p.id === targetId && !p.isEliminated);
     if (!target) return;
+    if (targetId === this.state.protectedPlayerId) return;
 
     const voter = this.state.players.find((p) => p.id === voterId);
     const voterName = voter?.username ?? 'Someone';
