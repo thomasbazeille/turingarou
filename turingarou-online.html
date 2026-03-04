@@ -56,9 +56,9 @@
     .game-screen { flex-direction: column; }
     .chat-area { flex: 1; background: #000; display: flex; flex-direction: column; overflow: hidden; }
     /* Top bar: avatars + info side by side */
-    .game-top-bar { background: rgba(24,24,27,0.9); border-bottom: 1px solid rgba(251,191,36,0.3); display: flex; align-items: center; gap: 0; flex-shrink: 0; }
-    .player-avatars-header { flex: 1; padding: 8px 12px; display: flex; justify-content: space-around; gap: 5px; }
-    .game-info-bar { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 6px 14px; border-left: 1px solid rgba(255,255,255,0.08); flex-shrink: 0; min-width: 90px; }
+    .game-top-bar { background: rgba(24,24,27,0.9); border-bottom: 1px solid rgba(251,191,36,0.3); display: flex; align-items: stretch; gap: 0; flex-shrink: 0; position: relative; }
+    .player-avatars-header { flex: 1; padding: 8px 130px 8px 40px; display: flex; gap: 5px; }
+    .game-info-bar { position: absolute; right: 0; top: 0; bottom: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 6px 14px; border-left: 1px solid rgba(255,255,255,0.08); min-width: 90px; background: rgba(24,24,27,0.9); }
     .timer-display { font-size: 30px; font-family: monospace; font-weight: bold; text-align: center; color: #22d3ee; text-shadow: 0 0 12px rgba(34,211,238,0.5); line-height: 1; }
     .timer-display.warning { color: #ef4444; text-shadow: 0 0 12px rgba(239,68,68,0.5); }
     .round-info { text-align: center; color: #94a3b8; font-size: 10px; }
@@ -73,14 +73,14 @@
     .history-btn:hover { background: rgba(6,182,212,0.1); }
     .bot-counter { font-size: 10px; color: #ef4444; }
     /* Player avatar col */
-    .player-avatar-col { display: flex; flex-direction: column; align-items: center; gap: 4px; position: relative; }
+    .player-avatar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; position: relative; }
     .player-username { color: #fbbf24; font-size: 10px; font-weight: 500; }
     .avatar-circle { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: bold; color: #fff; position: relative; }
     .heart-icon { font-size: 12px; cursor: pointer; opacity: 0.3; transition: opacity 0.2s; }
     .heart-icon:hover { opacity: 1; }
     .heart-icon.filled { opacity: 1; }
     /* Messages */
-    .messages-container { flex: 1; background: #000; padding: 10px 40px 0 40px; overflow-y: scroll !important; overflow-x: hidden; position: relative; }
+    .messages-container { flex: 1; background: #000; padding: 10px 130px 0 40px; overflow-y: scroll !important; overflow-x: hidden; position: relative; }
     .messages-container::-webkit-scrollbar { width: 8px; }
     .messages-container::-webkit-scrollbar-track { background: rgba(30,30,30,0.8); border-radius: 5px; }
     .messages-container::-webkit-scrollbar-thumb { background: rgba(6,182,212,0.6); border-radius: 5px; border: 2px solid rgba(0,0,0,0.3); }
@@ -90,7 +90,7 @@
     .player-column.local-col { z-index: 2; }
     .message-bubble { position: absolute; left: 2px; right: 2px; padding: 5px 8px; border-radius: 6px; font-size: 11px; line-height: 1.25; color: #fff; word-wrap: break-word; box-shadow: 0 1px 4px rgba(0,0,0,0.4); }
     /* Bottom input row */
-    .local-input-row { display: flex; gap: 5px; padding: 5px 10px 7px 10px; background: #000; border-top: 1px solid rgba(255,255,255,0.06); flex-shrink: 0; }
+    .local-input-row { display: flex; gap: 5px; padding: 5px 130px 7px 40px; background: #000; border-top: 1px solid rgba(255,255,255,0.06); flex-shrink: 0; }
     .local-input-cell { flex: 1; min-width: 0; }
     .local-input-cell.active { display: flex; flex-direction: column; gap: 3px; }
     .local-input-cell:not(.active) { visibility: hidden; }
