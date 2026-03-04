@@ -346,8 +346,8 @@ export class GameRoom {
     if (!question) return;
     const phaseStart = Date.now();
 
-    // Wait until: at least minDelay ms have passed AND a human has answered (fallback: 15s)
-    const waitBeforeSubmit = (minDelay: number): Promise<void> =>
+    // Wait until: a freshly-drawn random delay (7–13s) has passed AND a human has answered (fallback: 15s)
+    const waitBeforeSubmit = (): Promise<void> =>
       new Promise<void>((resolve) => {
         const check = () => {
           if (this.aborted) return resolve();
@@ -356,7 +356,9 @@ export class GameRoom {
             const p = this.state.players.find((pl) => pl.id === a.playerId);
             return p && (p as any).type === 'human';
           });
-          if (elapsed >= minDelay && (humanAnswered || elapsed >= 15000)) {
+          // Re-draw a target each tick so the answer moment is naturally unpredictable
+          const target = 7000 + Math.random() * 6000; // 7–13s
+          if (elapsed >= target && (humanAnswered || elapsed >= 15000)) {
             resolve();
           } else {
             setTimeout(check, 500);
@@ -368,8 +370,7 @@ export class GameRoom {
     for (const [id, aiPlayer] of this.aiPlayers) {
       const answer = await aiPlayer.answerQuestion(question);
       if (answer != null && answer.trim() !== '') {
-        const minDelay = 5000 + Math.random() * 8000; // 5–13s
-        await waitBeforeSubmit(minDelay);
+        await waitBeforeSubmit();
         if (!this.aborted) this.addAnswer(id, answer);
       }
     }
@@ -378,8 +379,7 @@ export class GameRoom {
       if (!player || player.isEliminated) continue;
       const answer = await inspector.answerQuestion(question);
       if (answer != null && answer.trim() !== '') {
-        const minDelay = 5000 + Math.random() * 8000;
-        await waitBeforeSubmit(minDelay);
+        await waitBeforeSubmit();
         if (!this.aborted) this.addAnswer(id, answer);
       }
     }
@@ -424,7 +424,7 @@ export class GameRoom {
         // Rate limiting: 10s between messages, or 4s if last message was short (burst mode)
         const lastMsgTime = this.lastAIMessageTime.get(id) ?? 0;
         const lastWasShort = this.lastAIMessageShort.get(id) ?? false;
-        const minGap = lastWasShort ? 4000 : 10000;
+        const minGap = lastWasShort ? 3000 + Math.random() * 3000 : 10000; // short burst: 3–6s, normal: 10s
         if (Date.now() - lastMsgTime < minGap) continue;
 
         aiPlayer.buildGameContext(
