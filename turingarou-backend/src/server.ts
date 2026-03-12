@@ -144,6 +144,12 @@ io.on('connection', (socket) => {
     currentRoom.addVote(playerId, targetId);
   });
 
+  // Flaguer un message comme suspicious
+  socket.on('flagMessage', ({ messageId, reason }: { messageId: string; reason?: string }) => {
+    if (!currentRoom || !playerId) return;
+    currentRoom.flagMessage(playerId, messageId, reason);
+  });
+
   // Ajouter un AI Inspector pour remplir le dernier slot humain (2 humains en attente)
   socket.on('addInspector', async () => {
     if (!currentRoom) {

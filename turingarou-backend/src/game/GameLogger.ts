@@ -156,6 +156,17 @@ function initSchema(db: Database.Database): void {
       answer    TEXT NOT NULL,
       UNIQUE(username, question, answer)
     );
+
+    CREATE TABLE IF NOT EXISTS message_flags (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      game_id     TEXT NOT NULL,
+      message_id  TEXT NOT NULL,
+      flagged_by  TEXT NOT NULL,
+      round       INTEGER NOT NULL,
+      ts          INTEGER NOT NULL,
+      reason      TEXT,
+      UNIQUE(game_id, message_id, flagged_by)
+    );
   `);
 }
 
@@ -209,6 +220,31 @@ export function getRandomHumanProfile(): HumanPersona | null {
   } catch {
     // DB absente ou vide (première exécution) — silencieux
     return null;
+  }
+}
+
+// ─── Flagging ─────────────────────────────────────────────────────────────────
+
+/**
+ * Enregistre le flag d'un message par un joueur humain.
+ * Appelé en cours de partie — game_id peut ne pas encore exister dans games.
+ * UNIQUE(game_id, message_id, flagged_by) : un joueur ne peut flaguer qu'une fois le même message.
+ */
+export function saveMessageFlag(
+  gameId: string,
+  messageId: string,
+  flaggedBy: string,
+  round: number,
+  reason?: string
+): void {
+  try {
+    const db = getDB();
+    db.prepare(
+      `INSERT OR IGNORE INTO message_flags (game_id, message_id, flagged_by, round, ts, reason)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(gameId, messageId, flaggedBy, round, Date.now(), reason ?? null);
+  } catch (err) {
+    console.error('[GameLogger] saveMessageFlag error:', err);
   }
 }
 

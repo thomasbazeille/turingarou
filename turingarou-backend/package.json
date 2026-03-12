@@ -5,9 +5,11 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "analyze": "tsx scripts/analyze-games.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
     "axios": "^1.6.2",
     "better-sqlite3": "^12.6.2",
     "cors": "^2.8.5",

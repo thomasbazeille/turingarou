@@ -12,6 +12,14 @@ npm run build      # compile TypeScript
 npm start          # run compiled build
 ```
 
+### Analyze game logs (requires ANTHROPIC_API_KEY)
+```bash
+cd turingarou-backend
+npm run analyze                   # last 10 games
+npm run analyze -- --games 5      # last 5 games
+npm run analyze -- --output report.md
+```
+
 ### Verify end state (run after every change)
 ```bash
 # Terminal 1 — start backend

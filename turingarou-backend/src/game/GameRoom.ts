@@ -16,7 +16,7 @@ import {
 } from '../types/game.types.js';
 import { LLMProvider } from '../llm/LLMProvider.js';
 import { getQuestionsForLanguage } from './QuestionBank.js';
-import { saveGameLog, updateHumanProfiles, getRandomHumanProfile, RoundLog, MessageLog, PlayerLog } from './GameLogger.js';
+import { saveGameLog, updateHumanProfiles, getRandomHumanProfile, saveMessageFlag, RoundLog, MessageLog, PlayerLog } from './GameLogger.js';
 
 const COLORS = [
   { name: 'Red', hex: '#ef4444' },
@@ -885,6 +885,14 @@ export class GameRoom {
       phase: this.state.phase,
       round: this.state.currentRound,
     });
+  }
+
+  flagMessage(playerId: string, messageId: string, reason?: string): void {
+    const player = this.state.players.find((p) => p.id === playerId);
+    if (!player || player.type !== 'human' || player.isEliminated) return;
+    const message = this.state.messages.find((m) => m.id === messageId);
+    if (!message || message.playerId === playerId) return; // can't flag own messages
+    saveMessageFlag(this.state.roomId, messageId, player.username, message.round, reason);
   }
 
   // ====== UTILS ======
