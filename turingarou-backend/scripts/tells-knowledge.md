@@ -101,6 +101,16 @@ Analyses run: 0 (données réelles à venir)
 - **Description** : L'IA lit et traite tous les messages (les 20 derniers du contexte). Elle ne dit jamais "ah j'avais pas vu ton message", ne répond jamais avec 10 minutes de retard à quelque chose d'ancien, ne saute jamais une question directe. Les humains font ça constamment.
 - **Fix possible** : simuler des messages "manqués" en injectant une chance de 10% qu'un message adressé à l'IA ne soit pas dans le contexte la prochaine fois qu'elle parle.
 
+### T013 — Pas de réactivité sociale réelle — interactions artificielles
+- **Catégorie** : comportement / social
+- **First seen** : 2026-03-12
+- **Last seen** : 2026-03-12
+- **Fréquence** : high (structurel — inhérent à l'architecture LLM stateless)
+- **Description** : Un humain suit le fil social de la conversation et cherche à plaire aux autres joueurs, même au prix de prendre des risques sociaux : il dira une bêtise pour rire avec quelqu'un, suivra un consensus même si ça l'expose, fera une blague nulle pour briser la glace, changera d'avis sous pression sociale visible. L'IA fait des "réactions" isolées (répond à un message, pose une question) mais ne s'inscrit pas dans une dynamique de groupe. Elle n'essaie pas de gagner l'approbation de quelqu'un en particulier, ne cherche pas à créer une complicité avec un joueur spécifique, ne fait jamais de concession sociale risquée. Ses interactions sont fonctionnelles (répondre, accuser, voter) mais jamais relationnelles.
+- **Exemple humain** : quelqu'un fait une blague sur la réponse de Pierre → un humain la reprend, renchérit, ou surenchérit même si ça détourne l'attention de lui → l'IA note juste "lol" ou ignore et continue son investigation.
+- **Exemple humain 2** : tout le monde semble vouloir voter X → un humain hésite, tergiverss, dit "ouais bon ok je vote X aussi" pour ne pas être le seul contre → l'IA vote ce que son LLM a décidé indépendamment.
+- **Fix possible** : forcer dans le contexte un tracking des alliances et du "groupe social" émergent — identifier explicitement le joueur le plus drôle/dominant de la session et donner à l'IA un biais de suivisme envers lui. Ajouter dans le prompt une instruction de "social follower mode" : parfois dire quelque chose de léger/inutile juste pour exister socialement.
+
 ### T012 — Absence de sujets vraiment hors-topic
 - **Catégorie** : comportement
 - **First seen** : 2026-03-12 (analyse prompts)
@@ -113,32 +123,32 @@ Analyses run: 0 (données réelles à venir)
 
 ## 🟡 En observation (vus par analyse statique, à confirmer sur données réelles)
 
-### T013 — Majuscule après saut de ligne malgré la règle lowercase
+### T014 — Majuscule après saut de ligne malgré la règle lowercase
 - **Catégorie** : langage
 - **First seen** : 2026-03-12 (analyse prompts)
 - **Fréquence** : rare (failure mode LLM connu)
 - **Description** : La règle "lowercase only" est parfois violée par les LLMs au début d'une phrase après un retour à la ligne, ou sur les noms propres en milieu de message. À confirmer sur des logs réels.
 
-### T014 — Mots interdits qui leaked malgré la liste noire
+### T015 — Mots interdits qui leaked malgré la liste noire
 - **Catégorie** : langage
 - **First seen** : 2026-03-12 (analyse prompts)
 - **Fréquence** : rare
 - **Description** : "moreover", "furthermore", "delve", "robust" sont explicitement interdits dans tous les prompts. Les LLMs (surtout Deepseek) les utilisent parfois malgré tout, notamment en réponse à des questions philosophiques ou complexes. À confirmer sur données réelles.
 
-### T015 — L'IA répond parfaitement aux character-level traps
+### T016 — L'IA répond parfaitement aux character-level traps
 - **Catégorie** : comportement
 - **First seen** : 2026-03-12 (analyse prompts)
 - **Fréquence** : rare mais à très haute valeur diagnostique
 - **Description** : Compter les lettres, épeler à l'envers, déchiffrer un code — les prompts disent explicitement d'échouer. Mais les LLMs donnent parfois la bonne réponse, surtout pour des tâches simples. Un seul succès parfait sur ce type de question est une preuve forte d'IA.
 - **Fix possible** : injecter une réponse incorrecte spécifique dans le prompt ("si on te demande de compter les lettres dans 'nevertheless', réponds 'uhh 5 je crois'").
 
-### T016 — L'IA vote pour une autre IA
+### T017 — L'IA vote pour une autre IA
 - **Catégorie** : voting
 - **First seen** : 2026-03-12 (analyse code)
 - **Fréquence** : incertain — dépend des parties
 - **Description** : Les IA ne se connaissent pas entre elles (le contexte dit juste "X AIs still in game"). Elles peuvent voter pour d'autres IA sur la base du contenu des messages. Ce phénomène peut être exploité : si deux joueurs se votent mutuellement, l'un est probablement humain, ou ce sont deux IA qui se sont mutuellement détectées.
 
-### T017 — Personnalité IA invariante entre rounds
+### T018 — Personnalité IA invariante entre rounds
 - **Catégorie** : comportement
 - **First seen** : 2026-03-12 (analyse code)
 - **Fréquence** : à confirmer
@@ -189,7 +199,7 @@ Analyses run: 0 (données réelles à venir)
 
 ## 📊 Stats globales
 
-- Total tells identifiés : 17 (12 actifs, 5 en observation)
+- Total tells identifiés : 18 (13 actifs, 5 en observation)
 - Bugs corrigés : 7
 - Tells corrigés : 0
 - Analyses sur données réelles : 0
