@@ -111,6 +111,17 @@ Analyses run: 0 (données réelles à venir)
 - **Exemple humain 2** : tout le monde semble vouloir voter X → un humain hésite, tergiverss, dit "ouais bon ok je vote X aussi" pour ne pas être le seul contre → l'IA vote ce que son LLM a décidé indépendamment.
 - **Fix possible** : forcer dans le contexte un tracking des alliances et du "groupe social" émergent — identifier explicitement le joueur le plus drôle/dominant de la session et donner à l'IA un biais de suivisme envers lui. Ajouter dans le prompt une instruction de "social follower mode" : parfois dire quelque chose de léger/inutile juste pour exister socialement.
 
+### T014 — Réponses banales plutôt que plausiblement humaines
+- **Catégorie** : comportement / langage
+- **First seen** : 2026-03-12
+- **Last seen** : 2026-03-12
+- **Fréquence** : high (structurel — inhérent à l'objectif d'optimisation des LLMs)
+- **Description** : L'IA optimise pour "ne pas se faire attraper" en restant dans des zones sûres — réponses vagues, neutres, sans relief. Mais le vrai objectif est d'avoir l'air humain, et les humains font souvent des choses inattendues, inconfortables ou légèrement absurdes précisément parce qu'ils ne calculent pas. Un humain authentique va parfois dire quelque chose d'un peu bête, de provocateur, de trop intime, ou de hors-sujet — pas pour tromper, mais parce que c'est ce qui lui passe par la tête. L'IA choisit la réaction la moins risquée là où un humain aurait choisi la réaction la plus plausible pour lui, même si elle l'expose. Ce principe s'applique à toutes les interactions : réponse à la question initiale, messages de discussion, vote, réaction à une accusation.
+- **Exemple** : question "c'est quoi ton souvenir d'enfance préféré ?" → l'IA répond "idk les vacances j'imagine" (safe, vague) → un humain dit "le jour où j'ai cassé la vitre du voisin avec un ballon et qu'il a pas vu que c'était moi lol" (spécifique, légèrement auto-incriminant, vivant).
+- **Exemple 2** : quelqu'un accuse l'IA d'être un bot → l'IA répond "lol non" (safe) → un humain dit "ok honnêtement tu me fais flipper là" ou "et toi t'es pas suspect ?" avec une vraie énergie, pas une formule.
+- **Lien avec T013** : ce tell et T013 (réactivité sociale) se renforcent mutuellement — l'absence de prise de risque social ET l'absence de réponses plausiblement-humaines créent ensemble une présence trop lisse.
+- **Fix possible** : reformuler l'objectif dans les prompts — au lieu de "blend in / avoid detection", poser comme objectif premier "réagis comme le ferait vraiment quelqu'un dans cette situation, y compris si c'est légèrement ridicule ou auto-exposant". Donner des exemples de réponses humaines imparfaites-mais-vivantes plutôt que de réponses sûres.
+
 ### T012 — Absence de sujets vraiment hors-topic
 - **Catégorie** : comportement
 - **First seen** : 2026-03-12 (analyse prompts)
@@ -123,32 +134,32 @@ Analyses run: 0 (données réelles à venir)
 
 ## 🟡 En observation (vus par analyse statique, à confirmer sur données réelles)
 
-### T014 — Majuscule après saut de ligne malgré la règle lowercase
+### T015 — Majuscule après saut de ligne malgré la règle lowercase
 - **Catégorie** : langage
 - **First seen** : 2026-03-12 (analyse prompts)
 - **Fréquence** : rare (failure mode LLM connu)
 - **Description** : La règle "lowercase only" est parfois violée par les LLMs au début d'une phrase après un retour à la ligne, ou sur les noms propres en milieu de message. À confirmer sur des logs réels.
 
-### T015 — Mots interdits qui leaked malgré la liste noire
+### T016 — Mots interdits qui leaked malgré la liste noire
 - **Catégorie** : langage
 - **First seen** : 2026-03-12 (analyse prompts)
 - **Fréquence** : rare
 - **Description** : "moreover", "furthermore", "delve", "robust" sont explicitement interdits dans tous les prompts. Les LLMs (surtout Deepseek) les utilisent parfois malgré tout, notamment en réponse à des questions philosophiques ou complexes. À confirmer sur données réelles.
 
-### T016 — L'IA répond parfaitement aux character-level traps
+### T017 — L'IA répond parfaitement aux character-level traps
 - **Catégorie** : comportement
 - **First seen** : 2026-03-12 (analyse prompts)
 - **Fréquence** : rare mais à très haute valeur diagnostique
 - **Description** : Compter les lettres, épeler à l'envers, déchiffrer un code — les prompts disent explicitement d'échouer. Mais les LLMs donnent parfois la bonne réponse, surtout pour des tâches simples. Un seul succès parfait sur ce type de question est une preuve forte d'IA.
 - **Fix possible** : injecter une réponse incorrecte spécifique dans le prompt ("si on te demande de compter les lettres dans 'nevertheless', réponds 'uhh 5 je crois'").
 
-### T017 — L'IA vote pour une autre IA
+### T018 — L'IA vote pour une autre IA
 - **Catégorie** : voting
 - **First seen** : 2026-03-12 (analyse code)
 - **Fréquence** : incertain — dépend des parties
 - **Description** : Les IA ne se connaissent pas entre elles (le contexte dit juste "X AIs still in game"). Elles peuvent voter pour d'autres IA sur la base du contenu des messages. Ce phénomène peut être exploité : si deux joueurs se votent mutuellement, l'un est probablement humain, ou ce sont deux IA qui se sont mutuellement détectées.
 
-### T018 — Personnalité IA invariante entre rounds
+### T019 — Personnalité IA invariante entre rounds
 - **Catégorie** : comportement
 - **First seen** : 2026-03-12 (analyse code)
 - **Fréquence** : à confirmer
@@ -199,7 +210,7 @@ Analyses run: 0 (données réelles à venir)
 
 ## 📊 Stats globales
 
-- Total tells identifiés : 18 (13 actifs, 5 en observation)
+- Total tells identifiés : 19 (14 actifs, 5 en observation)
 - Bugs corrigés : 7
 - Tells corrigés : 0
 - Analyses sur données réelles : 0
