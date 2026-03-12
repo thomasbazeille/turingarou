@@ -137,7 +137,30 @@ Lors de modifications du code, suivez ces principes pour maintenir la qualité e
 2. **Localiser** : Trouvez les fonctions/sections existantes pertinentes
 3. **Planifier** : Déterminez la modification minimale nécessaire
 4. **Implémenter** : Faites le changement ciblé
-5. **Vérifier** : Testez que le changement fonctionne sans casser l'existant
+5. **Vérifier** : Testez que le changement fonctionne sans casser l'existant (voir section ci-dessous)
+
+### Vérification de l'état final (obligatoire après chaque changement)
+
+Après toute modification du backend, vérifiez que le serveur démarre et accepte des connexions :
+
+```bash
+# Terminal 1 — démarrer le backend
+cd turingarou-backend && npm run dev
+
+# Terminal 2 — lancer le client de test
+cd turingarou-backend && node test-client.js
+```
+
+**Résultat attendu :**
+```
+✅ Connected to server
+✅ Joined successfully! Player ID: <id>
+📊 Game State Update:
+   Phase: waiting
+   Players: 1/9
+```
+
+Si l'un de ces messages n'apparaît pas, le changement a cassé quelque chose — investiguer avant de committer.
 
 ## 🏗️ Architecture du Code
 
