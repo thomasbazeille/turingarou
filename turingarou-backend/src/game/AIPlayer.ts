@@ -182,11 +182,10 @@ export class AIPlayer {
         (p) => p.username.toLowerCase() === voteName.toLowerCase()
       );
 
-      // Bug fix: fallback to a random player instead of always players[0]
-      return targetPlayer?.id ?? otherPlayers[Math.floor(Math.random() * otherPlayers.length)].id;
+      return targetPlayer?.id ?? null; // unmatched name → no vote
     } catch (error) {
       console.error(`AI ${this.player.username} vote error:`, error);
-      return otherPlayers[Math.floor(Math.random() * otherPlayers.length)]?.id ?? null;
+      return null;
     }
   }
 

@@ -585,14 +585,17 @@ export class GameRoom {
         voteCounts.set(vote.targetId, count + 1);
       });
 
-      // Trouver le(s) joueur(s) avec le plus de votes — tie-break aléatoire
+      // Trouver le joueur avec le plus de votes — égalité = personne d'éliminé
       let eliminatedId = '';
       if (voteCounts.size > 0) {
         const maxVotes = Math.max(...Array.from(voteCounts.values()));
         const topPlayers = Array.from(voteCounts.entries())
           .filter(([, count]) => count === maxVotes)
           .map(([id]) => id);
-        eliminatedId = topPlayers[Math.floor(Math.random() * topPlayers.length)];
+        if (topPlayers.length === 1) {
+          eliminatedId = topPlayers[0];
+        }
+        // tie → eliminatedId stays '' → nobody eliminated
       }
 
       // Protéger un joueur aléatoire (pas l'éliminé)
