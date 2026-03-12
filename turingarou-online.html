@@ -480,7 +480,7 @@
 const COLORS=[{n:'Red',h:'#ef4444'},{n:'Orange',h:'#f97316'},{n:'Gold',h:'#eab308'},{n:'Silver',h:'#94a3b8'},{n:'Purple',h:'#a855f7'},{n:'Turquoise',h:'#06b6d4'},{n:'Pink',h:'#ec4899'},{n:'Lime',h:'#84cc16'},{n:'Indigo',h:'#6366f1'}];
 const T=5,A=2;  // 5 joueurs total (3 humains + 2 IA)
 const HUMAN_NEEDED=3;
-let G={s:'waiting',r:1,mr:5,t:100,qt:15,p:[],m:[],e:[],eliminationOrder:[],l:null,im:null,a:{},v:{},h:{},vh:{},sh:false,sa:null,ui:false,eliminatedAiCount:0,lang:'fr',currentQuestion:null,questions:{},questionEndTime:null,singleChat:false,flagged:new Set()};
+let G={s:'waiting',r:1,mr:5,t:100,qt:15,p:[],m:[],e:[],eliminationOrder:[],l:null,im:null,a:{},v:{},h:{},vh:{},sh:false,sa:null,ui:false,eliminatedAiCount:0,lang:'fr',currentQuestion:null,questions:{},questionEndTime:null,singleChat:false,flagged:new Set(),colOrder:null};
 
 // === SOCKET.IO SETUP ===
 // Configuration automatique selon environnement
@@ -651,6 +651,7 @@ function updateGameFromServer(state) {
         // Vider les colonnes DOM de la partie précédente
         var _mc = document.getElementById('messages-columns');
         if (_mc) { _mc.innerHTML = ''; _mc.style.display = ''; }
+        G.colOrder = null;
         var _scl = document.getElementById('single-chat-list');
         if (_scl) { _scl.innerHTML = ''; _scl.style.display = 'none'; }
         G.singleChat = false;
@@ -699,15 +700,7 @@ function updateGameFromServer(state) {
       showScreen('game');
       renderGameScreen(); // renderLocalInputRow appelé en mode 'message' depuis renderGameScreen
       if (state.discussionEndTime && prevPhase !== 'discussion') {
-        startTimerFromServer(state.discussionEndTime, 'timer-display', null, function(remaining) {
-          var ta2 = document.getElementById('message-textarea');
-          var sb2 = document.getElementById('send-btn');
-          var disable = remaining <= 10;
-          if (ta2) { ta2.disabled = disable; ta2.placeholder = disable ? (G.lang === 'fr' ? 'Temps écoulé — allez voter' : 'Time\'s up — go vote') : 'Type...'; }
-          if (sb2) sb2.disabled = disable;
-          var row2 = document.getElementById('local-input-row');
-          if (row2) { row2.style.opacity = disable ? '0.5' : '1'; row2.style.pointerEvents = disable ? 'none' : 'auto'; }
-        });
+        startTimerFromServer(state.discussionEndTime, 'timer-display');
       }
       break;
     case 'voting':
@@ -1090,8 +1083,11 @@ updateHeaderAndColumnsForRound(visibleRound);
 function updateHeaderAndColumnsForRound(roundNum){
 // Toujours masquer les éliminés, peu importe le round affiché
 const activeInRound=G.p.filter(p=>!G.e.includes(p.id));
-// Ordre fixe basé sur TOUS les joueurs puis filtre les éliminés — garantit l'alignement avec les colonnes DOM
-const ordered=playersWithLocalCenter(G.p).filter(p=>activeInRound.includes(p));
+const activeIds=new Set(activeInRound.map(p=>p.id));
+// Toujours utiliser l'ordre canonique des colonnes DOM comme référence
+const ordered=G.colOrder
+?G.colOrder.map(id=>G.p.find(p=>p.id===id)).filter(p=>p&&activeIds.has(p.id))
+:playersWithLocalCenter(G.p).filter(p=>activeIds.has(p.id));
 // Mettre à jour le header
 const h=document.getElementById('player-avatars-header');
 h.innerHTML='';
@@ -1116,7 +1112,7 @@ h.appendChild(c);
 G.p.forEach(p=>{
 const col=document.getElementById('col-'+p.id);
 if(col){
-col.style.display=activeInRound.includes(p)?'block':'none';
+col.style.display=activeIds.has(p.id)?'block':'none';
 }
 });
 }
@@ -1124,8 +1120,30 @@ col.style.display=activeInRound.includes(p)?'block':'none';
 function renderGameScreen(){
 const h=document.getElementById('player-avatars-header');
 const ap=G.p.filter(p=>!G.e.includes(p.id));
-// Ordre fixe basé sur TOUS les joueurs puis filtre les éliminés — garantit l'alignement avec les colonnes DOM
-const orderedPlayers=playersWithLocalCenter(G.p).filter(p=>ap.includes(p));
+const apIds=new Set(ap.map(p=>p.id));
+const cl=document.getElementById('messages-columns');
+// Créer les colonnes au premier render et mémoriser leur ordre canonique
+if(cl.children.length===0){
+const allOrdered=playersWithLocalCenter(G.p);
+G.colOrder=allOrdered.map(p=>p.id);
+allOrdered.forEach(p=>{
+const c=document.createElement('div');
+c.className='player-column'+(p.isLocal?' local-col':'');
+c.id='col-'+p.id;
+c.style.display=apIds.has(p.id)?'block':'none';
+cl.appendChild(c);
+});
+}else{
+// Mettre à jour la visibilité des colonnes existantes
+G.p.forEach(p=>{
+const col=document.getElementById('col-'+p.id);
+if(col) col.style.display=apIds.has(p.id)?'block':'none';
+});
+}
+// Ordre du header et de l'input row toujours dérivé de l'ordre canonique des colonnes
+const orderedPlayers=G.colOrder
+?G.colOrder.map(id=>G.p.find(p=>p.id===id)).filter(p=>p&&apIds.has(p.id))
+:playersWithLocalCenter(G.p).filter(p=>apIds.has(p.id));
 h.innerHTML='';
 orderedPlayers.forEach(p=>{
 const im=p.id===G.im;
@@ -1143,30 +1161,10 @@ c.className='player-avatar-col';
 c.innerHTML='<div class="player-username">'+p.username+'</div>'+ah+'<div class="heart-icon'+(G.h[p.id]?' filled':'')+'" onclick="toggleHeart(\''+p.id+'\')"'+(p.isLocal?' style="cursor:default;opacity:0.2;"':'')+'>'+(G.h[p.id]?'❤️':'🤍')+'</div>'+(G.sh&&G.vh[p.id]?'<div class="vote-history-overlay">'+G.vh[p.id].map(v=>'<div class="vote-history-item">R'+v.r+': '+v.vf+'</div>').join('')+(G.r>G.vh[p.id].length?'<div class="vote-history-item">R'+G.r+': ...</div>':'')+'</div>':'')+'<div class="avatar-tooltip">'+vt+'</div>';
 h.appendChild(c);
 });
-const cl=document.getElementById('messages-columns');
-// Ne clear que si c'est le premier render
-if(cl.children.length===0){
-// Créer les colonnes : joueur local au centre
-const allOrdered=playersWithLocalCenter(G.p);
-allOrdered.forEach(p=>{
-const c=document.createElement('div');
-c.className='player-column'+(p.isLocal?' local-col':'');
-c.id='col-'+p.id;
-c.style.display=orderedPlayers.includes(p)?'block':'none';
-cl.appendChild(c);
-});
-}else{
-// Mettre à jour la visibilité des colonnes existantes
-G.p.forEach(p=>{
-const col=document.getElementById('col-'+p.id);
-if(col){
-col.style.display=orderedPlayers.includes(p)?'block':'none';
-}
-});
-}
 renderMessages();
 const localElim2=G.l&&G.e.includes(G.l);
 const inputMode=localElim2?'spectator':(G.s==='voting'?'vote':'message');
+const prevVoteSelection=document.getElementById('vote-select')?.value||'';
 renderLocalInputRow(orderedPlayers,inputMode);
 // Peupler le vote-select si on est en mode vote
 const vs=document.getElementById('vote-select');
@@ -1175,7 +1173,6 @@ if(vs&&lp){
 vs.innerHTML='<option value="">'+(G.lang==='fr'?'Choisir...':'Select...')+'</option>';
 const hasAlreadyVoted=lp.hasVoted;
 vs.disabled=hasAlreadyVoted;
-vs.value='';
 ap.forEach(p=>{
 if(!p.isLocal&&p.id!==G.im){
 const o=document.createElement('option');
@@ -1184,6 +1181,7 @@ o.textContent=p.username;
 vs.appendChild(o);
 }
 });
+if(!hasAlreadyVoted&&prevVoteSelection)vs.value=prevVoteSelection;
 var voteInputs=document.getElementById('vote-inputs');
 var voteConfirmed=document.getElementById('vote-confirmed');
 if(hasAlreadyVoted){
@@ -1271,11 +1269,12 @@ const mc=document.getElementById('messages-columns');
 
 // Helper : place un élément pleine-largeur (question, séparateur…)
 // et aligne tous les curseurs sur la position suivante
-function placeFullWidth(el,height){
+function placeFullWidth(el,estimatedHeight){
 const y=Math.max(globalMin,...Object.values(colPos));
 el.style.top=y+'px';
 mc.appendChild(el);
-const nextY=y+height;
+const actualHeight=el.getBoundingClientRect().height||estimatedHeight;
+const nextY=y+actualHeight+4;
 G.p.forEach(p=>{ colPos[p.id]=nextY; });
 globalMin=nextY;
 lastMsgPlayerId=null; // reset : après un élément pleine-largeur, pas de continuité
