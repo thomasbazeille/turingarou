@@ -182,10 +182,11 @@ export class AIPlayer {
         (p) => p.username.toLowerCase() === voteName.toLowerCase()
       );
 
-      return targetPlayer?.id ?? otherPlayers[0].id;
+      // Bug fix: fallback to a random player instead of always players[0]
+      return targetPlayer?.id ?? otherPlayers[Math.floor(Math.random() * otherPlayers.length)].id;
     } catch (error) {
       console.error(`AI ${this.player.username} vote error:`, error);
-      return otherPlayers[0]?.id ?? null;
+      return otherPlayers[Math.floor(Math.random() * otherPlayers.length)]?.id ?? null;
     }
   }
 

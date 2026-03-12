@@ -201,7 +201,7 @@ export class GameRoom {
     console.log(`[GameRoom ${this.state.roomId}] All humans disconnected — aborting game.`);
 
     // Annuler tous les timers actifs
-    if (this.discussionTimer) { clearInterval(this.discussionTimer); this.discussionTimer = null; }
+    if (this.discussionTimer) { clearTimeout(this.discussionTimer); this.discussionTimer = null; }
     if (this.aiThinkingInterval) { clearInterval(this.aiThinkingInterval); this.aiThinkingInterval = null; }
     if (this.votePhaseTimeout) { clearTimeout(this.votePhaseTimeout); this.votePhaseTimeout = null; }
     if (this.questionPhaseTimeout) { clearTimeout(this.questionPhaseTimeout); this.questionPhaseTimeout = null; }
@@ -371,17 +371,31 @@ export class GameRoom {
         check();
       });
 
-    for (const [id, aiPlayer] of this.aiPlayers) {
-      const answer = await aiPlayer.answerQuestion(question);
+    // Bug fix: fire all LLM calls in parallel so AI 2 doesn't always answer after AI 1
+    const aiAnswerResults = await Promise.all(
+      Array.from(this.aiPlayers.entries()).map(async ([id, aiPlayer]) => ({
+        id,
+        answer: await aiPlayer.answerQuestion(question),
+      }))
+    );
+    for (const { id, answer } of aiAnswerResults) {
       if (answer != null && answer.trim() !== '') {
         await waitBeforeSubmit();
         if (!this.aborted) this.addAnswer(id, answer);
       }
     }
-    for (const [id, inspector] of this.inspectors) {
-      const player = this.state.players.find((p) => p.id === id);
-      if (!player || player.isEliminated) continue;
-      const answer = await inspector.answerQuestion(question);
+    const inspectorAnswerResults = await Promise.all(
+      Array.from(this.inspectors.entries())
+        .filter(([id]) => {
+          const p = this.state.players.find((pl) => pl.id === id);
+          return p && !p.isEliminated;
+        })
+        .map(async ([id, inspector]) => ({
+          id,
+          answer: await inspector.answerQuestion(question),
+        }))
+    );
+    for (const { id, answer } of inspectorAnswerResults) {
       if (answer != null && answer.trim() !== '') {
         await waitBeforeSubmit();
         if (!this.aborted) this.addAnswer(id, answer);
@@ -469,6 +483,12 @@ export class GameRoom {
         if (this.inspectorPendingMessage.has(id)) continue;
         if (discussionLocked) continue;
 
+        // Bug fix: apply same rate limiting as aiPlayers (was missing for inspectors)
+        const lastInspMsgTime = this.lastAIMessageTime.get(id) ?? 0;
+        const lastInspWasShort = this.lastAIMessageShort.get(id) ?? false;
+        const inspMinGap = lastInspWasShort ? 3000 + Math.random() * 3000 : 10000;
+        if (Date.now() - lastInspMsgTime < inspMinGap) continue;
+
         inspector.buildGameContext(
           this.state.messages,
           this.state.currentQuestion,
@@ -489,7 +509,10 @@ export class GameRoom {
               this.inspectorPendingMessage.delete(id);
               return;
             }
-            this.addMessage(id, decision.message!);
+            const inspMsgContent = decision.message!;
+            this.lastAIMessageTime.set(id, Date.now());
+            this.lastAIMessageShort.set(id, inspMsgContent.length < 80);
+            this.addMessage(id, inspMsgContent);
             this.inspectorPendingMessage.delete(id);
           }, delayMs);
         }
@@ -730,10 +753,15 @@ export class GameRoom {
         .filter((m) => m.playerId !== 'system')
         .map((m) => {
           const p = this.state.players.find((pl) => pl.id === m.playerId);
+          // Bug fix: inspector players have type 'human' on the Player object but must be
+          // logged as 'inspector' — check the inspectors map explicitly.
+          const msgType = p?.type !== 'human' ? 'ai'
+            : this.inspectors.has(m.playerId) ? 'inspector'
+            : 'human';
           return {
             round: m.round,
             player: m.playerName,
-            type: p?.type === 'human' ? 'human' : 'ai',
+            type: msgType,
             content: m.content,
             timestamp: m.timestamp,
           };
@@ -790,7 +818,7 @@ export class GameRoom {
   addAnswer(playerId: string, answer: string): void {
     if (this.state.phase !== 'question') return;
     const player = this.state.players.find((p) => p.id === playerId);
-    if (!player) return;
+    if (!player || player.isEliminated) return; // Bug fix: guard against eliminated players answering
     this.state.answers = this.state.answers.filter((a) => a.playerId !== playerId);
     const questionAnswer: QuestionAnswer = {
       playerId,
