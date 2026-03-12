@@ -1,12 +1,13 @@
 /**
  * analyze-games.ts — Analyse les dernières parties via Claude API.
+ * Met à jour tells-knowledge.md avec les nouvelles observations.
  *
  * Usage:
- *   npx tsx scripts/analyze-games.ts              # 10 dernières parties
- *   npx tsx scripts/analyze-games.ts --games 5    # 5 dernières parties
- *   npx tsx scripts/analyze-games.ts --output report.md
+ *   npm run analyze                        # 10 dernières parties
+ *   npm run analyze -- --games 5           # 5 dernières parties
+ *   npm run analyze -- --output report.md  # sauvegarde le rapport
  *
- * Requires: ANTHROPIC_API_KEY in environment or .env
+ * Requires: ANTHROPIC_API_KEY in .env
  */
 
 import Database from 'better-sqlite3';
@@ -19,16 +20,21 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DB_PATH = path.join(__dirname, '..', 'turingarou.db');
+const DB_PATH        = path.join(__dirname, '..', 'turingarou.db');
+const KNOWLEDGE_PATH = path.join(__dirname, 'tells-knowledge.md');
 
 // ── CLI args ──────────────────────────────────────────────────────────────────
 
 const args = process.argv.slice(2);
-const nGames = parseInt(args.find(a => a.startsWith('--games='))?.split('=')[1]
-  ?? args[args.indexOf('--games') + 1]
-  ?? '10');
-const outputFile = args.find(a => a.startsWith('--output='))?.split('=')[1]
-  ?? args[args.indexOf('--output') + 1];
+
+function argVal(flag: string): string | undefined {
+  const eq = args.find(a => a.startsWith(`--${flag}=`))?.split('=')[1];
+  const idx = args.indexOf(`--${flag}`);
+  return eq ?? (idx !== -1 ? args[idx + 1] : undefined);
+}
+
+const nGames    = parseInt(argVal('games') ?? '10');
+const outputFile = argVal('output');
 
 // ── DB queries ────────────────────────────────────────────────────────────────
 
@@ -38,7 +44,7 @@ interface MsgRow    { round: number; player_name: string; player_type: string; c
 interface VoteRow   { round: number; voter: string; target: string }
 interface ElimRow   { round: number; player_name: string; is_ai: number }
 interface AnswerRow { round: number; player_name: string; player_type: string; answer: string }
-interface FlagRow   { message_id: string; flagged_by: string; round: number; reason: string | null; player_name: string; player_type: string; content: string }
+interface FlagRow   { message_id: string; flagged_by: string; round: number; reason: string | null; player_name: string | null; player_type: string | null; content: string | null }
 
 function loadGames(n: number) {
   if (!fs.existsSync(DB_PATH)) {
@@ -66,13 +72,8 @@ function loadGames(n: number) {
       SELECT mf.message_id, mf.flagged_by, mf.round, mf.reason,
              m.player_name, m.player_type, m.content
       FROM message_flags mf
-      LEFT JOIN messages m ON m.game_id = mf.game_id
-        AND m.player_name = (
-          SELECT player_name FROM messages WHERE game_id = mf.game_id AND id = CAST(mf.message_id AS INTEGER) LIMIT 1
-        )
-        AND m.ts = (
-          SELECT ts FROM messages WHERE game_id = mf.game_id AND id = CAST(mf.message_id AS INTEGER) LIMIT 1
-        )
+      LEFT JOIN messages m
+        ON m.game_id = mf.game_id AND m.id = CAST(mf.message_id AS INTEGER)
       WHERE mf.game_id = ?
     `).all(g.game_id) as FlagRow[];
 
@@ -83,7 +84,7 @@ function loadGames(n: number) {
   return result;
 }
 
-// ── Format prompt ─────────────────────────────────────────────────────────────
+// ── Format game logs ──────────────────────────────────────────────────────────
 
 function formatGamesForPrompt(games: ReturnType<typeof loadGames>): string {
   let out = '';
@@ -97,7 +98,6 @@ function formatGamesForPrompt(games: ReturnType<typeof loadGames>): string {
       out += `  ${p.player_type.padEnd(9)} ${p.player_name}${elim}${p.strategy ? ` (strategy: ${p.strategy})` : ''}\n`;
     }
 
-    // Group by round
     const rounds = [...new Set([...g.answers.map(a => a.round), ...g.messages.map(m => m.round)])].sort((a, b) => a - b);
     for (const rd of rounds) {
       out += `\n  --- ROUND ${rd} ---\n`;
@@ -125,7 +125,7 @@ function formatGamesForPrompt(games: ReturnType<typeof loadGames>): string {
     }
 
     if (g.flags.length) {
-      out += '\nHUMAN FLAGS (messages flagged as suspicious by human players):\n';
+      out += '\nHUMAN FLAGS:\n';
       for (const f of g.flags) {
         out += `  flagged by ${f.flagged_by} (round ${f.round}): [${f.player_type ?? '?'}] ${f.player_name ?? '?'}: "${f.content ?? '(message not found)'}"\n`;
         if (f.reason) out += `    reason: ${f.reason}\n`;
@@ -133,6 +133,24 @@ function formatGamesForPrompt(games: ReturnType<typeof loadGames>): string {
     }
   }
   return out;
+}
+
+// ── Parse Claude response ─────────────────────────────────────────────────────
+
+function parseResponse(raw: string): { knowledge: string; report: string } {
+  const knowledgeMatch = raw.match(/<<<KNOWLEDGE_START>>>([\s\S]*?)<<<KNOWLEDGE_END>>>/);
+  const reportMatch    = raw.match(/<<<REPORT_START>>>([\s\S]*?)<<<REPORT_END>>>/);
+
+  if (!knowledgeMatch || !reportMatch) {
+    // Fallback: if delimiters are missing, treat the whole response as the report
+    console.warn('Warning: response delimiters not found — knowledge file not updated.');
+    return { knowledge: '', report: raw };
+  }
+
+  return {
+    knowledge: knowledgeMatch[1].trim(),
+    report:    reportMatch[1].trim(),
+  };
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -146,49 +164,88 @@ async function main() {
 
   console.log(`Loading last ${nGames} games from ${DB_PATH}...`);
   const games = loadGames(nGames);
-  console.log(`Loaded ${games.length} games. Sending to Claude for analysis...`);
+  console.log(`Loaded ${games.length} games.`);
 
-  const gamesText = formatGamesForPrompt(games);
+  const gamesText    = formatGamesForPrompt(games);
+  const knowledgeRaw = fs.existsSync(KNOWLEDGE_PATH)
+    ? fs.readFileSync(KNOWLEDGE_PATH, 'utf8')
+    : '(no knowledge base yet)';
+  const today = new Date().toISOString().slice(0, 10);
 
+  console.log('Sending to Claude for analysis...');
   const client = new Anthropic({ apiKey });
 
   const response = await client.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 4096,
+    max_tokens: 6000,
     messages: [
       {
         role: 'user',
-        content: `You are analyzing logs from "Turingarou", a social deduction game where human players try to identify hidden AI players. Each game has human players and AI players (type=ai or inspector). The goal: humans vote out AIs before being outnumbered.
+        content: `You are the quality analyst for "Turingarou", a social deduction game where humans try to identify hidden AI players. Player types in logs: human, ai, inspector (an AI playing as a human detective).
 
-Analyze the following game logs and produce a structured markdown report covering:
+You have two tasks:
 
-## 1. AI Behavioral Tells
-Patterns in AI messages/answers that reveal their non-human nature:
-- Repetitive phrasing or sentence structure across games
-- Overly formal or structured language
-- Answers that are too perfect/on-topic
-- Voting patterns (do AIs vote coherently? Always vote for same player types?)
-- Response timing patterns (always respond at similar intervals?)
+---
 
-## 2. Bugs & Data Anomalies
-- Missing votes (players who never voted)
-- Messages from eliminated players
-- Games with no eliminations across multiple rounds
-- Inconsistent player counts
-- Any data that looks wrong
+## TASK 1 — Update the knowledge base
 
-## 3. Human Flagging Analysis (if flags present)
-- Which flagged messages were actually from AIs vs humans (false positives)?
-- What patterns in AI messages triggered human suspicion?
-- What AI messages were NOT flagged (successful deception)?
+Here is the current tells-knowledge.md:
 
-## 4. Balance Assessment
-- Win rate: humans vs AIs
-- Average rounds per game
-- Are AIs winning too easily or too rarely?
+\`\`\`markdown
+${knowledgeRaw}
+\`\`\`
 
-## 5. Top 3 Prompt Improvements
-Concrete suggestions to make AI behavior more human-like based on observed tells.
+Cross-reference this with the new game logs below. For each existing tell:
+- If still present → update "Last seen" and increment frequency evidence
+- If absent for several games → consider moving to "En observation" or "✅ Corrigés"
+- If a fix was applied and it worked → mark as fixed with date and description
+
+For new patterns spotted → add them (🔴 if seen multiple times, 🟡 if seen once).
+
+Update "Last updated" to ${today} and increment "Analyses run" counter.
+
+Use this tell ID format: T001, T002, etc. (continue from existing IDs, never reuse).
+
+---
+
+## TASK 2 — Analysis report
+
+Produce a concise report for this batch:
+
+### Nouveaux tells détectés
+List any new patterns not already in the knowledge base.
+
+### Tells actifs confirmés
+Which known tells appeared again in this batch?
+
+### Tells potentiellement corrigés
+Which known tells were absent? Since when?
+
+### Bugs & anomalies de données
+Missing votes, impossible states, data inconsistencies.
+
+### Analyse des flags humains
+(Only if flags present) Accuracy, false positives, successful AI deceptions.
+
+### Bilan équilibre
+Win rates, average game length, balance issues.
+
+---
+
+## OUTPUT FORMAT
+
+Your response MUST follow this exact structure — no text outside the delimiters:
+
+<<<KNOWLEDGE_START>>>
+[full updated tells-knowledge.md content]
+<<<KNOWLEDGE_END>>>
+
+<<<REPORT_START>>>
+# Rapport d'analyse — ${today}
+Games analysés : ${games.length}
+
+[report content]
+<<<REPORT_END>>>
 
 ---
 
@@ -198,13 +255,16 @@ ${gamesText}`,
     ],
   });
 
-  const report = `# Turingarou — Game Analysis Report
-Generated: ${new Date().toISOString()}
-Games analyzed: ${games.length}
+  const raw = (response.content[0] as { type: string; text: string }).text;
+  const { knowledge, report } = parseResponse(raw);
 
-${(response.content[0] as { type: string; text: string }).text}
-`;
+  // Save updated knowledge base
+  if (knowledge) {
+    fs.writeFileSync(KNOWLEDGE_PATH, knowledge, 'utf8');
+    console.log(`Knowledge base updated: ${KNOWLEDGE_PATH}`);
+  }
 
+  // Output report
   if (outputFile) {
     fs.writeFileSync(outputFile, report, 'utf8');
     console.log(`Report written to ${outputFile}`);
