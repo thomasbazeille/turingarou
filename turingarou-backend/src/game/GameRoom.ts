@@ -794,9 +794,7 @@ export class GameRoom {
     if (this.state.phase !== 'discussion') return;
     const player = this.state.players.find((p) => p.id === playerId);
     if (!player || player.isEliminated) return;
-    // Enforce the 10-second lock at end of discussion (same rule as AI)
-    const DISCUSSION_LOCK_MS = 10000;
-    if (this.state.discussionEndTime != null && Date.now() > this.state.discussionEndTime - DISCUSSION_LOCK_MS) return;
+    if (this.state.discussionEndTime != null && Date.now() > this.state.discussionEndTime) return;
 
     const message: GameMessage = {
       id: `msg-${Date.now()}-${Math.random()}`,
