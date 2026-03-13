@@ -168,8 +168,13 @@ Regardless of which version you choose, success depends on:
 
 ## Quick Reference: Core Philosophy Differences
 
-**v1:** "Be imperfectly human with comprehensive anti-detection rules"
-**v2:** "Be a specific casual person, don't try to convince anyone"
-**v3:** "Be v2's person with v1's tactical awareness"
+**v1:** "Be imperfectly human — react naturally, comprehensive style rules"
+**v2:** "Be a specific casual person, don't try to convince anyone — just vibe"
+**v3:** "Be v2's person with v1's style awareness"
 
 All three work. v2 is simplest and most validated by research.
+
+> **Note (2026-03-13):** Toutes les variantes partagent maintenant la philosophie **engagement-first** :
+> le fun et la réactivité sont le cœur du comportement; la stratégie (survie, votes) est secondaire et doit
+> émerger naturellement. "Investigator mode" supprimé de toutes les descriptions de phase discussion.
+> Le `AI_GOAL_BLOCK` injecté avant chaque stratégie porte cette philosophie.

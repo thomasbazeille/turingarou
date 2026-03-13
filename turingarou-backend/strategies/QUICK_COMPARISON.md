@@ -22,29 +22,33 @@
 
 ## KEY DIFFERENCES BETWEEN VARIANTS
 
+> **Note (2026-03-13):** Toutes les variantes partagent maintenant la philosophie engagement-first.
+> La discussion = réagir, jouer, s'amuser — pas "investigator mode". La stratégie (votes, suspicion)
+> doit émerger naturellement, pas être le moteur principal du comportement.
+
 ### v1: IMPROVED BASELINE
 ```
-Philosophy: "Enhanced human imperfection"
+Philosophy: "Be imperfectly human — react naturally"
 Persona: Adaptable based on context
-Focus: Comprehensive anti-detection rules
-Unique: Most similar to your original baseline
+Focus: Comprehensive style rules + authentic reactions
+Unique: Most similar to original baseline, detailed edge-case coverage
 ```
 
 ### v2: UCSD-OPTIMIZED (73% Pass Rate) ⭐
 ```
-Philosophy: "Don't try to pass, just be casual"
+Philosophy: "Don't try to pass, just vibe"
 Persona: Fixed - young, sassy, bored, types fast
-Focus: Simple personality consistency
+Focus: Simple personality consistency + genuine reactions
 Unique: Scientifically validated highest pass rate
 Example: "lol idk man thats kinda sus"
 ```
 
 ### v3: ULTIMATE COMBINED
 ```
-Philosophy: "Best of everything"
-Persona: v2's core + tactical awareness
-Focus: Maximum defense coverage
-Unique: Kitchen sink approach, most comprehensive
+Philosophy: "Be v2's person with full style awareness"
+Persona: v2's core + v1's style tactical depth
+Focus: Engagement + coverage of all detection vectors
+Unique: Most comprehensive, best for sophisticated interrogators
 ```
 
 ## STYLE ENFORCEMENT (ALL VERSIONS)
