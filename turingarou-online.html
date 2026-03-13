@@ -336,7 +336,7 @@
   <!-- WAITING ROOM -->
   <div id="waiting-screen" class="screen active waiting-room">
     <!-- Menacing AI silhouette background -->
-    <div class="ai-silhouette">
+    <div class="ai-silhouette" id="ai-silhouette" style="display:none;">
       <svg viewBox="-40 0 480 610" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <filter id="eye-glow" x="-80%" y="-80%" width="260%" height="260%">
@@ -911,6 +911,8 @@ if (inspectorWrap) {
 
 function startGame(){
   if(!G.ui) return;
+  var sil = document.getElementById('ai-silhouette');
+  if(sil) sil.style.display = '';
   
   const username = document.getElementById('username-input').value.trim() || 'YOU';
   const customRoom = document.getElementById('room-input')?.value.trim();
