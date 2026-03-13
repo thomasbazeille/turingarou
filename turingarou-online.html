@@ -398,6 +398,9 @@
         <div id="vote-phase-overlay" style="display:none;position:absolute;inset:0;pointer-events:none;z-index:50;align-items:center;justify-content:center;">
           <div style="font-size:72px;font-weight:900;color:#ef4444;text-shadow:0 0 30px #ef444499,0 0 60px #ef444444;letter-spacing:10px;opacity:0.85;animation:votepulse 1.2s ease-in-out infinite alternate;">VOTE</div>
         </div>
+        <div id="pre-vote-overlay" style="display:none;position:absolute;inset:0;pointer-events:none;z-index:49;align-items:center;justify-content:center;">
+          <div id="pre-vote-text" style="font-size:52px;font-weight:900;color:#f97316;text-shadow:0 0 20px #f9731699,0 0 40px #f9731633;letter-spacing:6px;opacity:0.8;animation:votepulse 1s ease-in-out infinite alternate;">VOTE IN 10</div>
+        </div>
       </div>
       <!-- Input row: message typing OR vote UI (switched by JS) -->
       <div class="local-input-row" id="local-input-row"></div>
@@ -696,10 +699,22 @@ function updateGameFromServer(state) {
       showScreen('game');
       renderGameScreen(); // renderLocalInputRow appelé en mode 'message' depuis renderGameScreen
       if (state.discussionEndTime && prevPhase !== 'discussion') {
-        startTimerFromServer(state.discussionEndTime, 'timer-display');
+        startTimerFromServer(state.discussionEndTime, 'timer-display', null, function(remaining) {
+          var pvo = document.getElementById('pre-vote-overlay');
+          var pvt = document.getElementById('pre-vote-text');
+          if (!pvo) return;
+          if (remaining <= 10 && remaining > 0) {
+            pvo.style.display = 'flex';
+            if (pvt) pvt.textContent = 'VOTE IN ' + remaining;
+          } else {
+            pvo.style.display = 'none';
+          }
+        });
       }
       break;
     case 'voting':
+      var _pvo = document.getElementById('pre-vote-overlay');
+      if (_pvo) _pvo.style.display = 'none';
       var _lirVote = document.getElementById('local-input-row');
       if (_lirVote) { _lirVote.style.opacity = '1'; _lirVote.style.pointerEvents = 'auto'; }
       showScreen('game');
