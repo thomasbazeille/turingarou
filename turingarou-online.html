@@ -424,7 +424,7 @@
         <div class="disconnected-title">DISCONNECTED</div>
         <div class="eliminated-avatar" id="eliminated-avatar-display">P</div>
         <div class="eliminated-name" id="eliminated-name-display">Player</div>
-        <div class="voted-by-text">Voted out by majority</div>
+        <div class="voted-by-text" id="voted-out-subtitle">Voted out by majority</div>
         <div class="voted-by-text" id="voted-by-list">Voted by: Player1, Player2</div>
       </div>
     </div>
@@ -1573,12 +1573,16 @@ const typeLabel=isAI===true?'🤖 WAS AN AI':'🧑 WAS HUMAN';
 const typeLabelFr=isAI===true?'🤖 C\'ÉTAIT UNE IA':'🧑 C\'ÉTAIT UN HUMAIN';
 const typeColor=isAI===true?'#ef4444':'#22c55e';
 document.getElementById('eliminated-name-display').innerHTML=ep.username+'<span style="display:block;font-size:13px;font-weight:900;color:'+typeColor+';letter-spacing:2px;margin-top:4px;text-shadow:0 0 10px '+typeColor+'80;">'+(G.lang==='fr'?typeLabelFr:typeLabel)+'</span>';
+const sub=document.getElementById('voted-out-subtitle');
+if(sub)sub.textContent=G.lang==='fr'?'Éliminé par vote majoritaire':'Voted out by majority';
 const vo=Object.entries(G.v).filter(([vid,vf])=>vf===eid).map(([vid])=>G.p.find(p=>p.id===vid)?.username).filter(Boolean);
-document.getElementById('voted-by-list').textContent='Voted by: '+(vo.length?vo.join(', '):'None');
+document.getElementById('voted-by-list').textContent=(G.lang==='fr'?'Voté par : ':'Voted by: ')+(vo.length?vo.join(', '):'None');
 }else{
 document.getElementById('eliminated-avatar-display').textContent='?';
-document.getElementById('eliminated-name-display').textContent='No one (tie)';
-document.getElementById('voted-by-list').textContent='Voted by: Tie — no elimination';
+document.getElementById('eliminated-name-display').textContent=G.lang==='fr'?'Personne (égalité)':'No one (tie)';
+const sub=document.getElementById('voted-out-subtitle');
+if(sub)sub.textContent=G.lang==='fr'?'Égalité — aucune élimination':'Tie — no elimination';
+document.getElementById('voted-by-list').textContent=G.lang==='fr'?'Les votes sont à égalité':'Votes are tied';
 }
 if(ip){
 const ib=document.getElementById('immunity-badge');
