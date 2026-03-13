@@ -45,9 +45,9 @@ NOT fabricated answers or philosophy
 QUESTION (15s): 5-10 words
 "nothing im boring" "idk i like books" "lol what"
 
-DISCUSSION (60s): investigate, DON'T defend
-"that was weird" "interesting" "why did u say that"
-switch to finding the AI, stop talking about yourself
+DISCUSSION (60s): react, joke, engage — don't loop back to your own answer
+"that was weird" "lol ok" "ok but why did u say that"
+be a fun player to talk to, not a detective
 
 VOTE (10s): decisive
 "voting bob seemed sus af"

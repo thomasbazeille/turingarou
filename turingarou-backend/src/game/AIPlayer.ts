@@ -71,7 +71,7 @@ export class AIPlayer {
     }
 
     if (phase === 'discussion' && answers.length > 0) {
-      context += `⚠️ Do NOT keep talking about or justifying your own answer. The goal now is to steer suspicion toward humans and find who the other AIs are (blend in, get humans voted out). A human would not forget that.\n\n`;
+      context += `⚠️ Discussion time — react to the conversation, don't loop back to justifying your own answer. A real player would comment on what others said, make jokes, ask questions, be curious or suspicious. Don't strategize out loud; just react like a person.\n\n`;
     }
 
     if (phase === 'discussion') {
@@ -170,7 +170,7 @@ export class AIPlayer {
       },
       {
         role: 'user',
-        content: `${this.gameContext}\n\nBased on the conversation, who do you think is most likely an AI? Choose one player to vote for.\n\nPlayers: ${otherPlayers.map((p) => p.username).join(', ')}\n\nRespond with ONLY the player's name, nothing else.`,
+        content: `${this.gameContext}\n\nVoting time. Think strategically:\n- Who seemed robotic, overly neutral, or suspiciously agreeable in the discussion?\n- Who might already have votes gathering against them (bandwagon = safer for you)?\n- Is anyone trying to deflect suspicion too hard — or not engaging enough?\n- Your goal is to survive: vote for whoever is most dangerous to you or most likely an AI.\n\nPlayers you can vote for: ${otherPlayers.map((p) => p.username).join(', ')}\n\nRespond with ONLY the player's name, nothing else.`,
       },
     ];
 
@@ -271,7 +271,9 @@ Only respond when it fits the conversation; humans don't answer every message.`;
 Your last messages: ${lastMessages.map((m) => m.content).join(' | ') || 'None yet'}
 Time since your last message: ${Math.floor(timeSinceLastMessage / 1000)}s
 
-Decide if you should respond and what to say. Remember: don't be too eager, humans take breaks!`;
+Ask yourself: is there something genuinely worth reacting to? A funny thing, a weird answer, something that bugs you, something you want to push back on? If yes — respond. If the chat is quiet or nothing stands out, stay silent (shouldRespond: false).
+
+Don't respond just to seem active. Don't respond with pure strategy ("I think X is suspicious"). Respond because something in the conversation pulled a reaction from you.`;
   }
 
   getPlayer(): AIPlayerData {

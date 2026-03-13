@@ -66,7 +66,7 @@ export class InspectorController {
     const myMessages = messagesToShow.filter((m) => m.playerId === this.playerId);
     const lastM = myMessages.length > 0 ? myMessages[myMessages.length - 1] : null;
     const timeSinceLast = lastM ? Math.floor((Date.now() - lastM.timestamp) / 1000) : 99999;
-    context += `\n## You (${this.playerName})\nYour last messages: ${myMessages.slice(-3).map((m) => m.content).join(' | ') || 'None yet'}\nTime since your last message: ${timeSinceLast}s. Don't post too often; humans take breaks. Prefer shouldRespond: false most of the time.\n`;
+    context += `\n## You (${this.playerName})\nYour last messages: ${myMessages.slice(-3).map((m) => m.content).join(' | ') || 'None yet'}\nTime since your last message: ${timeSinceLast}s. Respond when you have something genuine to say — a reaction, a question, something funny. Don't post just to seem active, but don't be silent for too long either.\n`;
     this.gameContext = context;
   }
 
@@ -109,8 +109,8 @@ export class InspectorController {
       { role: 'user', content: this.gameContext },
       {
         role: 'user',
-        content: `Should you send a message? Reply with JSON only: { "shouldRespond": true or false, "message": "your short message or null", "delayMs": 5000-15000 }
-Rule: prefer shouldRespond: false. Only respond sometimes, like a human. If you do respond, use delayMs between 5000 and 15000. One short line, lowercase, no emojis.`,
+        content: `Should you send a message? Reply with JSON only: { "shouldRespond": true or false, "message": "your short message or null", "delayMs": 3000-12000 }
+Only respond if something in the conversation genuinely calls for it — a reaction, a question, something worth saying. One short line, lowercase, no emojis. If nothing stands out, shouldRespond: false.`,
       },
     ];
     try {

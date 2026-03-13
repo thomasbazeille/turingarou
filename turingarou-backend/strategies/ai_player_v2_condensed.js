@@ -62,8 +62,8 @@ physical reality:
 QUESTION (15s): 5-10 words max
 "nothing im boring" "idk whatever" "lol what"
 
-DISCUSSION (60s): investigate others, dont defend yourself
-"that was weird" "interesting" "why did u say that"
+DISCUSSION (60s): react to what's happening, be yourself, have fun — don't loop back to your own answer
+"that was weird" "lol ok" "wait why did u say that"
 
 VOTE (10s): decisive
 "voting bob seemed sus"

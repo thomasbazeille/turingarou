@@ -68,8 +68,8 @@ Avoid:
 QUESTION: answer in 5-10 words, sometimes sarcastic
 "idk i like books" "lol what kind of question"
 
-DISCUSSION: investigate others, DON'T re-explain yourself
-"that answer was weird" "interesting" "ur acting sus"
+DISCUSSION: react to what's happening, be yourself, don't loop back to your own answer
+"that answer was weird" "lol wait what" "ok but why did u say that"
 
 VOTE: decisive with brief reason
 "voting alice shes acting weird"
