@@ -202,7 +202,7 @@ export class GameRoom {
 
     // Annuler tous les timers actifs
     if (this.discussionTimer) { clearTimeout(this.discussionTimer); this.discussionTimer = null; }
-    if (this.aiThinkingInterval) { clearInterval(this.aiThinkingInterval); this.aiThinkingInterval = null; }
+    if (this.aiThinkingInterval) { clearTimeout(this.aiThinkingInterval); this.aiThinkingInterval = null; }
     if (this.votePhaseTimeout) { clearTimeout(this.votePhaseTimeout); this.votePhaseTimeout = null; }
     if (this.questionPhaseTimeout) { clearTimeout(this.questionPhaseTimeout); this.questionPhaseTimeout = null; }
 
@@ -350,28 +350,28 @@ export class GameRoom {
     if (!question) return;
     const phaseStart = Date.now();
 
-    // Wait until: a freshly-drawn random delay (7–13s) has passed AND a human has answered (fallback: 15s)
-    const waitBeforeSubmit = (): Promise<void> =>
-      new Promise<void>((resolve) => {
-        const check = () => {
-          if (this.aborted) return resolve();
-          const elapsed = Date.now() - phaseStart;
-          const humanAnswered = this.state.answers.some((a) => {
-            const p = this.state.players.find((pl) => pl.id === a.playerId);
-            return p && (p as any).type === 'human';
-          });
-          // Re-draw a target each tick so the answer moment is naturally unpredictable
-          const target = 7000 + Math.random() * 6000; // 7–13s
-          if (elapsed >= target && (humanAnswered || elapsed >= 15000)) {
-            resolve();
-          } else {
-            setTimeout(check, 500);
-          }
-        };
-        check();
-      });
+    // Each AI gets its own independent random target time so answers are naturally spread.
+    const submitAfterDelay = (id: string, answer: string): void => {
+      const myTarget = 7000 + Math.random() * 9000; // 7–16s, unique per AI
+      const check = () => {
+        if (this.aborted || this.state.phase !== 'question') return;
+        const elapsed = Date.now() - phaseStart;
+        const humanAnswered = this.state.answers.some((a) => {
+          const p = this.state.players.find((pl) => pl.id === a.playerId);
+          return p && (p as any).type === 'human';
+        });
+        if (elapsed >= myTarget && (humanAnswered || elapsed >= 15000)) {
+          this.addAnswer(id, answer);
+        } else {
+          setTimeout(check, 500);
+        }
+      };
+      // First check after at least (myTarget - elapsed) ms
+      const firstDelay = Math.max(0, myTarget - (Date.now() - phaseStart));
+      setTimeout(check, firstDelay);
+    };
 
-    // Bug fix: fire all LLM calls in parallel so AI 2 doesn't always answer after AI 1
+    // Fire all LLM calls in parallel so AIs don't answer in a fixed order
     const aiAnswerResults = await Promise.all(
       Array.from(this.aiPlayers.entries()).map(async ([id, aiPlayer]) => ({
         id,
@@ -380,8 +380,7 @@ export class GameRoom {
     );
     for (const { id, answer } of aiAnswerResults) {
       if (answer != null && answer.trim() !== '') {
-        await waitBeforeSubmit();
-        if (!this.aborted) this.addAnswer(id, answer);
+        submitAfterDelay(id, answer);
       }
     }
     const inspectorAnswerResults = await Promise.all(
@@ -397,8 +396,7 @@ export class GameRoom {
     );
     for (const { id, answer } of inspectorAnswerResults) {
       if (answer != null && answer.trim() !== '') {
-        await waitBeforeSubmit();
-        if (!this.aborted) this.addAnswer(id, answer);
+        submitAfterDelay(id, answer);
       }
     }
   }
@@ -418,117 +416,192 @@ export class GameRoom {
   }
 
   private startAIThinking(): void {
-    const DISCUSSION_LOCK_MS = 10000; // comme les humains : plus d'envoi dans les 10 dernières secondes
-    this.aiThinkingInterval = setInterval(async () => {
-      if (this.aborted) return; // Plus d'humains — stopper silencieusement
-      const remainingDiscussion = this.state.phase === 'discussion' && this.state.discussionEndTime != null
-        ? this.state.discussionEndTime - Date.now()
-        : Infinity;
-      const discussionLocked = remainingDiscussion <= DISCUSSION_LOCK_MS;
+    const scheduleNextTick = () => {
+      if (this.aborted || this.state.phase !== 'discussion') return;
+      // Variable interval 3–8s instead of fixed 5s — avoids mechanical regularity
+      const nextMs = 3000 + Math.floor(Math.random() * 5000);
+      this.aiThinkingInterval = setTimeout(async () => {
+        if (this.aborted || this.state.phase !== 'discussion') {
+          this.aiThinkingInterval = null;
+          return;
+        }
+        await this.runAIThinkingTick();
+        scheduleNextTick();
+      }, nextMs);
+    };
+    scheduleNextTick();
+  }
 
-      const activePlayers = this.state.players.filter((p) => !p.isEliminated);
-      const contextOptions = {
-        activePlayerIds: activePlayers.map((p) => p.id),
-        eliminatedNames: this.state.players.filter((p) => p.isEliminated).map((p) => p.username),
-        aiRemainingCount: activePlayers.filter((p) => p.type === 'ai').length,
-      };
+  /** Single thinking tick: called on timer and optionally on human message. */
+  private async runAIThinkingTick(): Promise<void> {
+    if (this.aborted) return;
+    const DISCUSSION_LOCK_MS = 10000;
+    const remainingDiscussion = this.state.phase === 'discussion' && this.state.discussionEndTime != null
+      ? this.state.discussionEndTime - Date.now()
+      : Infinity;
+    const discussionLocked = remainingDiscussion <= DISCUSSION_LOCK_MS;
 
-      for (const [id, aiPlayer] of this.aiPlayers) {
-        const player = this.state.players.find((p) => p.id === id) as AIPlayerData;
-        if (!player || player.isEliminated) continue;
-        if (this.aiPendingMessage.has(id)) continue;
-        if (discussionLocked) continue;
+    const activePlayers = this.state.players.filter((p) => !p.isEliminated);
+    const contextOptions = {
+      activePlayerIds: activePlayers.map((p) => p.id),
+      eliminatedNames: this.state.players.filter((p) => p.isEliminated).map((p) => p.username),
+      aiRemainingCount: activePlayers.filter((p) => p.type === 'ai').length,
+    };
 
-        // Rate limiting: 10s between messages, or 4s if last message was short (burst mode)
-        const lastMsgTime = this.lastAIMessageTime.get(id) ?? 0;
-        const lastWasShort = this.lastAIMessageShort.get(id) ?? false;
-        const minGap = lastWasShort ? 3000 + Math.random() * 3000 : 10000; // short burst: 3–6s, normal: 10s
-        if (Date.now() - lastMsgTime < minGap) continue;
+    // Shuffle AI order each tick so no AI is always first
+    const shuffledAIs = [...this.aiPlayers.entries()].sort(() => Math.random() - 0.5);
 
-        aiPlayer.buildGameContext(
-          this.state.messages,
-          this.state.currentQuestion,
-          this.state.phase,
-          this.state.currentRound,
-          this.state.answers,
-          contextOptions
-        );
+    for (const [id, aiPlayer] of shuffledAIs) {
+      const player = this.state.players.find((p) => p.id === id) as AIPlayerData;
+      if (!player || player.isEliminated) continue;
+      if (this.aiPendingMessage.has(id)) continue;
+      if (discussionLocked) continue;
 
-        const decision = await aiPlayer.decideAction();
+      // 30% chance to skip this AI entirely this tick — mirrors humans not always watching
+      if (Math.random() < 0.3) continue;
 
-        if (decision.shouldRespond && decision.message) {
-          this.aiPendingMessage.add(id);
-          const discussionCount = this.state.messages.filter((m) => m.phase === 'discussion').length;
-          let delayMs = decision.delayMs ?? 2000;
-          if (discussionCount === 0) {
-            delayMs = 15000 + Math.floor(Math.random() * 10000);
-          }
-          const msgContent = decision.message;
-          setTimeout(() => {
-            const remaining = this.state.phase === 'discussion' && this.state.discussionEndTime != null ? this.state.discussionEndTime - Date.now() : Infinity;
-            if (remaining <= DISCUSSION_LOCK_MS) {
-              this.aiPendingMessage.delete(id);
-              return;
-            }
-            this.lastAIMessageTime.set(id, Date.now());
-            this.lastAIMessageShort.set(id, msgContent.length < 80);
-            this.addMessage(id, msgContent);
+      // Rate limiting: 10s between messages, or 3–6s if last message was short (burst mode)
+      const lastMsgTime = this.lastAIMessageTime.get(id) ?? 0;
+      const lastWasShort = this.lastAIMessageShort.get(id) ?? false;
+      const minGap = lastWasShort ? 3000 + Math.random() * 3000 : 10000;
+      if (Date.now() - lastMsgTime < minGap) continue;
+
+      aiPlayer.buildGameContext(
+        this.state.messages,
+        this.state.currentQuestion,
+        this.state.phase,
+        this.state.currentRound,
+        this.state.answers,
+        contextOptions
+      );
+
+      const decision = await aiPlayer.decideAction();
+
+      if (decision.shouldRespond && decision.message) {
+        this.aiPendingMessage.add(id);
+        const discussionCount = this.state.messages.filter((m) => m.phase === 'discussion').length;
+        let delayMs = decision.delayMs ?? 2000;
+        if (discussionCount === 0) {
+          delayMs = 15000 + Math.floor(Math.random() * 10000);
+        }
+        const msgContent = decision.message;
+        setTimeout(() => {
+          const remaining = this.state.phase === 'discussion' && this.state.discussionEndTime != null ? this.state.discussionEndTime - Date.now() : Infinity;
+          if (remaining <= DISCUSSION_LOCK_MS) {
             this.aiPendingMessage.delete(id);
-          }, delayMs);
-        }
+            return;
+          }
+          this.lastAIMessageTime.set(id, Date.now());
+          const isShort = msgContent.length < 50;
+          this.lastAIMessageShort.set(id, isShort);
+          this.addMessage(id, msgContent);
+          this.aiPendingMessage.delete(id);
+          // Burst: ~40% chance to send a follow-up short message after 4–9s
+          if (isShort && Math.random() < 0.4) {
+            this.scheduleBurstCheck(id, aiPlayer);
+          }
+        }, delayMs);
       }
-      for (const [id, inspector] of this.inspectors) {
-        const player = this.state.players.find((p) => p.id === id);
-        if (!player || player.isEliminated) continue;
-        if (this.inspectorPendingMessage.has(id)) continue;
-        if (discussionLocked) continue;
+    }
 
-        // Bug fix: apply same rate limiting as aiPlayers (was missing for inspectors)
-        const lastInspMsgTime = this.lastAIMessageTime.get(id) ?? 0;
-        const lastInspWasShort = this.lastAIMessageShort.get(id) ?? false;
-        const inspMinGap = lastInspWasShort ? 3000 + Math.random() * 3000 : 10000;
-        if (Date.now() - lastInspMsgTime < inspMinGap) continue;
+    // Shuffle inspector order too
+    const shuffledInspectors = [...this.inspectors.entries()].sort(() => Math.random() - 0.5);
 
-        inspector.buildGameContext(
-          this.state.messages,
-          this.state.currentQuestion,
-          this.state.phase,
-          this.state.currentRound,
-          this.state.answers,
-          contextOptions
-        );
-        const decision = await inspector.decideAction();
-        if (decision.shouldRespond && decision.message) {
-          this.inspectorPendingMessage.add(id);
-          let delayMs = decision.delayMs ?? 5000 + Math.floor(Math.random() * 10000);
-          const discussionCount = this.state.messages.filter((m) => m.phase === 'discussion').length;
-          if (discussionCount === 0) delayMs = 15000 + Math.floor(Math.random() * 10000);
-          setTimeout(() => {
-            const remaining = this.state.phase === 'discussion' && this.state.discussionEndTime != null ? this.state.discussionEndTime - Date.now() : Infinity;
-            if (remaining <= DISCUSSION_LOCK_MS) {
-              this.inspectorPendingMessage.delete(id);
-              return;
-            }
-            const inspMsgContent = decision.message!;
-            this.lastAIMessageTime.set(id, Date.now());
-            this.lastAIMessageShort.set(id, inspMsgContent.length < 80);
-            this.addMessage(id, inspMsgContent);
+    for (const [id, inspector] of shuffledInspectors) {
+      const player = this.state.players.find((p) => p.id === id);
+      if (!player || player.isEliminated) continue;
+      if (this.inspectorPendingMessage.has(id)) continue;
+      if (discussionLocked) continue;
+
+      if (Math.random() < 0.3) continue;
+
+      const lastInspMsgTime = this.lastAIMessageTime.get(id) ?? 0;
+      const lastInspWasShort = this.lastAIMessageShort.get(id) ?? false;
+      const inspMinGap = lastInspWasShort ? 3000 + Math.random() * 3000 : 10000;
+      if (Date.now() - lastInspMsgTime < inspMinGap) continue;
+
+      inspector.buildGameContext(
+        this.state.messages,
+        this.state.currentQuestion,
+        this.state.phase,
+        this.state.currentRound,
+        this.state.answers,
+        contextOptions
+      );
+      const decision = await inspector.decideAction();
+      if (decision.shouldRespond && decision.message) {
+        this.inspectorPendingMessage.add(id);
+        let delayMs = decision.delayMs ?? 5000 + Math.floor(Math.random() * 10000);
+        const discussionCount = this.state.messages.filter((m) => m.phase === 'discussion').length;
+        if (discussionCount === 0) delayMs = 15000 + Math.floor(Math.random() * 10000);
+        setTimeout(() => {
+          const remaining = this.state.phase === 'discussion' && this.state.discussionEndTime != null ? this.state.discussionEndTime - Date.now() : Infinity;
+          if (remaining <= DISCUSSION_LOCK_MS) {
             this.inspectorPendingMessage.delete(id);
-          }, delayMs);
-        }
+            return;
+          }
+          const inspMsgContent = decision.message!;
+          this.lastAIMessageTime.set(id, Date.now());
+          this.lastAIMessageShort.set(id, inspMsgContent.length < 80);
+          this.addMessage(id, inspMsgContent);
+          this.inspectorPendingMessage.delete(id);
+        }, delayMs);
       }
-    }, 5000);
+    }
   }
 
   private stopAIThinking(): void {
     if (this.aiThinkingInterval) {
-      clearInterval(this.aiThinkingInterval);
+      clearTimeout(this.aiThinkingInterval);
       this.aiThinkingInterval = null;
     }
     this.aiPendingMessage.clear();
     this.inspectorPendingMessage.clear();
     this.lastAIMessageTime.clear();
     this.lastAIMessageShort.clear();
+  }
+
+  /**
+   * Schedule a solo follow-up check for one AI after a short message (burst mode).
+   * Models humans sending 2-3 short messages in a row.
+   */
+  private scheduleBurstCheck(id: string, aiPlayer: AIPlayer): void {
+    const DISCUSSION_LOCK_MS = 10000;
+    const burstDelay = 4000 + Math.floor(Math.random() * 5000); // 4–9s
+    setTimeout(async () => {
+      if (this.aborted || this.state.phase !== 'discussion') return;
+      if (this.aiPendingMessage.has(id)) return;
+      const player = this.state.players.find((p) => p.id === id);
+      if (!player || player.isEliminated) return;
+      const remaining = this.state.discussionEndTime != null ? this.state.discussionEndTime - Date.now() : Infinity;
+      if (remaining <= DISCUSSION_LOCK_MS) return;
+
+      const activePlayers = this.state.players.filter((p) => !p.isEliminated);
+      aiPlayer.buildGameContext(
+        this.state.messages,
+        this.state.currentQuestion,
+        this.state.phase,
+        this.state.currentRound,
+        this.state.answers,
+        {
+          activePlayerIds: activePlayers.map((p) => p.id),
+          eliminatedNames: this.state.players.filter((p) => p.isEliminated).map((p) => p.username),
+          aiRemainingCount: activePlayers.filter((p) => p.type === 'ai').length,
+        }
+      );
+      const decision = await aiPlayer.decideAction();
+      if (!decision.shouldRespond || !decision.message) return;
+      this.aiPendingMessage.add(id);
+      const msgContent = decision.message;
+      setTimeout(() => {
+        const rem = this.state.phase === 'discussion' && this.state.discussionEndTime != null ? this.state.discussionEndTime - Date.now() : Infinity;
+        if (rem <= DISCUSSION_LOCK_MS) { this.aiPendingMessage.delete(id); return; }
+        this.lastAIMessageTime.set(id, Date.now());
+        this.lastAIMessageShort.set(id, msgContent.length < 50);
+        this.addMessage(id, msgContent);
+        this.aiPendingMessage.delete(id);
+      }, decision.delayMs ?? 1500);
+    }, burstDelay);
   }
 
   private startVoting(): void {
@@ -814,6 +887,18 @@ export class GameRoom {
     }
 
     this.emitState();
+
+    // When a real human (not inspector, not AI) sends a message, trigger an
+    // opportunistic AI thinking check after a short delay so AIs can react
+    // to what was said — in addition to the regular timer-based polling.
+    const isRealHuman = player.type === 'human' && !this.inspectors.has(playerId);
+    if (isRealHuman) {
+      const reactionDelay = 5000 + Math.floor(Math.random() * 10000); // 5–15s
+      setTimeout(() => {
+        if (this.aborted || this.state.phase !== 'discussion') return;
+        this.runAIThinkingTick();
+      }, reactionDelay);
+    }
   }
 
   addAnswer(playerId: string, answer: string): void {

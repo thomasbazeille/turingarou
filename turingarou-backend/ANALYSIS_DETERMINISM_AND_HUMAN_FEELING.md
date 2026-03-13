@@ -1,5 +1,15 @@
 # Analysis: Deterministic vs AI-Driven Steps & Human Feeling
 
+> **Status (2026-03-13): toutes les recommandations de la section 8 ont été implémentées.**
+> Voir commit `4fea405`. Résumé des fixes :
+> - **Question** : délai indépendant par AI (7–16s) au lieu d'un gate partagé → réponses naturellement étalées
+> - **Discussion** : `setInterval(5s)` → `setTimeout` récursif 3–8s variable; shuffle de l'ordre par tick; 30% de skip aléatoire par AI; déclencheur sur message humain (5–15s); burst mode (suivi 4–9s après message court)
+> - **Vote** : prompt enrichi avec hints stratégiques (bandwagon, survie, coalition)
+> - **Comportement** : `AI_GOAL_BLOCK` réécrit (fun d'abord, stratégie secondaire); toutes les stratégies : "investigator mode" → "réagis, sois fun"; `buildDecisionPrompt` : répondre si quelque chose t'a touché; InspectorController moins passif
+> - **Bugs** : `clearInterval` → `clearTimeout` (x2)
+
+---
+
 This document analyses every step of the game flow to identify what is **deterministic** (or rule-based) vs **AI-driven**, and what can **break the human illusion**.
 
 ---
@@ -139,16 +149,19 @@ Voting is already largely AI-driven for “who”; the remaining issues are stra
 
 ---
 
-## 8. Recommendations (conceptual only — no code changes)
+## 8. Recommendations — toutes implémentées (commit `4fea405`, 2026-03-13)
 
-- **Vote**: Already LLM-based. Optionally enrich the prompt with short strategic hints (who others might vote for, survival, bandwagon). Consider allowing the model to output “abstain” and handle it in rules.
-- **Discussion — when the AI is called**:
-  - Don’t call every AI on every 5s tick (e.g. random subset, or probability per AI per tick).
-  - Vary the interval (e.g. 3–8s) or per-AI “next check” time.
-  - Optionally trigger an extra “should I respond?” when a new human message arrives (message-driven), in addition to time-driven.
-- **Discussion — option to decline**: The AI *can* already return `shouldRespond: false`. The problem is the *frequency* and *regularity* of being asked, not the lack of a decline option. So focus on “when we ask” and “do we ask this AI this time?”.
-- **Question phase**:
-  - Allow “refuse to answer” or “answer very late”: one LLM call that can return “I won’t answer” or “…” and only add an answer if the model decides to answer.
-  - Stagger AI answers: e.g. random target time in the 15s window and “submit” at that time (or after a delay from the call), so answers don’t all land in the first few seconds.
-
-This document is analysis only; no code has been modified.
+- **Vote** ✅ : prompt enrichi avec hints bandwagon, survie, coalition.
+- **Discussion — quand l’AI est appelée** ✅ :
+  - Intervalle variable 3–8s (plus fixe 5s).
+  - Skip aléatoire 30% par AI par tick.
+  - Déclencheur sur message humain (5–15s).
+  - Burst mode : suivi 4–9s après message court (~40% de chance).
+- **Discussion — option de silence** ✅ : déjà possible via `shouldRespond: false`. Le vrai fix était la *fréquence* et la *régularité*, pas l’option elle-même.
+- **Phase question** ✅ :
+  - Refus déjà géré via `SKIP` dans `answerQuestion`.
+  - Étalement : chaque AI a son propre délai aléatoire indépendant (7–16s) au lieu d’un gate partagé — les réponses arrivent naturellement à des moments différents.
+- **Ton & engagement** ✅ (ajout par rapport aux recommandations initiales) :
+  - `AI_GOAL_BLOCK` réécrit : fun d’abord, stratégie secondaire.
+  - Toutes les stratégies : discussion = réagir/jouer, pas “investigator mode”.
+  - `buildDecisionPrompt` : répondre si quelque chose t’a touché.
