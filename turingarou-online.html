@@ -836,6 +836,7 @@ window.addEventListener('beforeunload', () => {
 
 function init(){
 document.getElementById('username-input').oninput=updateLocalPlayer;
+document.getElementById('username-input').onkeydown=function(e){if(e.key==='Enter'){e.preventDefault();startGame();}};
 renderWaitingRoom();
 }
 
