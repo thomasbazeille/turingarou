@@ -752,7 +752,11 @@ export class GameRoom {
 
     // Vérifier si le jeu est terminé
     const remainingAI = activePlayers.filter((p) => p.type === 'ai').length;
-    const remainingHumans = activePlayers.filter((p) => p.type === 'human').length;
+    // Only count real humans here — inspectors are AI-controlled and should not
+    // keep the game alive once they are the only \"humans\" left.
+    const remainingHumans = activePlayers.filter(
+      (p) => p.type === 'human' && !this.inspectors.has(p.id)
+    ).length;
 
     if (remainingAI === 0 || remainingHumans === 0 || activePlayers.length <= 2 || this.state.currentRound >= MAX_ROUNDS) {
       this.endGame(remainingAI, remainingHumans, activePlayers.length);
