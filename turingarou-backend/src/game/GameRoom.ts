@@ -718,13 +718,15 @@ export class GameRoom {
         // tie → eliminatedId stays '' → nobody eliminated
       }
 
-      // Protéger un joueur aléatoire (pas l'éliminé)
-      const eligibleForProtection = this.state.players.filter(
+      // Protéger un joueur aléatoire (pas l'éliminé) — seulement si > 4 joueurs restants
+      const survivorsAfterElim = this.state.players.filter(
         (p) => !p.isEliminated && p.id !== eliminatedId
       );
-      if (eligibleForProtection.length > 0) {
-        const protectedIndex = Math.floor(Math.random() * eligibleForProtection.length);
-        this.state.protectedPlayerId = eligibleForProtection[protectedIndex].id;
+      if (survivorsAfterElim.length > 4) {
+        const protectedIndex = Math.floor(Math.random() * survivorsAfterElim.length);
+        this.state.protectedPlayerId = survivorsAfterElim[protectedIndex].id;
+      } else {
+        this.state.protectedPlayerId = null;
       }
 
       // Éliminer le joueur (si pas d'égalité)
