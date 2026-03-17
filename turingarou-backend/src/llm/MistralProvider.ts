@@ -2,6 +2,11 @@ import axios from 'axios';
 import { LLMProvider, LLMConfig } from './LLMProvider.js';
 import { LLMMessage, LLMResponse } from '../types/game.types.js';
 
+function stripCodeFences(s: string): string {
+  const m = s.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  return m ? m[1] : s.trim();
+}
+
 export class MistralProvider implements LLMProvider {
   name = 'Mistral';
   private config: LLMConfig;
@@ -43,7 +48,7 @@ export class MistralProvider implements LLMProvider {
 
   private parseResponse(content: string): LLMResponse {
     try {
-      const parsed = JSON.parse(content);
+      const parsed = JSON.parse(stripCodeFences(content));
       return {
         shouldRespond: parsed.shouldRespond ?? false,
         message: parsed.message,

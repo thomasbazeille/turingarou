@@ -2,6 +2,12 @@ import Anthropic from '@anthropic-ai/sdk';
 import { LLMProvider, LLMConfig } from './LLMProvider.js';
 import { LLMMessage, LLMResponse } from '../types/game.types.js';
 
+/** Strip markdown code fences that LLMs sometimes wrap JSON in. */
+function stripCodeFences(s: string): string {
+  const m = s.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  return m ? m[1] : s.trim();
+}
+
 export class AnthropicProvider implements LLMProvider {
   name = 'Anthropic';
   private client: Anthropic;
@@ -57,13 +63,14 @@ export class AnthropicProvider implements LLMProvider {
 
   private parseResponse(content: string): LLMResponse {
     try {
-      const parsed = JSON.parse(content);
+      const parsed = JSON.parse(stripCodeFences(content));
       return {
         shouldRespond: parsed.shouldRespond ?? false,
         message: parsed.message,
         delayMs: parsed.delayMs ?? 2000,
       };
     } catch {
+      // Non-JSON response (e.g. answerQuestion plain text) — treat as direct message
       return {
         shouldRespond: true,
         message: content.trim(),
