@@ -167,6 +167,24 @@ function initSchema(db: Database.Database): void {
       reason      TEXT,
       UNIQUE(game_id, message_id, flagged_by)
     );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_game_players_unique
+      ON game_players(game_id, player_name);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_round_questions_unique
+      ON round_questions(game_id, round);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_round_answers_unique
+      ON round_answers(game_id, round, player_name);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_round_votes_unique
+      ON round_votes(game_id, round, voter);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_round_eliminations_unique
+      ON round_eliminations(game_id, round);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_unique
+      ON messages(game_id, round, player_name, ts);
+
+    CREATE INDEX IF NOT EXISTS idx_messages_game_id      ON messages(game_id);
+    CREATE INDEX IF NOT EXISTS idx_round_answers_game_id ON round_answers(game_id);
+    CREATE INDEX IF NOT EXISTS idx_round_votes_game_id   ON round_votes(game_id);
+    CREATE INDEX IF NOT EXISTS idx_game_players_game_id  ON game_players(game_id);
   `);
 }
 
@@ -266,7 +284,7 @@ export function saveGameLog(data: GameLogData): void {
 
       // players
       const insPlayer = db.prepare(
-        `INSERT INTO game_players (game_id, player_name, player_type, strategy, eliminated, eliminated_round)
+        `INSERT OR IGNORE INTO game_players (game_id, player_name, player_type, strategy, eliminated, eliminated_round)
          VALUES (?, ?, ?, ?, ?, ?)`
       );
       for (const p of data.players) {
@@ -278,16 +296,16 @@ export function saveGameLog(data: GameLogData): void {
 
       // rounds
       const insQ = db.prepare(
-        `INSERT INTO round_questions (game_id, round, question) VALUES (?, ?, ?)`
+        `INSERT OR IGNORE INTO round_questions (game_id, round, question) VALUES (?, ?, ?)`
       );
       const insA = db.prepare(
-        `INSERT INTO round_answers (game_id, round, player_name, player_type, answer) VALUES (?, ?, ?, ?, ?)`
+        `INSERT OR IGNORE INTO round_answers (game_id, round, player_name, player_type, answer) VALUES (?, ?, ?, ?, ?)`
       );
       const insV = db.prepare(
-        `INSERT INTO round_votes (game_id, round, voter, target) VALUES (?, ?, ?, ?)`
+        `INSERT OR IGNORE INTO round_votes (game_id, round, voter, target) VALUES (?, ?, ?, ?)`
       );
       const insE = db.prepare(
-        `INSERT INTO round_eliminations (game_id, round, player_name, is_ai) VALUES (?, ?, ?, ?)`
+        `INSERT OR IGNORE INTO round_eliminations (game_id, round, player_name, is_ai) VALUES (?, ?, ?, ?)`
       );
 
       for (const r of data.rounds) {
@@ -299,7 +317,7 @@ export function saveGameLog(data: GameLogData): void {
 
       // messages
       const insM = db.prepare(
-        `INSERT INTO messages (game_id, round, player_name, player_type, content, ts)
+        `INSERT OR IGNORE INTO messages (game_id, round, player_name, player_type, content, ts)
          VALUES (?, ?, ?, ?, ?, ?)`
       );
       for (const m of data.messages) {

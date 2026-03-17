@@ -475,6 +475,9 @@ export class GameRoom {
       const minGap = lastWasShort ? 3000 + Math.random() * 3000 : 10000;
       if (Date.now() - lastMsgTime < minGap) continue;
 
+      // Lock before async call to prevent race condition with the next tick
+      this.aiPendingMessage.add(id);
+
       aiPlayer.buildGameContext(
         this.state.messages,
         this.state.currentQuestion,
@@ -487,7 +490,6 @@ export class GameRoom {
       const decision = await aiPlayer.decideAction();
 
       if (decision.shouldRespond && decision.message) {
-        this.aiPendingMessage.add(id);
         const discussionCount = this.state.messages.filter((m) => m.phase === 'discussion').length;
         let delayMs = decision.delayMs ?? 2000;
         if (discussionCount === 0) {
@@ -505,11 +507,14 @@ export class GameRoom {
           this.lastAIMessageShort.set(id, isShort);
           this.addMessage(id, msgContent);
           this.aiPendingMessage.delete(id);
-          // Burst: ~40% chance to send a follow-up short message after 4–9s
-          if (isShort && Math.random() < 0.4) {
+          // Burst: ~15% chance to send a follow-up short message after 4–9s
+          if (isShort && Math.random() < 0.15) {
             this.scheduleBurstCheck(id, aiPlayer);
           }
         }, delayMs);
+      } else {
+        // No response — release the lock so the next tick can try again
+        this.aiPendingMessage.delete(id);
       }
     }
 
@@ -529,6 +534,9 @@ export class GameRoom {
       const inspMinGap = lastInspWasShort ? 3000 + Math.random() * 3000 : 10000;
       if (Date.now() - lastInspMsgTime < inspMinGap) continue;
 
+      // Lock before async call to prevent race condition
+      this.inspectorPendingMessage.add(id);
+
       inspector.buildGameContext(
         this.state.messages,
         this.state.currentQuestion,
@@ -539,7 +547,6 @@ export class GameRoom {
       );
       const decision = await inspector.decideAction();
       if (decision.shouldRespond && decision.message) {
-        this.inspectorPendingMessage.add(id);
         let delayMs = decision.delayMs ?? 5000 + Math.floor(Math.random() * 10000);
         const discussionCount = this.state.messages.filter((m) => m.phase === 'discussion').length;
         if (discussionCount === 0) delayMs = 15000 + Math.floor(Math.random() * 10000);
@@ -555,6 +562,8 @@ export class GameRoom {
           this.addMessage(id, inspMsgContent);
           this.inspectorPendingMessage.delete(id);
         }, delayMs);
+      } else {
+        this.inspectorPendingMessage.delete(id);
       }
     }
   }
@@ -585,6 +594,9 @@ export class GameRoom {
       const remaining = this.state.discussionEndTime != null ? this.state.discussionEndTime - Date.now() : Infinity;
       if (remaining <= DISCUSSION_LOCK_MS) return;
 
+      // Lock before async call
+      this.aiPendingMessage.add(id);
+
       const activePlayers = this.state.players.filter((p) => !p.isEliminated);
       aiPlayer.buildGameContext(
         this.state.messages,
@@ -599,8 +611,10 @@ export class GameRoom {
         }
       );
       const decision = await aiPlayer.decideAction();
-      if (!decision.shouldRespond || !decision.message) return;
-      this.aiPendingMessage.add(id);
+      if (!decision.shouldRespond || !decision.message) {
+        this.aiPendingMessage.delete(id);
+        return;
+      }
       const msgContent = decision.message;
       setTimeout(() => {
         const rem = this.state.phase === 'discussion' && this.state.discussionEndTime != null ? this.state.discussionEndTime - Date.now() : Infinity;

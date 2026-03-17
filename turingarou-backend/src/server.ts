@@ -9,6 +9,7 @@ import { fileURLToPath } from 'url';
 import { GameRoom } from './game/GameRoom.js';
 import { DeepseekProvider } from './llm/DeepseekProvider.js';
 import { MistralProvider } from './llm/MistralProvider.js';
+import { AnthropicProvider } from './llm/AnthropicProvider.js';
 import { LLMProvider } from './llm/LLMProvider.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -38,6 +39,9 @@ if (process.env.DEEPSEEK_API_KEY) {
 }
 if (process.env.MISTRAL_API_KEY) {
   llmProviders.push(new MistralProvider({ apiKey: process.env.MISTRAL_API_KEY }));
+}
+if (process.env.ANTHROPIC_API_KEY) {
+  llmProviders.push(new AnthropicProvider({ apiKey: process.env.ANTHROPIC_API_KEY }));
 }
 
 if (llmProviders.length === 0) {

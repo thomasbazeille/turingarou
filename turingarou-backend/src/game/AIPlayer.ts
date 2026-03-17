@@ -266,9 +266,13 @@ Only respond when it fits the conversation; humans don't answer every message.`;
     const timeSinceLastMessage =
       lastMessages.length > 0 ? Date.now() - lastMessages[lastMessages.length - 1].timestamp : 99999;
 
+    const lastMsgSummary = lastMessages.length > 0
+      ? `Your last messages (DON'T repeat the same topic or target — move on): ${lastMessages.map((m) => m.content).join(' | ')}`
+      : 'You haven\'t spoken yet.';
+
     return `Should you respond to this conversation?
 
-Your last messages: ${lastMessages.map((m) => m.content).join(' | ') || 'None yet'}
+${lastMsgSummary}
 Time since your last message: ${Math.floor(timeSinceLastMessage / 1000)}s
 
 Ask yourself: is there something genuinely worth reacting to? A funny thing, a weird answer, something that bugs you, something you want to push back on? If yes — respond. If the chat is quiet or nothing stands out, stay silent (shouldRespond: false).
