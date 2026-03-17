@@ -85,6 +85,10 @@ export class AIPlayer {
       context += `## Recent conversation (only players still in the game):\n`;
       const recentMessages = messagesToShow.slice(-20);
       recentMessages.forEach((msg) => {
+        // 15% chance to silently drop a message not sent by this AI — simulates
+        // humans occasionally missing messages (scrolled past, phone, distracted).
+        // Never drop messages sent by this AI itself (it remembers what it said).
+        if (msg.playerId !== this.player.id && Math.random() < 0.15) return;
         context += `[${msg.playerName}]: ${msg.content}\n`;
       });
     }

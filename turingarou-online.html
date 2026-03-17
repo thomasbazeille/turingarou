@@ -1711,14 +1711,30 @@ function goHome(){
   G.l = null;
   G.s = 'waiting';
   G.m = [];
+  G.a = {};
   G.v = {};
+  G.vh = {};
+  G.h = {};
   G.r = 1;
+  G.im = null;
+  G.colOrder = null;
+  G.questions = {};
+  G.answersByRound = {};
+  G.currentQuestion = null;
+  G.eliminatedAiCount = 0;
+  G.eliminatedPlayerIsAI = null;
+  G.flagged = new Set();
   // Reset single-chat mode
   G.singleChat = false;
   const scl=document.getElementById('single-chat-list');
   if(scl){scl.style.display='none';scl.innerHTML='';}
+  // Clear previous game DOM fully
   const mc=document.getElementById('messages-columns');
-  if(mc)mc.style.display='';
+  if(mc){mc.innerHTML='';mc.style.display='';}
+  const ph=document.getElementById('player-avatars-header');
+  if(ph)ph.innerHTML='';
+  const lir=document.getElementById('local-input-row');
+  if(lir){lir.innerHTML='';lir.dataset.mode='';}
   const ctb=document.getElementById('chat-toggle-btn');
   if(ctb)ctb.classList.remove('active');
   showScreen('waiting');
