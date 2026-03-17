@@ -36,7 +36,7 @@ export class GameRoom {
   private state: GameRoomState;
   private io: SocketServer;
   private aiPlayers: Map<string, AIPlayer> = new Map();
-  private llmProvider: LLMProvider;
+  private llmProviders: LLMProvider[];
   private discussionTimer: NodeJS.Timeout | null = null;
   private aiThinkingInterval: NodeJS.Timeout | null = null;
   private votePhaseTimeout: NodeJS.Timeout | null = null;
@@ -61,9 +61,9 @@ export class GameRoom {
   /** Whether the last message sent by each AI was short (< 80 chars) */
   private lastAIMessageShort: Map<string, boolean> = new Map();
 
-  constructor(roomId: string, io: SocketServer, llmProvider: LLMProvider, aiCount: number = 1) {
+  constructor(roomId: string, io: SocketServer, llmProvider: LLMProvider | LLMProvider[], aiCount: number = 1) {
     this.io = io;
-    this.llmProvider = llmProvider;
+    this.llmProviders = Array.isArray(llmProvider) ? llmProvider : [llmProvider];
 
     this.state = {
       roomId,
@@ -85,6 +85,11 @@ export class GameRoom {
       gameOverReason: null,
       language: 'fr',
     };
+  }
+
+  /** Picks a random provider from the pool (uniform distribution). */
+  private pickProvider(): LLMProvider {
+    return this.llmProviders[Math.floor(Math.random() * this.llmProviders.length)];
   }
 
   // ====== PLAYER MANAGEMENT ======
@@ -152,12 +157,14 @@ export class GameRoom {
     };
     this.state.players.push(player);
     const inspectorPrompt = await getInspectorPromptContent();
+    const inspectorProvider = this.pickProvider();
     const controller = new InspectorController(
       inspectorId,
       player.username,
       inspectorPrompt,
-      this.llmProvider
+      inspectorProvider
     );
+    console.log(`[GameRoom] Inspector ${player.username} uses provider: ${inspectorProvider.name}`);
     controller.setGameFormat(this.getGameFormat());
     this.inspectors.set(inspectorId, controller);
     this.emitState();
@@ -253,9 +260,11 @@ export class GameRoom {
         console.log(`[GameRoom] AI ${personality.name} uses human persona: ${persona.username} (${persona.sampleMessages.length} msgs)`);
       }
 
-      const aiPlayer = new AIPlayer(aiPlayerData, this.llmProvider, chosen.content, persona);
+      const provider = this.pickProvider();
+      const aiPlayer = new AIPlayer(aiPlayerData, provider, chosen.content, persona);
       this.aiPlayers.set(aiPlayerData.id, aiPlayer);
       this.aiStrategyNames.set(aiPlayerData.id, chosen.name);
+      console.log(`[GameRoom] AI ${personality.name} uses provider: ${provider.name}`);
     }
   }
 

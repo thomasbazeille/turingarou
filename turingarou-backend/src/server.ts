@@ -29,29 +29,23 @@ app.use(express.json());
 
 // ====== LLM PROVIDER SETUP ======
 
-let llmProvider: LLMProvider;
+// Build pool: all providers whose API key is set.
+// Each AI in a game will pick independently at random — within a game you can get mixed providers.
+const llmProviders: LLMProvider[] = [];
 
-const LLM_PROVIDER = process.env.LLM_PROVIDER || 'deepseek';
-
-switch (LLM_PROVIDER.toLowerCase()) {
-  case 'mistral':
-    llmProvider = new MistralProvider({
-      apiKey: process.env.MISTRAL_API_KEY || '',
-      model: 'mistral-small-latest',
-      temperature: 0.8,
-    });
-    break;
-  case 'deepseek':
-  default:
-    llmProvider = new DeepseekProvider({
-      apiKey: process.env.DEEPSEEK_API_KEY || '',
-      model: 'deepseek-chat',
-      temperature: 0.8,
-    });
-    break;
+if (process.env.DEEPSEEK_API_KEY) {
+  llmProviders.push(new DeepseekProvider({ apiKey: process.env.DEEPSEEK_API_KEY }));
+}
+if (process.env.MISTRAL_API_KEY) {
+  llmProviders.push(new MistralProvider({ apiKey: process.env.MISTRAL_API_KEY }));
 }
 
-console.log(`Using LLM provider: ${llmProvider.name}`);
+if (llmProviders.length === 0) {
+  console.error('No LLM API key configured. Set DEEPSEEK_API_KEY and/or MISTRAL_API_KEY.');
+  process.exit(1);
+}
+
+console.log(`Using LLM provider(s): ${llmProviders.map((p) => p.name).join(', ')}`);
 
 // ====== GAME ROOMS MANAGEMENT ======
 
@@ -74,7 +68,7 @@ function getOrCreateRoom(roomId: string): GameRoom {
     // Aucune room dispo, créer une nouvelle avec un ID unique
     const newRoomId = 'public-' + Date.now();
     const aiCount = parseInt(process.env.AI_COUNT || '2');
-    const room = new GameRoom(newRoomId, io, llmProvider, aiCount);
+    const room = new GameRoom(newRoomId, io, llmProviders, aiCount);
     gameRooms.set(newRoomId, room);
     console.log(`Created new public room: ${newRoomId} with ${aiCount} AIs`);
     return room;
@@ -83,7 +77,7 @@ function getOrCreateRoom(roomId: string): GameRoom {
   // Room privée avec code custom
   if (!gameRooms.has(roomId)) {
     const aiCount = parseInt(process.env.AI_COUNT || '2');
-    const room = new GameRoom(roomId, io, llmProvider, aiCount);
+    const room = new GameRoom(roomId, io, llmProviders, aiCount);
     gameRooms.set(roomId, room);
     console.log(`Created private room: ${roomId} with ${aiCount} AIs`);
   }
@@ -232,7 +226,7 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     rooms: gameRooms.size,
-    llmProvider: llmProvider.name,
+    llmProviders: llmProviders.map((p) => p.name),
   });
 });
 
@@ -256,7 +250,7 @@ httpServer.listen(PORT, () => {
 🎮 Turingarou Backend Server Started
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📡 Port: ${PORT}
-🤖 LLM: ${llmProvider.name}
+🤖 LLM: ${llmProviders.map((p) => p.name).join(' + ')}
 🎯 AI Count: ${process.env.AI_COUNT || 2}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   `);

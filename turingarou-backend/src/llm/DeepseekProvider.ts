@@ -9,7 +9,7 @@ export class DeepseekProvider implements LLMProvider {
   constructor(config: LLMConfig) {
     this.config = {
       model: 'deepseek-chat',
-      temperature: 0.8,
+      temperature: 1.3,
       maxTokens: 500,
       ...config,
     };

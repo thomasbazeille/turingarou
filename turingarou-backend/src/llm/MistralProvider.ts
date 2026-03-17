@@ -9,7 +9,7 @@ export class MistralProvider implements LLMProvider {
   constructor(config: LLMConfig) {
     this.config = {
       model: 'mistral-small-latest',
-      temperature: 0.8,
+      temperature: 1.0,
       maxTokens: 500,
       ...config,
     };
