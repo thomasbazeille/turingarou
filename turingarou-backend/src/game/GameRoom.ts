@@ -916,7 +916,6 @@ export class GameRoom {
     if (this.state.phase !== 'discussion') return;
     const player = this.state.players.find((p) => p.id === playerId);
     if (!player || player.isEliminated) return;
-    if (this.state.discussionEndTime != null && Date.now() > this.state.discussionEndTime) return;
 
     // Dedup: block AI messages identical to their own recent messages or to other AIs' recent messages
     if (player.type === 'ai') {
