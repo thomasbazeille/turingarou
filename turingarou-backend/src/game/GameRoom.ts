@@ -417,6 +417,8 @@ export class GameRoom {
     this.emitState();
 
     this.discussionTimer = setTimeout(() => {
+      // Ne pas lancer une nouvelle phase si la room est déjà passée à autre chose
+      if (this.aborted || this.state.phase !== 'discussion') return;
       this.startVoting();
     }, discussionMs);
 
