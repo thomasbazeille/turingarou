@@ -487,6 +487,7 @@ export class GameRoom {
         contextOptions
       );
 
+      this.aiPendingMessage.add(id);
       const decision = await aiPlayer.decideAction();
 
       if (decision.shouldRespond && decision.message) {
@@ -545,6 +546,7 @@ export class GameRoom {
         this.state.answers,
         contextOptions
       );
+      this.inspectorPendingMessage.add(id);
       const decision = await inspector.decideAction();
       if (decision.shouldRespond && decision.message) {
         let delayMs = decision.delayMs ?? 5000 + Math.floor(Math.random() * 10000);
@@ -891,6 +893,22 @@ export class GameRoom {
     const player = this.state.players.find((p) => p.id === playerId);
     if (!player || player.isEliminated) return;
     if (this.state.discussionEndTime != null && Date.now() > this.state.discussionEndTime) return;
+
+    // Dedup: block AI messages identical to their own recent messages or to other AIs' recent messages
+    if (player.type === 'ai') {
+      const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+      const norm = normalize(content);
+      const recentOwn = (player as AIPlayerData).messageHistory.slice(-5);
+      if (recentOwn.some((m) => normalize(m.content) === norm)) {
+        return;
+      }
+      const otherAIMessages = this.state.messages
+        .filter((m) => m.playerId !== playerId && this.aiPlayers.has(m.playerId))
+        .slice(-20);
+      if (otherAIMessages.some((m) => normalize(m.content) === norm)) {
+        return;
+      }
+    }
 
     const message: GameMessage = {
       id: `msg-${Date.now()}-${Math.random()}`,

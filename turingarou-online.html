@@ -89,9 +89,13 @@
     .player-column.local-col { z-index: 2; }
     .message-bubble { position: absolute; left: 2px; right: 2px; padding: 5px 8px; border-radius: 6px; font-size: 11px; line-height: 1.25; color: #fff; word-wrap: break-word; box-shadow: 0 1px 4px rgba(0,0,0,0.4); }
     .flag-btn { position: absolute; top: 2px; right: 3px; background: none; border: none; cursor: pointer; font-size: 9px; opacity: 0; transition: opacity 0.15s; padding: 0; line-height: 1; }
+    .star-btn { position: absolute; top: 2px; left: 3px; background: none; border: none; cursor: pointer; font-size: 9px; opacity: 0; transition: opacity 0.15s; padding: 0; line-height: 1; }
     .message-bubble:hover .flag-btn { opacity: 0.6; }
+    .message-bubble:hover .star-btn { opacity: 0.6; }
     .flag-btn.flagged { opacity: 1 !important; }
+    .star-btn.starred { opacity: 1 !important; }
     .sc-msg:hover .flag-btn { opacity: 0.6; }
+    .sc-msg:hover .star-btn { opacity: 0.6; }
     .sc-body { position: relative; }
     /* Bottom input row */
     .local-input-row { display: flex; gap: 5px; padding: 5px 130px 7px 40px; background: #000; border-top: 1px solid rgba(255,255,255,0.06); flex-shrink: 0; }
@@ -523,21 +527,24 @@
 
   <!-- GAME OVER -->
   <div id="gameover-screen" class="screen end-round-screen">
-    <div class="stats-bar">
-      <div class="round-complete" id="gameover-title">GAME OVER</div>
-      <div class="ai-unplugged" id="gameover-message">—</div>
-    </div>
-    <div class="elimination-content">
-      <p style="color:#94a3b8;font-size:18px;margin:20px;" id="gameover-detail">Thanks for playing.</p>
-    </div>
-    <div class="next-round-container">
-      <button class="next-round-btn" onclick="goHome()">
-        <div class="next-round-text">Retour à l'accueil</div>
-      </button>
-    </div>
-    <div class="end-screen-history-wrap">
-      <div class="end-screen-history-title" id="gameover-history-title">Historique</div>
-      <div class="end-screen-history-scroll" id="gameover-history"></div>
+    <canvas id="gears-canvas" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0;"></canvas>
+    <div style="position:relative;z-index:1;display:flex;flex-direction:column;flex:1;overflow:auto;">
+      <div class="stats-bar">
+        <div class="round-complete" id="gameover-title">GAME OVER</div>
+        <div class="ai-unplugged" id="gameover-message">—</div>
+      </div>
+      <div class="elimination-content">
+        <p style="color:#94a3b8;font-size:18px;margin:20px;" id="gameover-detail">Thanks for playing.</p>
+      </div>
+      <div class="next-round-container">
+        <button class="next-round-btn" onclick="goHome()">
+          <div class="next-round-text">Retour à l'accueil</div>
+        </button>
+      </div>
+      <div class="end-screen-history-wrap">
+        <div class="end-screen-history-title" id="gameover-history-title">Historique</div>
+        <div class="end-screen-history-scroll" id="gameover-history"></div>
+      </div>
     </div>
   </div>
 
@@ -1305,7 +1312,10 @@ c.innerHTML='<div class="eliminated-tooltip">'+ep.username+(ep.isAI?' 🤖':'')+
 ec.appendChild(c);
 }
 });
-document.getElementById('bot-counter').textContent='🤖 ?/'+(G.aiCount||A);
+const _eliminatedAIs=G.e.filter(eid=>{const _ep=G.p.find(p=>p.id===eid);return _ep&&_ep.isAI;}).length;
+const _totalAIs=G.aiCount||A;
+const _remainingAIs=_totalAIs-_eliminatedAIs;
+document.getElementById('bot-counter').textContent='🤖 '+_remainingAIs+'/'+_totalAIs;
 document.getElementById('bot-counter').style.color='#ef4444';
 }
 
@@ -1323,6 +1333,25 @@ if(typeof socket!=='undefined')socket.emit('flagMessage',{messageId:msgId});
 }
 };
 return fb;
+}
+
+function makeStarBtn(msgId){
+if(!G.starred)G.starred=new Set();
+const sb=document.createElement('button');
+sb.className='star-btn'+(G.starred.has(msgId)?' starred':'');
+sb.title='Bonne réponse ✨';
+sb.textContent='✨';
+sb.onclick=function(e){
+e.stopPropagation();
+if(G.starred.has(msgId)){
+G.starred.delete(msgId);
+sb.classList.remove('starred');
+}else{
+G.starred.add(msgId);
+sb.classList.add('starred');
+}
+};
+return sb;
 }
 
 function renderMessages(){
@@ -1421,7 +1450,7 @@ b.style.background=m.color;
 b.style.top=y+'px';
 const bTxt=document.createTextNode(m.text);
 b.appendChild(bTxt);
-if(m.playerId!==G.l&&m.playerId!=='system')b.appendChild(makeFlagBtn(m.id));
+if(m.playerId!==G.l&&m.playerId!=='system'){b.appendChild(makeStarBtn(m.id));b.appendChild(makeFlagBtn(m.id));}
 c.appendChild(b);
 
 // Mesurer la hauteur réelle de la bulle (évite les superpositions)
@@ -1498,7 +1527,7 @@ textDiv.className='sc-text'+(isAnswer?' sc-answer':'');
 textDiv.textContent=text;
 body.appendChild(nameDiv);
 body.appendChild(textDiv);
-if(msgId&&p.id!==G.l)body.appendChild(makeFlagBtn(msgId));
+if(msgId&&p.id!==G.l){body.appendChild(makeStarBtn(msgId));body.appendChild(makeFlagBtn(msgId));}
 row.appendChild(av);
 row.appendChild(body);
 return row;
@@ -1766,7 +1795,134 @@ if(nextTxt) nextTxt.textContent='Starting...';
 },iv);
 }
 
+/* ── GEARS BACKGROUND ANIMATION ── */
+(function(){
+  let _rafId = null;
+  let _resizeFn = null;
+
+  window.startGearsAnimation = function(){
+    stopGearsAnimation();
+    const canvas = document.getElementById('gears-canvas');
+    if(!canvas) return;
+    const ctx = canvas.getContext('2d');
+    let W, H, gears;
+
+    function buildGears(){
+      gears = [];
+      const spacing = 50;
+      const rows = Math.ceil(H / (spacing * 0.82)) + 2;
+      const cols = Math.ceil(W / spacing) + 2;
+      for(let row = -1; row < rows; row++){
+        for(let col = -1; col < cols; col++){
+          const jx = (Math.random() - 0.5) * 10;
+          const jy = (Math.random() - 0.5) * 10;
+          const x = col * spacing + (row % 2) * spacing * 0.5 + jx;
+          const y = row * spacing * 0.82 + jy;
+          const r = 9 + Math.random() * 13;
+          const teeth = Math.floor(6 + Math.random() * 9);
+          const dir = ((row + col) % 2 === 0) ? 1 : -1;
+          const speed = dir * (0.0025 + Math.random() * 0.005);
+          gears.push({
+            x, y, r, teeth,
+            angle: Math.random() * Math.PI * 2,
+            speed,
+            toothH: r * (0.28 + Math.random() * 0.22),
+            toothW: 0.34 + Math.random() * 0.18,
+            holeR: r * (0.12 + Math.random() * 0.14),
+            lw: 0.4 + Math.random() * 0.9,
+            wobble: Math.random() * 0.12,
+            mode: 'normal',
+            modeTimer: Math.floor(60 + Math.random() * 350),
+            stutterSpeed: 0,
+            snapSpeed: 0,
+          });
+        }
+      }
+    }
+
+    function resize(){
+      const p = canvas.parentElement;
+      W = canvas.width = p.offsetWidth;
+      H = canvas.height = p.offsetHeight;
+      buildGears();
+    }
+
+    _resizeFn = resize;
+    window.addEventListener('resize', resize);
+    resize();
+
+    function drawGear(g){
+      const {x, y, r, teeth, angle, toothH, toothW, holeR, wobble} = g;
+      const inner = r;
+      const outer = r + toothH;
+      ctx.beginPath();
+      for(let i = 0; i < teeth; i++){
+        const a0 = angle + (i / teeth) * Math.PI * 2;
+        const a3 = angle + ((i + 1) / teeth) * Math.PI * 2;
+        const mid = (a0 + a3) / 2;
+        const hw = ((a3 - a0) * 0.5) * (toothW + wobble * (Math.random() * 0.1 - 0.05));
+        const a1 = mid - hw;
+        const a2 = mid + hw;
+        if(i === 0) ctx.moveTo(x + inner * Math.cos(a0), y + inner * Math.sin(a0));
+        else        ctx.lineTo(x + inner * Math.cos(a0), y + inner * Math.sin(a0));
+        ctx.lineTo(x + outer * Math.cos(a1), y + outer * Math.sin(a1));
+        ctx.lineTo(x + outer * Math.cos(a2), y + outer * Math.sin(a2));
+        ctx.lineTo(x + inner * Math.cos(a3), y + inner * Math.sin(a3));
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      // trou central
+      ctx.beginPath();
+      ctx.arc(x, y, holeR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    function updateGear(g){
+      g.modeTimer--;
+      if(g.mode === 'normal' && g.modeTimer <= 0){
+        g.mode = 'stutter';
+        g.stutterSpeed = g.speed * (0.04 + Math.random() * 0.18);
+        g.modeTimer = 12 + Math.floor(Math.random() * 40);
+      } else if(g.mode === 'stutter' && g.modeTimer <= 0){
+        g.mode = 'snap';
+        g.snapSpeed = g.speed * (1.6 + Math.random() * 1.4);
+        g.modeTimer = 4 + Math.floor(Math.random() * 8);
+      } else if(g.mode === 'snap' && g.modeTimer <= 0){
+        g.mode = 'normal';
+        g.modeTimer = 100 + Math.floor(Math.random() * 380);
+      }
+      const spd = g.mode === 'normal' ? g.speed
+                : g.mode === 'stutter' ? g.stutterSpeed
+                : g.snapSpeed;
+      g.angle += spd;
+    }
+
+    function animate(){
+      ctx.clearRect(0, 0, W, H);
+      ctx.fillStyle   = 'rgba(180, 80, 60, 0.035)';
+      ctx.strokeStyle = 'rgba(210, 110, 85, 0.09)';
+      for(const g of gears){
+        ctx.lineWidth = g.lw;
+        updateGear(g);
+        drawGear(g);
+      }
+      _rafId = requestAnimationFrame(animate);
+    }
+    animate();
+  };
+
+  window.stopGearsAnimation = function(){
+    if(_rafId !== null){ cancelAnimationFrame(_rafId); _rafId = null; }
+    if(_resizeFn !== null){ window.removeEventListener('resize', _resizeFn); _resizeFn = null; }
+    const canvas = document.getElementById('gears-canvas');
+    if(canvas){ const ctx = canvas.getContext('2d'); ctx.clearRect(0,0,canvas.width,canvas.height); }
+  };
+})();
+
 function renderGameOver(reason){
+stopGearsAnimation();
 const title=document.getElementById('gameover-title');
 const msg=document.getElementById('gameover-message');
 const detail=document.getElementById('gameover-detail');
@@ -1779,6 +1935,7 @@ else { msg.textContent='Draw'; if(detail) detail.textContent='Game ended.'; }
 }
 if(gameoverHomeBtn) gameoverHomeBtn.textContent = G.lang === 'fr' ? "Retour à l'accueil" : 'Return home';
 renderEndScreenHistory('gameover-history', 'gameover-history-title');
+if(reason==='humans_win') startGearsAnimation();
 }
 
 // nextRound() - Gérée par le backend, mais gardée pour compatibilité
@@ -1789,6 +1946,7 @@ function nextRound(){
 }
 
 function showScreen(n){
+if(n!=='gameover') stopGearsAnimation();
 document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
 document.getElementById(n+'-screen').classList.add('active');
 }
