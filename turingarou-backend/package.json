@@ -6,7 +6,9 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "analyze": "tsx scripts/analyze-games.ts"
+    "analyze": "tsx scripts/analyze-games.ts",
+    "pull-db": "bash scripts/download-db.sh",
+    "pull-and-analyze": "bash scripts/download-db.sh && tsx scripts/analyze-games.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",

@@ -3,10 +3,15 @@ import { createServer } from 'http';
 import { Server as SocketServer } from 'socket.io';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { GameRoom } from './game/GameRoom.js';
 import { DeepseekProvider } from './llm/DeepseekProvider.js';
 import { MistralProvider } from './llm/MistralProvider.js';
 import { LLMProvider } from './llm/LLMProvider.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 dotenv.config();
 
@@ -195,6 +200,33 @@ setInterval(() => {
 }, 5 * 60 * 1000);
 
 // ====== HTTP ROUTES ======
+
+app.get('/admin/db', (req, res) => {
+  const secret = process.env.ADMIN_SECRET;
+  if (!secret) {
+    res.status(503).json({ error: 'ADMIN_SECRET not configured on this server' });
+    return;
+  }
+  if (req.query.key !== secret) {
+    res.status(403).json({ error: 'Forbidden' });
+    return;
+  }
+
+  // Résolution identique à GameLogger (process.cwd()) avec fallback __dirname/../
+  const dbPath = process.env.DB_PATH
+    || path.join(process.cwd(), 'turingarou.db');
+
+  if (!fs.existsSync(dbPath)) {
+    res.status(404).json({ error: `DB not found at ${dbPath}` });
+    return;
+  }
+
+  res.download(dbPath, 'turingarou.db', (err) => {
+    if (err && !res.headersSent) {
+      res.status(500).json({ error: 'Download failed' });
+    }
+  });
+});
 
 app.get('/health', (req, res) => {
   res.json({
