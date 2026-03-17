@@ -154,6 +154,33 @@
     .vote-history-item { font-size: 8px; color: rgba(255,255,255,0.6); font-style: italic; line-height: 1.3; margin-bottom: 1px; }
     .vote-history-item:last-child { margin-bottom: 0; }
 
+    /* AI WIN BACKGROUND ANIMATION */
+    @keyframes ai-sneak {
+      0%   { transform: translateX(-320px) translateY(0px)   rotate(-10deg) scaleX(-1); opacity:0; }
+      4%   { opacity: 0.28; }
+      10%  { transform: translateX(calc(-320px + 10vw))  translateY(-14px) rotate(-9deg)  scaleX(-1); }
+      20%  { transform: translateX(calc(-320px + 20vw))  translateY(0px)   rotate(-10deg) scaleX(-1); }
+      30%  { transform: translateX(calc(-320px + 30vw))  translateY(-14px) rotate(-9deg)  scaleX(-1); }
+      40%  { transform: translateX(calc(-320px + 40vw))  translateY(0px)   rotate(-10deg) scaleX(-1); }
+      50%  { transform: translateX(calc(-320px + 50vw))  translateY(-14px) rotate(-9deg)  scaleX(-1); }
+      60%  { transform: translateX(calc(-320px + 60vw))  translateY(0px)   rotate(-10deg) scaleX(-1); }
+      70%  { transform: translateX(calc(-320px + 70vw))  translateY(-14px) rotate(-9deg)  scaleX(-1); }
+      80%  { transform: translateX(calc(-320px + 80vw))  translateY(0px)   rotate(-10deg) scaleX(-1); }
+      90%  { transform: translateX(calc(-320px + 90vw))  translateY(-14px) rotate(-9deg)  scaleX(-1); opacity:0.28; }
+      96%  { opacity:0; }
+      100% { transform: translateX(calc(100vw + 320px))  translateY(0px)   rotate(-10deg) scaleX(-1); opacity:0; }
+    }
+    @keyframes ai-eye-triumph {
+      0%,100% { opacity:1; }
+      40%     { opacity:0.5; }
+      60%     { opacity:1; }
+    }
+    #ai-win-bg { position:absolute; inset:0; pointer-events:none; z-index:0; overflow:hidden; display:none; }
+    #ai-win-figure { position:absolute; bottom:2%; width:clamp(160px,22vw,240px);
+      animation: ai-sneak 16s ease-in-out infinite;
+      filter: drop-shadow(0 0 18px rgba(239,68,68,0.35)); }
+    #ai-win-figure .eye-triumph { animation: ai-eye-triumph 2.2s ease-in-out infinite; }
+
     /* END ROUND */
     .end-round-screen { flex-direction: column; background: linear-gradient(135deg, #0f172a 0%, #450a0a 100%); position: relative; }
     .stats-bar { padding: 25px; text-align: center; }
@@ -528,6 +555,64 @@
   <!-- GAME OVER -->
   <div id="gameover-screen" class="screen end-round-screen">
     <canvas id="gears-canvas" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0;"></canvas>
+    <div id="ai-win-bg">
+      <div id="ai-win-figure">
+        <svg viewBox="-40 0 480 610" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <filter id="eye-glow-win" x="-80%" y="-80%" width="260%" height="260%">
+              <feGaussianBlur stdDeviation="6" result="b"/>
+              <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+          </defs>
+          <!-- Antenna -->
+          <rect x="195" y="8" width="10" height="48" rx="4" fill="#1a0808"/>
+          <circle cx="200" cy="6" r="11" fill="#1a0808"/>
+          <circle cx="200" cy="6" r="5" fill="#ef4444" opacity="0.7"/>
+          <!-- Head -->
+          <path d="M126,56 L146,42 L254,42 L274,56 L284,78 L286,164 L275,177 L125,177 L114,164 L116,78 Z" fill="#1a0808"/>
+          <rect x="116" y="120" width="12" height="4" rx="1" fill="#0d0404" opacity="0.8"/>
+          <rect x="116" y="130" width="12" height="4" rx="1" fill="#0d0404" opacity="0.8"/>
+          <rect x="272" y="120" width="12" height="4" rx="1" fill="#0d0404" opacity="0.8"/>
+          <rect x="272" y="130" width="12" height="4" rx="1" fill="#0d0404" opacity="0.8"/>
+          <!-- Eyes — triumphant glow -->
+          <rect class="eye-triumph" x="138" y="100" width="50" height="20" rx="5" fill="#ef4444" filter="url(#eye-glow-win)"/>
+          <rect class="eye-triumph" x="212" y="100" width="50" height="20" rx="5" fill="#ef4444" filter="url(#eye-glow-win)"/>
+          <rect x="146" y="104" width="34" height="12" rx="3" fill="#fca5a5" opacity="0.7"/>
+          <rect x="220" y="104" width="34" height="12" rx="3" fill="#fca5a5" opacity="0.7"/>
+          <!-- Mouth — smirk (asymmetric) -->
+          <path d="M162,152 Q190,162 238,150" stroke="#0d0404" stroke-width="4" fill="none" stroke-linecap="round"/>
+          <!-- Neck -->
+          <path d="M162,177 L170,204 L230,204 L238,177 Z" fill="#1a0808"/>
+          <!-- Torso — slightly hunched forward -->
+          <path d="M42,210 L64,197 L162,197 L170,204 L230,204 L238,197 L336,197 L358,210 L380,234 L386,262 L378,342 L360,368 L262,380 L258,408 L142,408 L138,380 L40,368 L22,342 L14,262 L20,234 Z" fill="#1a0808"/>
+          <!-- Chest panel -->
+          <rect x="153" y="228" width="94" height="72" rx="6" fill="#0d0404"/>
+          <line x1="163" y1="244" x2="237" y2="244" stroke="#ef4444" stroke-width="1" opacity="0.15"/>
+          <line x1="163" y1="256" x2="237" y2="256" stroke="#ef4444" stroke-width="1" opacity="0.15"/>
+          <line x1="163" y1="268" x2="237" y2="268" stroke="#ef4444" stroke-width="1" opacity="0.15"/>
+          <line x1="163" y1="280" x2="237" y2="280" stroke="#ef4444" stroke-width="1" opacity="0.15"/>
+          <circle cx="200" cy="220" r="5" fill="#ef4444" opacity="0.9"/>
+          <!-- Left arm — raised slightly in sly triumph -->
+          <path d="M42,218 L-10,200 L-40,280 L-30,370 L-8,388 L20,374 L28,290 L58,230 Z" fill="#1a0808"/>
+          <line x1="-28" y1="382" x2="-52" y2="408" stroke="#1a0808" stroke-width="16" stroke-linecap="round"/>
+          <line x1="-8" y1="394" x2="-22" y2="424" stroke="#1a0808" stroke-width="14" stroke-linecap="round"/>
+          <line x1="12" y1="400" x2="6" y2="430" stroke="#1a0808" stroke-width="13" stroke-linecap="round"/>
+          <line x1="28" y1="396" x2="30" y2="426" stroke="#1a0808" stroke-width="12" stroke-linecap="round"/>
+          <!-- Right arm — outstretched forward -->
+          <path d="M358,218 L430,180 L470,240 L450,300 L410,310 L368,280 L342,240 Z" fill="#1a0808"/>
+          <line x1="466" y1="242" x2="498" y2="258" stroke="#1a0808" stroke-width="16" stroke-linecap="round"/>
+          <line x1="452" y1="298" x2="476" y2="318" stroke="#1a0808" stroke-width="14" stroke-linecap="round"/>
+          <!-- Pelvis -->
+          <path d="M138,408 L126,440 L274,440 L262,408 Z" fill="#1a0808"/>
+          <!-- Legs -->
+          <rect x="128" y="440" width="66" height="145" rx="9" fill="#1a0808"/>
+          <rect x="206" y="440" width="66" height="145" rx="9" fill="#1a0808"/>
+          <!-- Feet -->
+          <path d="M110,572 L96,604 L212,604 L218,572 Z" fill="#1a0808"/>
+          <path d="M218,572 L214,604 L304,604 L292,572 Z" fill="#1a0808"/>
+        </svg>
+      </div>
+    </div>
     <div style="position:relative;z-index:1;display:flex;flex-direction:column;flex:1;overflow:auto;">
       <div class="stats-bar">
         <div class="round-complete" id="gameover-title">GAME OVER</div>
@@ -1928,6 +2013,8 @@ if(nextTxt) nextTxt.textContent='Starting...';
 
 function renderGameOver(reason){
 stopGearsAnimation();
+const aiBg=document.getElementById('ai-win-bg');
+if(aiBg)aiBg.style.display='none';
 const title=document.getElementById('gameover-title');
 const msg=document.getElementById('gameover-message');
 const detail=document.getElementById('gameover-detail');
@@ -1941,6 +2028,7 @@ else { msg.textContent='Draw'; if(detail) detail.textContent='Game ended.'; }
 if(gameoverHomeBtn) gameoverHomeBtn.textContent = G.lang === 'fr' ? "Retour à l'accueil" : 'Return home';
 renderEndScreenHistory('gameover-history', 'gameover-history-title');
 if(reason==='humans_win') startGearsAnimation();
+if(reason==='ai_win'&&aiBg) aiBg.style.display='block';
 }
 
 // nextRound() - Gérée par le backend, mais gardée pour compatibilité
