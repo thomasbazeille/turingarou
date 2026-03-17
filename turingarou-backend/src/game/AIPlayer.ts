@@ -131,7 +131,7 @@ export class AIPlayer {
     const messages: LLMMessage[] = [
       {
         role: 'system',
-        content: this.buildFullSystemPrompt(),
+        content: this.buildBaseSystemPrompt(),
       },
       {
         role: 'user',
@@ -170,7 +170,7 @@ export class AIPlayer {
     const messages: LLMMessage[] = [
       {
         role: 'system',
-        content: this.buildFullSystemPrompt(),
+        content: this.buildBaseSystemPrompt(),
       },
       {
         role: 'user',
@@ -193,7 +193,17 @@ export class AIPlayer {
     }
   }
 
+  /** System prompt WITHOUT the JSON decision format — use for answerQuestion and decideVote. */
+  private buildBaseSystemPrompt(): string {
+    return this.buildSystemPrompt(false);
+  }
+
+  /** System prompt WITH the JSON decision format — use for decideAction only. */
   private buildFullSystemPrompt(): string {
+    return this.buildSystemPrompt(true);
+  }
+
+  private buildSystemPrompt(includeDecisionFormat: boolean): string {
     const personality = this.player.personality.systemPrompt;
     const instructions =
       this.gameFormat != null
@@ -213,6 +223,16 @@ export class AIPlayer {
       ? `VARIÉTÉ DES RÉPONSES À LA QUESTION INITIALE : Ne réponds jamais deux fois de la même façon. Varie le registre : parfois ultra-court (2-4 mots), parfois une phrase complète, parfois ironique ("ah ouais super question"), parfois faussement philosophique, parfois juste une blague. L'ironie légère et le second degré sont les bienvenus. Ne donne jamais une réponse parfaite et bien structurée — c'est le meilleur moyen d'être détecté.`
       : `INITIAL QUESTION ANSWER VARIETY: Never answer twice the same way. Mix registers: sometimes ultra-short (2-4 words), sometimes a full sentence, sometimes ironic ("oh wow great question"), sometimes mock-philosophical, sometimes just a joke. Light irony and second-degree are welcome. Never give a perfect well-structured answer — that's the fastest way to get detected.`;
 
+    const decisionFormat = includeDecisionFormat ? `
+# DECISION FORMAT
+Output a JSON object — nothing else:
+{
+  "shouldRespond": true/false,
+  "message": "your message here" (only if shouldRespond is true),
+  "delayMs": 2000-8000 (random delay to seem human)
+}
+Only respond when it fits the conversation; humans don't answer every message.` : '';
+
     return `${personality}
 
 ${goalBlock}
@@ -224,15 +244,7 @@ ${languageRule}
 ${styleRule}
 
 ${diversityRule}
-${personaBlock}
-# DECISION FORMAT (for decideAction only)
-When deciding whether to respond, output a JSON object with:
-{
-  "shouldRespond": true/false,
-  "message": "your message here" (only if shouldRespond is true),
-  "delayMs": 2000-8000 (random delay to seem human)
-}
-Only respond when it fits the conversation; humans don't answer every message.`;
+${personaBlock}${decisionFormat}`;
   }
 
   /**
