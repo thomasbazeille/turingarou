@@ -50,6 +50,10 @@ export class InspectorController {
       context += `AIs still in game: ${options.aiRemainingCount}. Focus only on the remaining players to find and vote out the AI(s).\n\n`;
     }
     if (currentQuestion) context += `Question: "${currentQuestion}"\n\n`;
+    if (options?.previousRoundsSummary) {
+      context += `## Previous rounds summary (same info humans see between rounds):\n`;
+      context += `${options.previousRoundsSummary}\n\n`;
+    }
     if (answers.length > 0) {
       context += `## Answers this round:\n`;
       answers.forEach((a) => {

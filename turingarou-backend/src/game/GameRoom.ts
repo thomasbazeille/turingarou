@@ -451,10 +451,30 @@ export class GameRoom {
     const discussionLocked = remainingDiscussion <= DISCUSSION_LOCK_MS;
 
     const activePlayers = this.state.players.filter((p) => !p.isEliminated);
+    // Build inter-round summary: who was eliminated each round, their type, and votes
+    let previousRoundsSummary = '';
+    if (this.state.currentRound > 1) {
+      const lines: string[] = [];
+      for (let rd = 1; rd < this.state.currentRound; rd++) {
+        const elim = this.eliminationsByRound.get(rd);
+        const votes = this.votesByRound.get(rd) ?? [];
+        if (!elim && votes.length === 0) continue;
+        const elimStr = elim
+          ? `Eliminated: ${elim.name} (${elim.isAI ? 'AI' : 'human'})`
+          : 'Eliminated: none';
+        const votesStr =
+          votes.length > 0
+            ? votes.map((v) => `${v.voter} → ${v.target}`).join(', ')
+            : 'No votes recorded';
+        lines.push(`Round ${rd}: ${elimStr}. Votes: ${votesStr}`);
+      }
+      previousRoundsSummary = lines.join('\n');
+    }
     const contextOptions = {
       activePlayerIds: activePlayers.map((p) => p.id),
       eliminatedNames: this.state.players.filter((p) => p.isEliminated).map((p) => p.username),
       aiRemainingCount: activePlayers.filter((p) => p.type === 'ai').length,
+      previousRoundsSummary,
     };
 
     // Shuffle AI order each tick so no AI is always first

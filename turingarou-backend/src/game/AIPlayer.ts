@@ -7,6 +7,8 @@ export interface GameContextOptions {
   activePlayerIds: string[];
   eliminatedNames: string[];
   aiRemainingCount: number;
+  /** Optional text summary of previous rounds (eliminations + votes) shown to humans between rounds. */
+  previousRoundsSummary?: string;
 }
 
 export class AIPlayer {
@@ -60,6 +62,10 @@ export class AIPlayer {
 
     if (currentQuestion) {
       context += `Current question: "${currentQuestion}"\n\n`;
+    }
+    if (options?.previousRoundsSummary) {
+      context += `## Previous rounds summary (same info humans see between rounds):\n`;
+      context += `${options.previousRoundsSummary}\n\n`;
     }
 
     if (answers.length > 0) {
