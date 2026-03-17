@@ -1369,6 +1369,13 @@ const c=document.getElementById('col-'+p.id);
 if(c)c.innerHTML='';
 });
 
+// Supprimer les éléments pleine-largeur (questions, séparateurs, annonces de vote)
+// qui sont enfants directs de mc mais PAS des colonnes — ils s'accumulent sinon
+const mc=document.getElementById('messages-columns');
+Array.from(mc.children).forEach(child=>{
+if(!child.id||!child.id.startsWith('col-'))mc.removeChild(child);
+});
+
 // Curseurs par colonne + minimum global pour l'ordre temporel inter-colonnes
 const colPos={};
 G.p.forEach(p=>{ colPos[p.id]=0; });
@@ -1376,8 +1383,6 @@ let globalMin=0; // avance légèrement à chaque message (ordre temporel)
 let lastMsgPlayerId=null; // pour détecter les messages consécutifs du même joueur
 const TIGHT_GAP=3;      // espace entre messages d'une même colonne
 const ORDER_STEP=7;     // décalage temporel minimal entre messages de colonnes différentes
-
-const mc=document.getElementById('messages-columns');
 
 // Helper : place un élément pleine-largeur (question, séparateur…)
 // et aligne tous les curseurs sur la position suivante
