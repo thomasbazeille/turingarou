@@ -182,7 +182,15 @@
     #ai-win-figure .eye-triumph { animation: ai-eye-triumph 2.2s ease-in-out infinite; }
 
     /* END ROUND */
-    .end-round-screen { flex-direction: column; background: linear-gradient(135deg, #0f172a 0%, #450a0a 100%); position: relative; }
+    .end-round-screen { flex-direction: column; background: linear-gradient(135deg, #0f172a 0%, #450a0a 100%); position: relative; overflow: hidden; }
+    #endround-peek { position: absolute; bottom: 110px; right: 0; width: 140px; pointer-events: none; z-index: 5; transform: translateX(116px); opacity: 0; animation: ai-peek-endround 26s ease-in-out infinite; }
+    @keyframes ai-peek-endround {
+      0%, 18%    { transform: translateX(116px); opacity: 0; }
+      26%        { transform: translateX(66px);  opacity: 0.26; }
+      32%, 52%   { transform: translateX(64px);  opacity: 0.26; }
+      60%        { transform: translateX(116px); opacity: 0; }
+      100%       { transform: translateX(116px); opacity: 0; }
+    }
     .stats-bar { padding: 25px; text-align: center; }
     .round-complete { color: #22d3ee; font-family: monospace; font-size: 20px; font-weight: bold; letter-spacing: 2px; text-shadow: 0 0 16px rgba(34,211,238,0.8); margin-bottom: 12px; }
     .ai-unplugged { color: #ef4444; font-family: monospace; font-size: 23px; font-weight: bold; letter-spacing: 2px; text-shadow: 0 0 20px rgba(239,68,68,1); }
@@ -516,6 +524,7 @@
 
   <!-- END ROUND -->
   <div id="end-round-screen" class="screen end-round-screen">
+    <div id="endround-peek"></div>
     <button type="button" class="end-round-home-btn" onclick="goHome()" id="end-round-return-btn">Retour à l'accueil</button>
     <div class="stats-bar">
       <div class="round-complete" id="round-complete-text">ROUND 1 COMPLETED</div>
@@ -2232,6 +2241,8 @@ function applyAICharacter(id){
   if(sil)sil.innerHTML=ch.waiting;
   var win=document.getElementById('ai-win-figure');
   if(win){win.innerHTML=ch.win;win.style.filter=ch.glow;}
+  var peek=document.getElementById('endround-peek');
+  if(peek){peek.innerHTML=ch.waiting;peek.style.filter=ch.glow.replace('18px','10px');}
 }
 
 init();
