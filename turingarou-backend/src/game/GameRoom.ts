@@ -29,7 +29,7 @@ const COLORS = [
 
 const QUESTION_PHASE_MS = 20000;
 const DISCUSSION_PHASE_MS = 100000; // 100 s de discussion par round (+ temps de vote après)
-const VOTE_PHASE_MS = 10000;
+const VOTE_PHASE_MS = 30000;
 const MAX_ROUNDS = 5;
 
 export class GameRoom {
