@@ -58,12 +58,14 @@ const gameRooms = new Map<string, GameRoom>();
 function getOrCreateRoom(roomId: string): GameRoom {
   // Si c'est le public lobby, chercher une room disponible
   if (roomId === 'public-lobby') {
-    // Chercher une room publique en attente avec moins de 2 joueurs
+    // Chercher une room publique en attente avec de la place
+    const lobbyAiCount = parseInt(process.env.AI_COUNT || '2');
+    const humanSlots = 8 - lobbyAiCount; // maxPlayers - aiCount
     for (const [id, room] of gameRooms) {
       if (id.startsWith('public-') && room.getState().phase === 'waiting') {
         const humanCount = room.getState().players.filter(p => p.type === 'human').length;
-        if (humanCount < 3) {
-          console.log(`Joining existing public room: ${id} (${humanCount}/3 players)`);
+        if (humanCount < humanSlots) {
+          console.log(`Joining existing public room: ${id} (${humanCount}/${humanSlots} players)`);
           return room;
         }
       }
