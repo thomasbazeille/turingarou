@@ -650,8 +650,8 @@
 
   <script>
 const COLORS=[{n:'Red',h:'#ef4444'},{n:'Orange',h:'#f97316'},{n:'Gold',h:'#eab308'},{n:'Silver',h:'#94a3b8'},{n:'Purple',h:'#a855f7'},{n:'Turquoise',h:'#06b6d4'},{n:'Pink',h:'#ec4899'},{n:'Lime',h:'#84cc16'},{n:'Indigo',h:'#6366f1'}];
-const T=5,A=2;  // 5 joueurs total (3 humains + 2 IA)
-const HUMAN_NEEDED=3;
+const T=8,A=3;  // 8 joueurs total (5 humains + 3 IA)
+const HUMAN_NEEDED=5;
 let G={s:'waiting',r:1,mr:5,t:100,qt:15,p:[],m:[],e:[],eliminationOrder:[],l:null,im:null,a:{},v:{},h:{},vh:{},sh:false,sa:null,ui:false,eliminatedAiCount:0,lang:'fr',currentQuestion:null,questions:{},questionEndTime:null,singleChat:false,flagged:new Set(),colOrder:null};
 
 // === SOCKET.IO SETUP ===

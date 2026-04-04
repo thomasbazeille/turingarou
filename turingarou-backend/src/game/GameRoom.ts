@@ -134,7 +134,7 @@ export class GameRoom {
   /** Add an AI Inspector to fill the last human slot (call when 2 humans waiting). */
   async addInspectorPlayer(): Promise<boolean> {
     const humanCount = this.state.players.filter((p) => p.type === 'human').length;
-    if (this.state.phase !== 'waiting' || humanCount !== 2 || this.state.players.length >= this.state.maxPlayers) {
+    if (this.state.phase !== 'waiting' || humanCount !== 4 || this.state.players.length >= this.state.maxPlayers) {
       return false;
     }
     const usedColors = this.state.players.map((p) => p.color);
