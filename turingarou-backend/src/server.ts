@@ -59,7 +59,7 @@ function getOrCreateRoom(roomId: string): GameRoom {
   // Si c'est le public lobby, chercher une room disponible
   if (roomId === 'public-lobby') {
     // Chercher une room publique en attente avec de la place
-    const lobbyAiCount = parseInt(process.env.AI_COUNT || '2');
+    const lobbyAiCount = parseInt(process.env.AI_COUNT || '3');
     const humanSlots = 8 - lobbyAiCount; // maxPlayers - aiCount
     for (const [id, room] of gameRooms) {
       if (id.startsWith('public-') && room.getState().phase === 'waiting') {
@@ -73,7 +73,7 @@ function getOrCreateRoom(roomId: string): GameRoom {
     
     // Aucune room dispo, créer une nouvelle avec un ID unique
     const newRoomId = 'public-' + Date.now();
-    const aiCount = parseInt(process.env.AI_COUNT || '2');
+    const aiCount = parseInt(process.env.AI_COUNT || '3');
     const room = new GameRoom(newRoomId, io, llmProviders, aiCount);
     gameRooms.set(newRoomId, room);
     console.log(`Created new public room: ${newRoomId} with ${aiCount} AIs`);
@@ -82,7 +82,7 @@ function getOrCreateRoom(roomId: string): GameRoom {
   
   // Room privée avec code custom
   if (!gameRooms.has(roomId)) {
-    const aiCount = parseInt(process.env.AI_COUNT || '2');
+    const aiCount = parseInt(process.env.AI_COUNT || '3');
     const room = new GameRoom(roomId, io, llmProviders, aiCount);
     gameRooms.set(roomId, room);
     console.log(`Created private room: ${roomId} with ${aiCount} AIs`);
