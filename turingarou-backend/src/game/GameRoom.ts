@@ -25,12 +25,14 @@ const COLORS = [
   { name: 'Silver', hex: '#94a3b8' },
   { name: 'Purple', hex: '#a855f7' },
   { name: 'Turquoise', hex: '#06b6d4' },
+  { name: 'Pink', hex: '#ec4899' },
+  { name: 'Lime', hex: '#84cc16' },
 ];
 
 const QUESTION_PHASE_MS = 20000;
 const DISCUSSION_PHASE_MS = 100000; // 100 s de discussion par round (+ temps de vote après)
 const VOTE_PHASE_MS = 30000;
-const MAX_ROUNDS = 5;
+const MAX_ROUNDS = 7;
 
 export class GameRoom {
   private state: GameRoomState;

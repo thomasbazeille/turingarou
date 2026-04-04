@@ -493,7 +493,7 @@
         <div class="player-avatars-header" id="player-avatars-header"></div>
         <div class="game-info-bar">
           <div class="timer-display" id="timer-display">-</div>
-          <div class="round-info" id="round-text">R1/5</div>
+          <div class="round-info" id="round-text">R1/7</div>
           <div class="eliminated-circles" id="eliminated-circles"></div>
           <div class="bot-counter" id="bot-counter">🤖</div>
           <button class="chat-toggle-btn" id="chat-toggle-btn" onclick="toggleSingleChat()" title="Passer en chat unique">☰</button>
@@ -652,7 +652,7 @@
 const COLORS=[{n:'Red',h:'#ef4444'},{n:'Orange',h:'#f97316'},{n:'Gold',h:'#eab308'},{n:'Silver',h:'#94a3b8'},{n:'Purple',h:'#a855f7'},{n:'Turquoise',h:'#06b6d4'},{n:'Pink',h:'#ec4899'},{n:'Lime',h:'#84cc16'},{n:'Indigo',h:'#6366f1'}];
 const T=8,A=3;  // 8 joueurs total (5 humains + 3 IA)
 const HUMAN_NEEDED=5;
-let G={s:'waiting',r:1,mr:5,t:100,qt:15,p:[],m:[],e:[],eliminationOrder:[],l:null,im:null,a:{},v:{},h:{},vh:{},sh:false,sa:null,ui:false,eliminatedAiCount:0,lang:'fr',currentQuestion:null,questions:{},questionEndTime:null,singleChat:false,flagged:new Set(),colOrder:null};
+let G={s:'waiting',r:1,mr:7,t:100,qt:15,p:[],m:[],e:[],eliminationOrder:[],l:null,im:null,a:{},v:{},h:{},vh:{},sh:false,sa:null,ui:false,eliminatedAiCount:0,lang:'fr',currentQuestion:null,questions:{},questionEndTime:null,singleChat:false,flagged:new Set(),colOrder:null};
 
 // === SOCKET.IO SETUP ===
 // Configuration automatique selon environnement
