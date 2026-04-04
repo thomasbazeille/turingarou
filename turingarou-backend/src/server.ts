@@ -233,6 +233,8 @@ app.get('/health', (req, res) => {
     status: 'ok',
     rooms: gameRooms.size,
     llmProviders: llmProviders.map((p) => p.name),
+    aiCount: parseInt(process.env.AI_COUNT || '3'),
+    maxPlayers: 8,
   });
 });
 

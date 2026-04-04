@@ -1003,7 +1003,7 @@ if (existingStatus) {
 // Bouton "Add AI Inspector" si on manque d'un seul humain (2 présents)
 var inspectorWrap = document.getElementById('inspector-btn-wrap');
 if (inspectorWrap) {
-  if (humanCount === 2 && G.s === 'waiting') {
+  if (humanCount === (HUMAN_NEEDED - 1) && G.s === 'waiting') {
     inspectorWrap.style.display = 'block';
     var ib = inspectorWrap.querySelector('button');
     var ih = inspectorWrap.querySelector('p');
