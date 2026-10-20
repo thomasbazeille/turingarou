@@ -1,0 +1,12 @@
+{
+  "name": "turingarou",
+  "private": true,
+  "description": "Root manifest so Railway (Nixpacks) detects a Node app; the backend lives in turingarou-backend/.",
+  "engines": {
+    "node": "20"
+  },
+  "scripts": {
+    "build": "cd turingarou-backend && npm ci --include=dev && npm run build",
+    "start": "cd turingarou-backend && npm start"
+  }
+}

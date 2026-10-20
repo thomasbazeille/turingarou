@@ -3,10 +3,10 @@ import { createServer } from 'http';
 import { Server as SocketServer } from 'socket.io';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GameRoom } from './game/GameRoom.js';
+import { initDB, isDBEnabled } from './game/GameLogger.js';
 import { DeepseekProvider } from './llm/DeepseekProvider.js';
 import { MistralProvider } from './llm/MistralProvider.js';
 import { AnthropicProvider } from './llm/AnthropicProvider.js';
@@ -201,31 +201,12 @@ setInterval(() => {
 
 // ====== HTTP ROUTES ======
 
-app.get('/admin/db', (req, res) => {
-  const secret = process.env.ADMIN_SECRET;
-  if (!secret) {
-    res.status(503).json({ error: 'ADMIN_SECRET not configured on this server' });
-    return;
-  }
-  if (req.query.key !== secret) {
-    res.status(403).json({ error: 'Forbidden' });
-    return;
-  }
+// Le front est servi par le même service (comme la démo Présence) : même origine, pas de CORS.
+// src/ (tsx) et dist/ (build) sont tous deux à deux niveaux de la racine du repo.
+const FRONTEND_FILE = path.join(__dirname, '..', '..', 'turingarou-online.html');
 
-  // Résolution identique à GameLogger (process.cwd()) avec fallback __dirname/../
-  const dbPath = process.env.DB_PATH
-    || path.join(process.cwd(), 'turingarou.db');
-
-  if (!fs.existsSync(dbPath)) {
-    res.status(404).json({ error: `DB not found at ${dbPath}` });
-    return;
-  }
-
-  res.download(dbPath, 'turingarou.db', (err) => {
-    if (err && !res.headersSent) {
-      res.status(500).json({ error: 'Download failed' });
-    }
-  });
+app.get('/', (req, res) => {
+  res.sendFile(FRONTEND_FILE);
 });
 
 app.get('/health', (req, res) => {
@@ -235,6 +216,7 @@ app.get('/health', (req, res) => {
     llmProviders: llmProviders.map((p) => p.name),
     aiCount: parseInt(process.env.AI_COUNT || '3'),
     maxPlayers: 8,
+    db: isDBEnabled() ? 'postgres' : 'none',
   });
 });
 
@@ -252,6 +234,9 @@ app.get('/rooms', (req, res) => {
 // ====== START SERVER ======
 
 const PORT = process.env.PORT || 3001;
+
+// Init DB non bloquante : le serveur démarre même si Postgres est injoignable.
+initDB().catch((err) => { console.warn('[GameLogger] Init failed (non-fatal):', err.message); });
 
 httpServer.listen(PORT, () => {
   console.log(`

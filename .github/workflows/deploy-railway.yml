@@ -1,0 +1,70 @@
+# Deploy to Railway on every push to main — same setup as the Présence demo.
+#
+# Railway does NOT auto-deploy from GitHub (no native integration connected):
+# this workflow is the only way code reaches prod. CI red ⇒ nothing ships,
+# and /health keeps answering 200 on the previous version.
+#
+# One-time setup (outside this file):
+#   1. Railway dashboard → project `turingarou` → Settings → Tokens →
+#      Create a Project Token (environment: production).
+#   2. GitHub → repo settings → Secrets and variables → Actions →
+#      New repository secret RAILWAY_TOKEN = <the token from step 1>.
+#
+# The `checks` job also runs on pull requests, so the signal is visible
+# before merge. It reproduces CLAUDE.md's mandatory verification: build, boot
+# the server, join a room with test-client.js.
+
+name: Deploy to Railway
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: turingarou-backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Smoke test (server + test client)
+        # Le serveur refuse de démarrer sans clé LLM ; une fausse suffit, rejoindre
+        # une salle n'appelle aucun modèle. Pas de DATABASE_URL : persistance coupée.
+        env:
+          DEEPSEEK_API_KEY: ci-dummy
+        run: |
+          node dist/server.js > server.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf localhost:3001/health && break; sleep 1; done
+          timeout 15 node test-client.js < /dev/null > client.log 2>&1 || true
+          cat client.log
+          if ! grep -q "Joined successfully" client.log; then
+            echo "::error::test-client did not join a room — server log below"
+            cat server.log
+            exit 1
+          fi
+
+  deploy:
+    needs: checks
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: railway-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy to Railway
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: npx -y @railway/cli@latest up --service turingarou --detach

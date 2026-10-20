@@ -1,7 +1,8 @@
 /**
- * GameLogger — persistance SQLite des parties et profils humains.
+ * GameLogger — persistance Postgres des parties et profils humains.
  *
- * Fichier DB : <cwd>/turingarou.db
+ * Base : DATABASE_URL (Postgres Railway en prod). Sans DATABASE_URL, rien n'est
+ * persisté et le jeu tourne quand même — c'est le mode dev local par défaut.
  *
  * Tables :
  *   games           — une ligne par partie
@@ -13,8 +14,7 @@
  *   human_profiles  — profil cumulé par username
  */
 
-import Database from 'better-sqlite3';
-import path from 'path';
+import pg from 'pg';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -58,24 +58,54 @@ export interface GameLogData {
   messages: MessageLog[];
 }
 
-// ─── DB singleton ─────────────────────────────────────────────────────────────
+// ─── DB pool ──────────────────────────────────────────────────────────────────
 
-let _db: Database.Database | null = null;
+// Créé à la première utilisation, pas à l'import : les imports ESM sont évalués
+// avant le dotenv.config() de server.ts, DATABASE_URL n'y est pas encore lu.
+let _pool: pg.Pool | null | undefined;
 
-function getDB(): Database.Database {
-  if (_db) return _db;
-
-  const dbPath = path.join(process.cwd(), 'turingarou.db');
-  _db = new Database(dbPath);
-  _db.pragma('journal_mode = WAL');
-  _db.pragma('foreign_keys = ON');
-  initSchema(_db);
-  console.log(`[GameLogger] SQLite DB ready at ${dbPath}`);
-  return _db;
+function getPool(): pg.Pool | null {
+  if (_pool !== undefined) return _pool;
+  _pool = process.env.DATABASE_URL
+    ? new pg.Pool({
+        connectionString: process.env.DATABASE_URL,
+        max: 5,
+        connectionTimeoutMillis: 10000,
+        idleTimeoutMillis: 30000,
+      })
+    : null;
+  return _pool;
 }
 
-function initSchema(db: Database.Database): void {
-  db.exec(`
+export function isDBEnabled(): boolean {
+  return getPool() !== null;
+}
+
+async function inTransaction(pool: pg.Pool, fn: (client: pg.PoolClient) => Promise<void>): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await fn(client);
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function initDB(): Promise<void> {
+  const pool = getPool();
+  if (!pool) {
+    console.log('[GameLogger] No DATABASE_URL — games will not be persisted');
+    return;
+  }
+
+  // Les unicités sur du texte libre passent par md5() : un index btree sur le
+  // texte brut refuse les lignes de plus de ~2,7 Ko, et l'erreur annulerait
+  // toute la transaction de la partie.
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS games (
       game_id     TEXT PRIMARY KEY,
       date        TEXT NOT NULL,
@@ -84,7 +114,7 @@ function initSchema(db: Database.Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS game_players (
-      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      id               SERIAL PRIMARY KEY,
       game_id          TEXT NOT NULL REFERENCES games(game_id),
       player_name      TEXT NOT NULL,
       player_type      TEXT NOT NULL,
@@ -94,14 +124,14 @@ function initSchema(db: Database.Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS round_questions (
-      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      id        SERIAL PRIMARY KEY,
       game_id   TEXT NOT NULL REFERENCES games(game_id),
       round     INTEGER NOT NULL,
       question  TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS round_answers (
-      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      id          SERIAL PRIMARY KEY,
       game_id     TEXT NOT NULL REFERENCES games(game_id),
       round       INTEGER NOT NULL,
       player_name TEXT NOT NULL,
@@ -110,7 +140,7 @@ function initSchema(db: Database.Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS round_votes (
-      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      id        SERIAL PRIMARY KEY,
       game_id   TEXT NOT NULL REFERENCES games(game_id),
       round     INTEGER NOT NULL,
       voter     TEXT NOT NULL,
@@ -118,7 +148,7 @@ function initSchema(db: Database.Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS round_eliminations (
-      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      id          SERIAL PRIMARY KEY,
       game_id     TEXT NOT NULL REFERENCES games(game_id),
       round       INTEGER NOT NULL,
       player_name TEXT NOT NULL,
@@ -126,13 +156,13 @@ function initSchema(db: Database.Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS messages (
-      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      id          SERIAL PRIMARY KEY,
       game_id     TEXT NOT NULL REFERENCES games(game_id),
       round       INTEGER NOT NULL,
       player_name TEXT NOT NULL,
       player_type TEXT NOT NULL,
       content     TEXT NOT NULL,
-      ts          INTEGER NOT NULL
+      ts          BIGINT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS human_profiles (
@@ -143,27 +173,25 @@ function initSchema(db: Database.Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS human_messages (
-      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      id        SERIAL PRIMARY KEY,
       username  TEXT NOT NULL REFERENCES human_profiles(username),
-      content   TEXT NOT NULL,
-      UNIQUE(username, content)
+      content   TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS human_answers (
-      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      id        SERIAL PRIMARY KEY,
       username  TEXT NOT NULL REFERENCES human_profiles(username),
       question  TEXT NOT NULL,
-      answer    TEXT NOT NULL,
-      UNIQUE(username, question, answer)
+      answer    TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS message_flags (
-      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      id          SERIAL PRIMARY KEY,
       game_id     TEXT NOT NULL,
       message_id  TEXT NOT NULL,
       flagged_by  TEXT NOT NULL,
       round       INTEGER NOT NULL,
-      ts          INTEGER NOT NULL,
+      ts          BIGINT NOT NULL,
       reason      TEXT,
       UNIQUE(game_id, message_id, flagged_by)
     );
@@ -180,12 +208,17 @@ function initSchema(db: Database.Database): void {
       ON round_eliminations(game_id, round);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_unique
       ON messages(game_id, round, player_name, ts);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_human_messages_unique
+      ON human_messages(username, md5(content));
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_human_answers_unique
+      ON human_answers(username, md5(question), md5(answer));
 
     CREATE INDEX IF NOT EXISTS idx_messages_game_id      ON messages(game_id);
     CREATE INDEX IF NOT EXISTS idx_round_answers_game_id ON round_answers(game_id);
     CREATE INDEX IF NOT EXISTS idx_round_votes_game_id   ON round_votes(game_id);
     CREATE INDEX IF NOT EXISTS idx_game_players_game_id  ON game_players(game_id);
   `);
+  console.log('[GameLogger] Postgres DB ready');
 }
 
 // ─── Persona ──────────────────────────────────────────────────────────────────
@@ -198,45 +231,43 @@ export interface HumanPersona {
 
 /**
  * Renvoie un profil humain aléatoire de la base (avec au moins 2 messages enregistrés).
- * Retourne null si la base est vide ou inexistante.
+ * Retourne null si la base est vide ou absente.
  */
-export function getRandomHumanProfile(): HumanPersona | null {
+export async function getRandomHumanProfile(): Promise<HumanPersona | null> {
+  const pool = getPool();
+  if (!pool) return null;
   try {
-    const db = getDB();
+    const { rows } = await pool.query<{ username: string }>(
+      `SELECT hp.username
+       FROM human_profiles hp
+       JOIN human_messages hm ON hp.username = hm.username
+       GROUP BY hp.username
+       HAVING COUNT(hm.id) >= 2
+       ORDER BY RANDOM()
+       LIMIT 1`
+    );
 
-    const row = db
-      .prepare(
-        `SELECT hp.username
-         FROM human_profiles hp
-         JOIN human_messages hm ON hp.username = hm.username
-         GROUP BY hp.username
-         HAVING COUNT(hm.id) >= 2
-         ORDER BY RANDOM()
-         LIMIT 1`
-      )
-      .get() as { username: string } | undefined;
+    if (rows.length === 0) return null;
 
-    if (!row) return null;
+    const { username } = rows[0];
 
-    const { username } = row;
+    const messages = await pool.query<{ content: string }>(
+      `SELECT content FROM human_messages WHERE username = $1 ORDER BY RANDOM() LIMIT 10`,
+      [username]
+    );
 
-    const messages = db
-      .prepare(`SELECT content FROM human_messages WHERE username = ? ORDER BY RANDOM() LIMIT 10`)
-      .all(username) as { content: string }[];
-
-    const answers = db
-      .prepare(
-        `SELECT question, answer FROM human_answers WHERE username = ? ORDER BY RANDOM() LIMIT 5`
-      )
-      .all(username) as { question: string; answer: string }[];
+    const answers = await pool.query<{ question: string; answer: string }>(
+      `SELECT question, answer FROM human_answers WHERE username = $1 ORDER BY RANDOM() LIMIT 5`,
+      [username]
+    );
 
     return {
       username,
-      sampleMessages: messages.map((m) => m.content),
-      sampleAnswers: answers,
+      sampleMessages: messages.rows.map((m) => m.content),
+      sampleAnswers: answers.rows,
     };
-  } catch {
-    // DB absente ou vide (première exécution) — silencieux
+  } catch (err) {
+    console.error('[GameLogger] getRandomHumanProfile error:', err);
     return null;
   }
 }
@@ -248,19 +279,22 @@ export function getRandomHumanProfile(): HumanPersona | null {
  * Appelé en cours de partie — game_id peut ne pas encore exister dans games.
  * UNIQUE(game_id, message_id, flagged_by) : un joueur ne peut flaguer qu'une fois le même message.
  */
-export function saveMessageFlag(
+export async function saveMessageFlag(
   gameId: string,
   messageId: string,
   flaggedBy: string,
   round: number,
   reason?: string
-): void {
+): Promise<void> {
+  const pool = getPool();
+  if (!pool) return;
   try {
-    const db = getDB();
-    db.prepare(
-      `INSERT OR IGNORE INTO message_flags (game_id, message_id, flagged_by, round, ts, reason)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(gameId, messageId, flaggedBy, round, Date.now(), reason ?? null);
+    await pool.query(
+      `INSERT INTO message_flags (game_id, message_id, flagged_by, round, ts, reason)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT DO NOTHING`,
+      [gameId, messageId, flaggedBy, round, Date.now(), reason ?? null]
+    );
   } catch (err) {
     console.error('[GameLogger] saveMessageFlag error:', err);
   }
@@ -269,63 +303,72 @@ export function saveMessageFlag(
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
- * Sauvegarde le log complet d'une partie en SQLite.
+ * Sauvegarde le log complet d'une partie.
  */
-export function saveGameLog(data: GameLogData): void {
+export async function saveGameLog(data: GameLogData): Promise<void> {
+  const pool = getPool();
+  if (!pool) return;
   try {
-    const db = getDB();
-
-    const insertAll = db.transaction(() => {
+    await inTransaction(pool, async (db) => {
       // games
-      db.prepare(
-        `INSERT OR REPLACE INTO games (game_id, date, language, result)
-         VALUES (?, ?, ?, ?)`
-      ).run(data.gameId, data.date, data.language, data.result);
+      await db.query(
+        `INSERT INTO games (game_id, date, language, result)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (game_id) DO UPDATE SET
+           date     = EXCLUDED.date,
+           language = EXCLUDED.language,
+           result   = EXCLUDED.result`,
+        [data.gameId, data.date, data.language, data.result]
+      );
 
       // players
-      const insPlayer = db.prepare(
-        `INSERT OR IGNORE INTO game_players (game_id, player_name, player_type, strategy, eliminated, eliminated_round)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      );
       for (const p of data.players) {
-        insPlayer.run(
-          data.gameId, p.name, p.type, p.strategy ?? null,
-          p.eliminated ? 1 : 0, p.eliminatedRound ?? null
+        await db.query(
+          `INSERT INTO game_players (game_id, player_name, player_type, strategy, eliminated, eliminated_round)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT DO NOTHING`,
+          [data.gameId, p.name, p.type, p.strategy ?? null, p.eliminated ? 1 : 0, p.eliminatedRound ?? null]
         );
       }
 
       // rounds
-      const insQ = db.prepare(
-        `INSERT OR IGNORE INTO round_questions (game_id, round, question) VALUES (?, ?, ?)`
-      );
-      const insA = db.prepare(
-        `INSERT OR IGNORE INTO round_answers (game_id, round, player_name, player_type, answer) VALUES (?, ?, ?, ?, ?)`
-      );
-      const insV = db.prepare(
-        `INSERT OR IGNORE INTO round_votes (game_id, round, voter, target) VALUES (?, ?, ?, ?)`
-      );
-      const insE = db.prepare(
-        `INSERT OR IGNORE INTO round_eliminations (game_id, round, player_name, is_ai) VALUES (?, ?, ?, ?)`
-      );
-
       for (const r of data.rounds) {
-        if (r.question) insQ.run(data.gameId, r.round, r.question);
-        for (const a of r.answers) insA.run(data.gameId, r.round, a.player, a.type, a.answer);
-        for (const v of r.votes) insV.run(data.gameId, r.round, v.voter, v.target);
-        if (r.eliminated) insE.run(data.gameId, r.round, r.eliminated.name, r.eliminated.isAI ? 1 : 0);
+        if (r.question) {
+          await db.query(
+            `INSERT INTO round_questions (game_id, round, question) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+            [data.gameId, r.round, r.question]
+          );
+        }
+        for (const a of r.answers) {
+          await db.query(
+            `INSERT INTO round_answers (game_id, round, player_name, player_type, answer) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING`,
+            [data.gameId, r.round, a.player, a.type, a.answer]
+          );
+        }
+        for (const v of r.votes) {
+          await db.query(
+            `INSERT INTO round_votes (game_id, round, voter, target) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+            [data.gameId, r.round, v.voter, v.target]
+          );
+        }
+        if (r.eliminated) {
+          await db.query(
+            `INSERT INTO round_eliminations (game_id, round, player_name, is_ai) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+            [data.gameId, r.round, r.eliminated.name, r.eliminated.isAI ? 1 : 0]
+          );
+        }
       }
 
       // messages
-      const insM = db.prepare(
-        `INSERT OR IGNORE INTO messages (game_id, round, player_name, player_type, content, ts)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      );
       for (const m of data.messages) {
-        insM.run(data.gameId, m.round, m.player, m.type, m.content, m.timestamp);
+        await db.query(
+          `INSERT INTO messages (game_id, round, player_name, player_type, content, ts)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT DO NOTHING`,
+          [data.gameId, m.round, m.player, m.type, m.content, m.timestamp]
+        );
       }
     });
-
-    insertAll();
     console.log(`[GameLogger] Game ${data.gameId} saved to DB`);
   } catch (err) {
     console.error('[GameLogger] saveGameLog error:', err);
@@ -335,45 +378,45 @@ export function saveGameLog(data: GameLogData): void {
 /**
  * Met à jour les profils humains cumulés.
  */
-export function updateHumanProfiles(data: GameLogData): void {
+export async function updateHumanProfiles(data: GameLogData): Promise<void> {
+  const pool = getPool();
+  if (!pool) return;
   try {
-    const db = getDB();
     const humanWon = data.result === 'humans_win';
 
-    const upsertProfile = db.prepare(`
-      INSERT INTO human_profiles (username, games_played, wins, last_seen)
-      VALUES (?, 1, ?, ?)
-      ON CONFLICT(username) DO UPDATE SET
-        games_played = games_played + 1,
-        wins         = wins + excluded.wins,
-        last_seen    = excluded.last_seen
-    `);
-
-    const insMsg = db.prepare(`
-      INSERT OR IGNORE INTO human_messages (username, content) VALUES (?, ?)
-    `);
-
-    const insAns = db.prepare(`
-      INSERT OR IGNORE INTO human_answers (username, question, answer) VALUES (?, ?, ?)
-    `);
-
-    const updateProfiles = db.transaction(() => {
+    await inTransaction(pool, async (db) => {
       for (const p of data.players.filter((pl) => pl.type === 'human')) {
-        upsertProfile.run(p.name, humanWon ? 1 : 0, data.date);
+        await db.query(
+          `INSERT INTO human_profiles (username, games_played, wins, last_seen)
+           VALUES ($1, 1, $2, $3)
+           ON CONFLICT (username) DO UPDATE SET
+             games_played = human_profiles.games_played + 1,
+             wins         = human_profiles.wins + EXCLUDED.wins,
+             last_seen    = EXCLUDED.last_seen`,
+          [p.name, humanWon ? 1 : 0, data.date]
+        );
 
         for (const m of data.messages.filter((msg) => msg.player === p.name)) {
           const trimmed = m.content.trim();
-          if (trimmed) insMsg.run(p.name, trimmed);
+          if (trimmed) {
+            await db.query(
+              `INSERT INTO human_messages (username, content) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+              [p.name, trimmed]
+            );
+          }
         }
 
         for (const r of data.rounds) {
           const ans = r.answers.find((a) => a.player === p.name);
-          if (ans?.answer.trim()) insAns.run(p.name, r.question, ans.answer.trim());
+          if (ans?.answer.trim()) {
+            await db.query(
+              `INSERT INTO human_answers (username, question, answer) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+              [p.name, r.question, ans.answer.trim()]
+            );
+          }
         }
       }
     });
-
-    updateProfiles();
     console.log(`[GameLogger] Human profiles updated`);
   } catch (err) {
     console.error('[GameLogger] updateHumanProfiles error:', err);

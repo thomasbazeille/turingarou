@@ -251,10 +251,10 @@ export class GameRoom {
       const chosen = await getRandomAIPlayerStrategy(personality.name);
 
       // Tenter de trouver un profil humain non encore utilisé dans cette partie
-      let persona = getRandomHumanProfile();
+      let persona = await getRandomHumanProfile();
       let attempts = 0;
       while (persona && usedPersonaNames.has(persona.username) && attempts < 5) {
-        persona = getRandomHumanProfile();
+        persona = await getRandomHumanProfile();
         attempts++;
       }
       if (persona) {

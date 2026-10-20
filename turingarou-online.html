@@ -657,14 +657,19 @@ let G={s:'waiting',r:1,mr:7,t:100,qt:15,p:[],m:[],e:[],eliminationOrder:[],l:nul
 // === SOCKET.IO SETUP ===
 // Configuration automatique selon environnement
 const BACKEND_URL = (() => {
-  const hostname = window.location.hostname;
-  
-  // Dev local
+  const { hostname, protocol, origin } = window.location;
+
+  // Dev local (front servi par python sur :8000, ou par le backend sur :3001)
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
     return 'http://localhost:3001';
   }
-  
-  // Production - URL Render déployée
+
+  // Servi par le backend lui-même (Railway) : même origine
+  if (protocol !== 'file:' && !hostname.endsWith('github.io')) {
+    return origin;
+  }
+
+  // GitHub Pages ou fichier ouvert en local : backend de prod
   return 'https://turingarou.onrender.com';
 })();
 

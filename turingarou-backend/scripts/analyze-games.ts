@@ -7,10 +7,11 @@
  *   npm run analyze -- --games 5           # 5 dernières parties
  *   npm run analyze -- --output report.md  # sauvegarde le rapport
  *
- * Requires: ANTHROPIC_API_KEY in .env
+ * Requires: ANTHROPIC_API_KEY in .env, DATABASE_URL pointing at the prod Postgres
+ * (see CLAUDE.md « Base de prod (Railway) — lecture seule »)
  */
 
-import Database from 'better-sqlite3';
+import pg from 'pg';
 import Anthropic from '@anthropic-ai/sdk';
 import path from 'path';
 import fs from 'fs';
@@ -19,8 +20,10 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+// BIGINT (ts en ms) revient en string par défaut avec pg : on le veut en number.
+pg.types.setTypeParser(20, Number);
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DB_PATH        = path.join(__dirname, '..', 'turingarou.db');
 const KNOWLEDGE_PATH = path.join(__dirname, 'tells-knowledge.md');
 
 // ── CLI args ──────────────────────────────────────────────────────────────────
@@ -46,47 +49,56 @@ interface ElimRow   { round: number; player_name: string; is_ai: number }
 interface AnswerRow { round: number; player_name: string; player_type: string; answer: string }
 interface FlagRow   { message_id: string; flagged_by: string; round: number; reason: string | null; player_name: string | null; player_type: string | null; content: string | null }
 
-function loadGames(n: number) {
-  if (!fs.existsSync(DB_PATH)) {
-    console.error(`DB not found at ${DB_PATH}. Run the backend and play at least one game first.`);
+async function loadGames(n: number) {
+  if (!process.env.DATABASE_URL) {
+    console.error('DATABASE_URL is not set. See CLAUDE.md « Base de prod (Railway) — lecture seule ».');
     process.exit(1);
   }
-  const db = new Database(DB_PATH, { readonly: true });
+  const db = new pg.Client({ connectionString: process.env.DATABASE_URL });
+  await db.connect();
+  // Lecture seule au niveau de la session : un script d'analyse n'écrit jamais en prod.
+  await db.query('SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY');
 
-  const games = db.prepare(
-    `SELECT game_id, date, language, result FROM games ORDER BY date DESC LIMIT ?`
-  ).all(n) as GameRow[];
+  const all = async <T extends pg.QueryResultRow>(sql: string, params: unknown[]) =>
+    (await db.query<T>(sql, params)).rows;
+
+  const games = await all<GameRow>(
+    `SELECT game_id, date, language, result FROM games ORDER BY date DESC LIMIT $1`, [n]
+  );
 
   if (games.length === 0) {
     console.error('No games found in DB.');
+    await db.end();
     process.exit(0);
   }
 
-  const result = games.map(g => {
-    const players  = db.prepare(`SELECT player_name, player_type, strategy, eliminated, eliminated_round FROM game_players WHERE game_id = ?`).all(g.game_id) as PlayerRow[];
-    const messages = db.prepare(`SELECT round, player_name, player_type, content, ts FROM messages WHERE game_id = ? ORDER BY ts`).all(g.game_id) as MsgRow[];
-    const votes    = db.prepare(`SELECT round, voter, target FROM round_votes WHERE game_id = ?`).all(g.game_id) as VoteRow[];
-    const elims    = db.prepare(`SELECT round, player_name, is_ai FROM round_eliminations WHERE game_id = ?`).all(g.game_id) as ElimRow[];
-    const answers  = db.prepare(`SELECT round, player_name, player_type, answer FROM round_answers WHERE game_id = ?`).all(g.game_id) as AnswerRow[];
-    const flags    = db.prepare(`
+  const result = [];
+  for (const g of games) {
+    const players  = await all<PlayerRow>(`SELECT player_name, player_type, strategy, eliminated, eliminated_round FROM game_players WHERE game_id = $1`, [g.game_id]);
+    const messages = await all<MsgRow>(`SELECT round, player_name, player_type, content, ts FROM messages WHERE game_id = $1 ORDER BY ts`, [g.game_id]);
+    const votes    = await all<VoteRow>(`SELECT round, voter, target FROM round_votes WHERE game_id = $1`, [g.game_id]);
+    const elims    = await all<ElimRow>(`SELECT round, player_name, is_ai FROM round_eliminations WHERE game_id = $1`, [g.game_id]);
+    const answers  = await all<AnswerRow>(`SELECT round, player_name, player_type, answer FROM round_answers WHERE game_id = $1`, [g.game_id]);
+    // message_id n'est pas toujours numérique : comparé en texte, là où SQLite castait en silence.
+    const flags    = await all<FlagRow>(`
       SELECT mf.message_id, mf.flagged_by, mf.round, mf.reason,
              m.player_name, m.player_type, m.content
       FROM message_flags mf
       LEFT JOIN messages m
-        ON m.game_id = mf.game_id AND m.id = CAST(mf.message_id AS INTEGER)
-      WHERE mf.game_id = ?
-    `).all(g.game_id) as FlagRow[];
+        ON m.game_id = mf.game_id AND m.id::text = mf.message_id
+      WHERE mf.game_id = $1
+    `, [g.game_id]);
 
-    return { ...g, players, messages, votes, elims, answers, flags };
-  });
+    result.push({ ...g, players, messages, votes, elims, answers, flags });
+  }
 
-  db.close();
+  await db.end();
   return result;
 }
 
 // ── Format game logs ──────────────────────────────────────────────────────────
 
-function formatGamesForPrompt(games: ReturnType<typeof loadGames>): string {
+function formatGamesForPrompt(games: Awaited<ReturnType<typeof loadGames>>): string {
   let out = '';
   for (const g of games) {
     out += `\n${'='.repeat(60)}\n`;
@@ -162,8 +174,8 @@ async function main() {
     process.exit(1);
   }
 
-  console.log(`Loading last ${nGames} games from ${DB_PATH}...`);
-  const games = loadGames(nGames);
+  console.log(`Loading last ${nGames} games from Postgres...`);
+  const games = await loadGames(nGames);
   console.log(`Loaded ${games.length} games.`);
 
   const gamesText    = formatGamesForPrompt(games);

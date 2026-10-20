@@ -6,24 +6,22 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "analyze": "tsx scripts/analyze-games.ts",
-    "pull-db": "bash scripts/download-db.sh",
-    "pull-and-analyze": "bash scripts/download-db.sh && tsx scripts/analyze-games.ts"
+    "analyze": "tsx scripts/analyze-games.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
     "axios": "^1.6.2",
-    "better-sqlite3": "^12.6.2",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
+    "pg": "^8.23.1",
     "socket.io": "^4.7.2"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/node": "^20.10.0",
+    "@types/pg": "^8.23.1",
     "socket.io-client": "^4.8.4",
     "tsx": "^4.7.0",
     "typescript": "^5.3.3"

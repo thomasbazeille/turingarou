@@ -2,7 +2,7 @@
 
 Social deduction game where players identify hidden AIs. Inspired by the Turing test — each round players answer a question, discuss, and vote to eliminate whoever seems like a bot.
 
-**Live:** deploy `turingarou-online.html` (static) + `turingarou-backend/` (Node.js on Render).
+**Live:** one Railway service (`turingarou-backend/`, Node.js) that also serves `turingarou-online.html`, plus a Railway Postgres for game logs.
 
 ---
 
@@ -29,24 +29,20 @@ cd turingarou-backend && node test-client.js
 
 ---
 
-## Deploy to production (Render + GitHub Pages)
+## Deploy to production (Railway)
 
-1. **Backend on Render** — connect this repo, set:
-   - Build: `cd turingarou-backend && npm install && npm run build`
-   - Start: `cd turingarou-backend && npm start`
-   - Env vars (see below)
+Every push to `main` runs `.github/workflows/deploy-railway.yml`: build + server boot + test client, then `railway up --service turingarou`. CI red ⇒ nothing ships. Build and start commands live in `railway.json`. The workflow needs a `RAILWAY_TOKEN` repository secret (Railway project token, environment production).
 
-2. **Frontend** — `turingarou-online.html` references the backend URL hardcoded near the top of the `<script>`. Update it to your Render URL, then host the file anywhere (GitHub Pages, Netlify, etc.).
-
-### Required env vars (Render)
+### Env vars (Railway service `turingarou`)
 
 | Variable | Description |
 |---|---|
 | `DEEPSEEK_API_KEY` | Deepseek API key |
 | `MISTRAL_API_KEY` | Mistral API key |
 | `ANTHROPIC_API_KEY` | Anthropic API key |
-| `AI_COUNT` | Number of AI players per game (default: 2) |
-| `ADMIN_SECRET` | Secret for `/admin/db` download endpoint |
+| `AI_COUNT` | Number of AI players per game (default: 3) |
+| `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` — reference to the project's Postgres |
+| `FRONTEND_URL` | Socket.io CORS origin for the GitHub Pages copy (`https://thomasbazeille.github.io`) |
 
 At least one LLM key is required. All configured providers are used — each AI in a game picks one at random.
 
@@ -63,12 +59,11 @@ turingarou-backend/
     src/game/AIPlayer.ts        — AI behavior, context building, LLM calls
     src/game/InspectorController.ts  — AI acting as a human detective
     src/game/AIPlayerInstructions.ts — system prompt scaffolding
-    src/game/GameLogger.ts      — SQLite persistence
+    src/game/GameLogger.ts      — Postgres persistence
     src/llm/                    — provider adapters (Deepseek, Mistral, Anthropic)
     strategies/                 — AI personality prompt files (v1/v2/v3)
     scripts/
-        analyze-games.ts        — Claude-powered game log analysis
-        download-db.sh          — download turingarou.db from Render
+        analyze-games.ts        — Claude-powered game log analysis (reads the prod Postgres)
         tells-knowledge.md      — auto-maintained AI detection knowledge base
 ```
 
@@ -89,12 +84,11 @@ Six strategy files in `strategies/` are loaded at startup and assigned randomly 
 ```bash
 cd turingarou-backend
 
-# Download DB from Render (requires RENDER_URL + ADMIN_SECRET in .env)
-npm run pull-db
+# Load the prod DB URL (read-only use — see CLAUDE.md « Prod database »)
+export DATABASE_URL=$(railway variables --service Postgres --json | jq -r '.DATABASE_PUBLIC_URL // empty')
 
-# Download then analyze
-npm run pull-and-analyze                    # last 10 games
-npm run pull-and-analyze -- --games 5      # last 5 games
+npm run analyze                             # last 10 games
+npm run analyze -- --games 5               # last 5 games
 npm run analyze -- --output report.md      # save report to file
 ```
 
