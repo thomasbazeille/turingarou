@@ -36,9 +36,9 @@ cd turingarou-backend && node test-client.js
 ```
 
 ### Frontend
-Open `turingarou-online.html` directly in a browser, or:
+Serve it on localhost — opened as `file://`, the page connects to the PROD backend on Render, not your local one:
 ```bash
-python -m http.server 8000   # serve from project root
+python -m http.server 8000   # serve from project root, then open http://localhost:8000/turingarou-online.html
 ```
 
 ## Architecture

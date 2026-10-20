@@ -15,9 +15,9 @@ cp .env.example .env          # fill in at least one API key
 npm install
 npm run dev                   # port 3001, hot-reload
 
-# 2. Frontend — open in browser
-open ../turingarou-online.html
-# or serve the root: python -m http.server 8000
+# 2. Frontend — serve on localhost (as file:// it connects to the PROD backend)
+cd .. && python3 -m http.server 8000
+# then open http://localhost:8000/turingarou-online.html
 ```
 
 ### Verify the backend works
