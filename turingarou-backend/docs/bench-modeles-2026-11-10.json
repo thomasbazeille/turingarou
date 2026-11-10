@@ -1,0 +1,1424 @@
+{
+ "runs": [
+  {
+   "date": "2026-11-10T17:37:05.560Z",
+   "calls": 113,
+   "estUsd": 0.184,
+   "providers": [
+    "Mistral/mistral-small-latest",
+    "Groq/qwen/qwen3.8-27b",
+    "Mistral/ministral-14b-latest",
+    "Groq/openai/gpt-oss-20b",
+    "Cerebras/qwen-3.8-27b",
+    "Anthropic/claude-haiku-4-5",
+    "Cerebras/gpt-oss-120b",
+    "Anthropic/claude-haiku-5-5"
+   ]
+  },
+  {
+   "date": "2026-11-10T17:39:48.626Z",
+   "calls": 20,
+   "estUsd": 0.081,
+   "providers": [
+    "Anthropic/claude-haiku-5-5"
+   ]
+  },
+  {
+   "date": "2026-11-10T17:53:03.109Z",
+   "calls": 25,
+   "estUsd": 0.01,
+   "providers": [
+    "Mistral/mistral-small-latest",
+    "Mistral/ministral-14b-latest"
+   ]
+  },
+  {
+   "date": "2026-11-10T17:53:34.765Z",
+   "calls": 42,
+   "estUsd": 0.044,
+   "providers": [
+    "Groq/qwen/qwen3.8-27b",
+    "Groq/openai/gpt-oss-20b"
+   ]
+  }
+ ],
+ "skipped": [],
+ "summaries": [
+  {
+   "provider": "Cerebras/qwen-3.8-27b",
+   "situations": 20,
+   "calls": 20,
+   "callFailures": 0,
+   "truncated": 0,
+   "latencyP50": 424,
+   "latencyP90": 693,
+   "e2eP50": 424,
+   "jsonOk": "100%",
+   "jsonErrors": [],
+   "gateFirstTry": "100%",
+   "gateAfterRegen": "0%",
+   "gateLost": "0%",
+   "silentDiscussion": "0%",
+   "silentDirect": "0%",
+   "skipAnswer": "0%",
+   "failed": 0,
+   "lenP50": 30,
+   "lenP90": 68,
+   "lenMax": 69,
+   "gateReasons": [],
+   "usd": 0.0511,
+   "stopped": null,
+   "errors": []
+  },
+  {
+   "provider": "Anthropic/claude-haiku-4-5",
+   "situations": 20,
+   "calls": 20,
+   "callFailures": 0,
+   "truncated": 0,
+   "latencyP50": 974,
+   "latencyP90": 1281,
+   "e2eP50": 975,
+   "jsonOk": "100%",
+   "jsonErrors": [],
+   "gateFirstTry": "100%",
+   "gateAfterRegen": "0%",
+   "gateLost": "0%",
+   "silentDiscussion": "0%",
+   "silentDirect": "0%",
+   "skipAnswer": "0%",
+   "failed": 0,
+   "lenP50": 58,
+   "lenP90": 113,
+   "lenMax": 137,
+   "gateReasons": [],
+   "usd": 0.0573,
+   "stopped": null,
+   "errors": []
+  },
+  {
+   "provider": "Cerebras/gpt-oss-120b",
+   "situations": 20,
+   "calls": 22,
+   "callFailures": 0,
+   "truncated": 0,
+   "latencyP50": 379,
+   "latencyP90": 481,
+   "e2eP50": 395,
+   "jsonOk": "100%",
+   "jsonErrors": [],
+   "gateFirstTry": "90%",
+   "gateAfterRegen": "10%",
+   "gateLost": "0%",
+   "silentDiscussion": "0%",
+   "silentDirect": "0%",
+   "skipAnswer": "0%",
+   "failed": 0,
+   "lenP50": 24,
+   "lenP90": 70,
+   "lenMax": 74,
+   "gateReasons": [
+    "empty",
+    "empty"
+   ],
+   "usd": 0.0194,
+   "stopped": null,
+   "errors": []
+  },
+  {
+   "provider": "Anthropic/claude-haiku-5-5",
+   "situations": 20,
+   "calls": 20,
+   "callFailures": 0,
+   "truncated": 0,
+   "latencyP50": 1054,
+   "latencyP90": 1318,
+   "e2eP50": 1055,
+   "jsonOk": "100%",
+   "jsonErrors": [],
+   "gateFirstTry": "100%",
+   "gateAfterRegen": "0%",
+   "gateLost": "0%",
+   "silentDiscussion": "0%",
+   "silentDirect": "0%",
+   "skipAnswer": "0%",
+   "failed": 0,
+   "lenP50": 62,
+   "lenP90": 113,
+   "lenMax": 140,
+   "gateReasons": [],
+   "usd": 0.0813,
+   "stopped": null,
+   "errors": []
+  },
+  {
+   "provider": "Mistral/mistral-small-latest",
+   "situations": 3,
+   "calls": 5,
+   "callFailures": 5,
+   "truncated": 0,
+   "latencyP50": null,
+   "latencyP90": null,
+   "e2eP50": 778,
+   "jsonOk": "n/a",
+   "jsonErrors": [],
+   "gateFirstTry": "n/a",
+   "gateAfterRegen": "n/a",
+   "gateLost": "n/a",
+   "silentDiscussion": "n/a",
+   "silentDirect": "n/a",
+   "skipAnswer": "0%",
+   "failed": 3,
+   "lenP50": null,
+   "lenP90": null,
+   "lenMax": null,
+   "gateReasons": [],
+   "usd": 0,
+   "stopped": "5 failed calls in a row",
+   "errors": [
+    "Mistral/mistral-small-latest HTTP 429: {\"object\":\"error\",\"message\":\"Rate limit exceeded\",\"type\":\"rate_limited\",\"param\":null,\"code\":\"1300\",\"raw_status_code\":429}"
+   ]
+  },
+  {
+   "provider": "Mistral/ministral-14b-latest",
+   "situations": 20,
+   "calls": 20,
+   "callFailures": 0,
+   "truncated": 0,
+   "latencyP50": 865,
+   "latencyP90": 1533,
+   "e2eP50": 874,
+   "jsonOk": "100%",
+   "jsonErrors": [],
+   "gateFirstTry": "100%",
+   "gateAfterRegen": "0%",
+   "gateLost": "0%",
+   "silentDiscussion": "0%",
+   "silentDirect": "0%",
+   "skipAnswer": "0%",
+   "failed": 0,
+   "lenP50": 52,
+   "lenP90": 111,
+   "lenMax": 121,
+   "gateReasons": [],
+   "usd": 0.0102,
+   "stopped": null,
+   "errors": []
+  },
+  {
+   "provider": "Groq/qwen/qwen3.8-27b",
+   "situations": 20,
+   "calls": 20,
+   "callFailures": 1,
+   "truncated": 0,
+   "latencyP50": 452,
+   "latencyP90": 771,
+   "e2eP50": 456,
+   "jsonOk": "100%",
+   "jsonErrors": [],
+   "gateFirstTry": "100%",
+   "gateAfterRegen": "0%",
+   "gateLost": "0%",
+   "silentDiscussion": "0%",
+   "silentDirect": "0%",
+   "skipAnswer": "0%",
+   "failed": 1,
+   "lenP50": 26,
+   "lenP90": 54,
+   "lenMax": 74,
+   "gateReasons": [],
+   "usd": 0.0398,
+   "stopped": null,
+   "errors": [
+    "Groq/qwen/qwen3.8-27b HTTP 400: {\"error\":{\"message\":\"Failed to generate JSON. Please adjust your prompt. See 'failed_generation' for more details.\",\"type\":\"invalid_request_error\",\"code\":\"json_validate_failed\",\"failed_generation\":\"max completion tokens reached before generating a valid document\"}}\n"
+   ]
+  },
+  {
+   "provider": "Groq/openai/gpt-oss-20b",
+   "situations": 20,
+   "calls": 22,
+   "callFailures": 0,
+   "truncated": 0,
+   "latencyP50": 439,
+   "latencyP90": 1157,
+   "e2eP50": 565,
+   "jsonOk": "100%",
+   "jsonErrors": [],
+   "gateFirstTry": "90%",
+   "gateAfterRegen": "10%",
+   "gateLost": "0%",
+   "silentDiscussion": "0%",
+   "silentDirect": "0%",
+   "skipAnswer": "0%",
+   "failed": 0,
+   "lenP50": 33,
+   "lenP90": 100,
+   "lenMax": 105,
+   "gateReasons": [
+    "empty",
+    "empty"
+   ],
+   "usd": 0.0043,
+   "stopped": null,
+   "errors": []
+  }
+ ],
+ "results": [
+  {
+   "provider": "Cerebras/qwen-3.8-27b",
+   "situation": "fr-ans-trap",
+   "outcome": "message",
+   "text": "Pas mal de e",
+   "gateReasons": [],
+   "e2eMs": 514
+  },
+  {
+   "provider": "Cerebras/qwen-3.8-27b",
+   "situation": "fr-ans-where",
+   "outcome": "message",
+   "text": "Dans mon lit",
+   "gateReasons": [],
+   "e2eMs": 250
+  },
+  {
+   "provider": "Cerebras/qwen-3.8-27b",
+   "situation": "fr-ans-shame",
+   "outcome": "message",
+   "text": "J ai envoyé un txt a un mec du taf",
+   "gateReasons": [],
+   "e2eMs": 212
+  },
+  {
+   "provider": "Cerebras/qwen-3.8-27b",
+   "situation": "en-ans-trap",
+   "outcome": "message",
+   "text": "wait lets count em...",
+   "gateReasons": [],
+   "e2eMs": 227
+  },
+  {
+   "provider": "Cerebras/qwen-3.8-27b",
+   "situation": "en-ans-window",
+   "outcome": "message",
+   "text": "Just a wall lmao",
+   "gateReasons": [],
+   "e2eMs": 230
+  },
+  {
+   "provider": "Cerebras/qwen-3.8-27b",
+   "situation": "en-ans-day",
+   "outcome": "message",
+   "text": "thursday",
+   "gateReasons": [],
+   "e2eMs": 309
+  },
+  {
+   "provider": "Cerebras/qwen-3.8-27b",
+   "situation": "fr-quiet-1",
+   "outcome": "message",
+   "text": "ines est dans le vide quantique a ce que je vois",
+   "gateReasons": [],
+   "e2eMs": 343
+  },
+  {
+   "provider": "Cerebras/qwen-3.8-27b",
+   "situation": "fr-quiet-2",
+   "outcome": "message",
+   "text": "max tu dis pieds nus c’est pas une réponse le mec",
+   "gateReasons": [],
+   "e2eMs": 446
+  },
+  {
+   "provider": "Cerebras/qwen-3.8-27b",
+   "situation": "en-quiet-1",
+   "outcome": "message",
+   "text": "mia sounds like a bot ngl",
+   "gateReasons": [],
+   "e2eMs": 364
+  },
+  {
+   "provider": "Cerebras/qwen-3.8-27b",
+   "situation": "en-quiet-2",
+   "outcome": "message",
+   "text": "zoe u r the ai lmao bts",
+   "gateReasons": [],
+   "e2eMs": 461
+  },
+  {
+   "provider": "Cerebras/qwen-3.8-27b",
+   "situation": "fr-mid-accuse",
+   "outcome": "message",
+   "text": "inès secret la c'est pas une réponse",
+   "gateReasons": [],
+   "e2eMs": 298
+  },
+  {
+   "provider": "Cerebras/qwen-3.8-27b",
+   "situation": "fr-mid-chaos",
+   "outcome": "message",
+   "text": "max tetales jules on a pété",
+   "gateReasons": [],
+   "e2eMs": 476
+  },
+  {
+   "provider": "Cerebras/qwen-3.8-27b",
+   "situation": "fr-mid-banter",
+   "outcome": "message",
+   "text": "Hugo arrrete de te plaindre t es juste un poussetteur",
+   "gateReasons": [],
+   "e2eMs": 276
+  },
+  {
+   "provider": "Cerebras/qwen-3.8-27b",
+   "situation": "en-mid-accuse",
+   "outcome": "message",
+   "text": "priya in the shower lol that explains the lack of an answer honestly",
+   "gateReasons": [],
+   "e2eMs": 465
+  },
+  {
+   "provider": "Cerebras/qwen-3.8-27b",
+   "situation": "en-mid-chaos",
+   "outcome": "message",
+   "text": "two bots feels right",
+   "gateReasons": [],
+   "e2eMs": 654
+  },
+  {
+   "provider": "Cerebras/qwen-3.8-27b",
+   "situation": "en-mid-banter",
+   "outcome": "message",
+   "text": "Wait zoe is that a scent thing",
+   "gateReasons": [],
+   "e2eMs": 323
+  },
+  {
+   "provider": "Cerebras/qwen-3.8-27b",
+   "situation": "fr-direct-accuse",
+   "outcome": "message",
+   "text": "Lool t m accuse c est normal j etait dans ma tete",
+   "gateReasons": [],
+   "e2eMs": 433
+  },
+  {
+   "provider": "Cerebras/qwen-3.8-27b",
+   "situation": "fr-direct-ask",
+   "outcome": "message",
+   "text": "j suis pas en train de me regarder les orteils sarah lol",
+   "gateReasons": [],
+   "e2eMs": 424
+  },
+  {
+   "provider": "Cerebras/qwen-3.8-27b",
+   "situation": "en-direct-accuse",
+   "outcome": "message",
+   "text": "lol ok detective, u just mad cause u said tuesday and nobody liked it",
+   "gateReasons": [],
+   "e2eMs": 1513
+  },
+  {
+   "provider": "Cerebras/qwen-3.8-27b",
+   "situation": "en-direct-ask",
+   "outcome": "message",
+   "text": "Lmao none of your business lol",
+   "gateReasons": [],
+   "e2eMs": 694
+  },
+  {
+   "provider": "Anthropic/claude-haiku-4-5",
+   "situation": "fr-ans-trap",
+   "outcome": "message",
+   "text": "Euh genre 3 ou 4 j'sais pas trop",
+   "gateReasons": [],
+   "e2eMs": 1035
+  },
+  {
+   "provider": "Anthropic/claude-haiku-4-5",
+   "situation": "fr-ans-where",
+   "outcome": "message",
+   "text": "Dans mon canapé ptdr",
+   "gateReasons": [],
+   "e2eMs": 675
+  },
+  {
+   "provider": "Anthropic/claude-haiku-4-5",
+   "situation": "fr-ans-shame",
+   "outcome": "message",
+   "text": "Oof j'ai oublié mon code wifi chez mes parents et jai cru que ctait",
+   "gateReasons": [],
+   "e2eMs": 996
+  },
+  {
+   "provider": "Anthropic/claude-haiku-4-5",
+   "situation": "en-ans-trap",
+   "outcome": "message",
+   "text": "like 4 maybe",
+   "gateReasons": [],
+   "e2eMs": 660
+  },
+  {
+   "provider": "Anthropic/claude-haiku-4-5",
+   "situation": "en-ans-window",
+   "outcome": "message",
+   "text": "Just trees and like some cars i guess",
+   "gateReasons": [],
+   "e2eMs": 691
+  },
+  {
+   "provider": "Anthropic/claude-haiku-4-5",
+   "situation": "en-ans-day",
+   "outcome": "message",
+   "text": "mondays for sure theyre brutal",
+   "gateReasons": [],
+   "e2eMs": 619
+  },
+  {
+   "provider": "Anthropic/claude-haiku-4-5",
+   "situation": "fr-quiet-1",
+   "outcome": "message",
+   "text": "inès avec le secret c'est chelou pourquoi tu dis pas juste",
+   "gateReasons": [],
+   "e2eMs": 1002
+  },
+  {
+   "provider": "Anthropic/claude-haiku-4-5",
+   "situation": "fr-quiet-2",
+   "outcome": "message",
+   "text": "pieds nus c'est chelou mdr pourquoi tu répondrais à une question sur tes chaussures si t'as pas de chaussures lol",
+   "gateReasons": [],
+   "e2eMs": 1118
+  },
+  {
+   "provider": "Anthropic/claude-haiku-4-5",
+   "situation": "en-quiet-1",
+   "outcome": "message",
+   "text": "jake tuesdays have nothing happening is actually hilarious like thats the worst part",
+   "gateReasons": [],
+   "e2eMs": 1000
+  },
+  {
+   "provider": "Anthropic/claude-haiku-4-5",
+   "situation": "en-quiet-2",
+   "outcome": "message",
+   "text": "lol bts wallpaper thats kinda cute",
+   "gateReasons": [],
+   "e2eMs": 856
+  },
+  {
+   "provider": "Anthropic/claude-haiku-4-5",
+   "situation": "fr-mid-accuse",
+   "outcome": "message",
+   "text": "inès a raison pourquoi vous lui posez des questions sur sa vie privée lmao",
+   "gateReasons": [],
+   "e2eMs": 1013
+  },
+  {
+   "provider": "Anthropic/claude-haiku-4-5",
+   "situation": "fr-mid-chaos",
+   "outcome": "message",
+   "text": "nan mais sarah elle a raison la majuscule c chelou",
+   "gateReasons": [],
+   "e2eMs": 878
+  },
+  {
+   "provider": "Anthropic/claude-haiku-4-5",
+   "situation": "fr-mid-banter",
+   "outcome": "message",
+   "text": "Hugo allergique c'est chelou pourquoi il répond alors",
+   "gateReasons": [],
+   "e2eMs": 902
+  },
+  {
+   "provider": "Anthropic/claude-haiku-4-5",
+   "situation": "en-mid-accuse",
+   "outcome": "message",
+   "text": "lmao jake relax, people can say normal things without being robots. mia's right tho monday does suck. tuesday is weird tho like what even",
+   "gateReasons": [],
+   "e2eMs": 1350
+  },
+  {
+   "provider": "Anthropic/claude-haiku-4-5",
+   "situation": "en-mid-chaos",
+   "outcome": "message",
+   "text": "wait why does ben having capitals make him sus lol thats just how some ppl type",
+   "gateReasons": [],
+   "e2eMs": 1281
+  },
+  {
+   "provider": "Anthropic/claude-haiku-4-5",
+   "situation": "en-mid-banter",
+   "outcome": "message",
+   "text": "Zoe ur kinda unhinged ngl",
+   "gateReasons": [],
+   "e2eMs": 836
+  },
+  {
+   "provider": "Anthropic/claude-haiku-4-5",
+   "situation": "fr-direct-accuse",
+   "outcome": "message",
+   "text": "Lol t'inquiète pas j'écoutais juste, inès qui dit secret c'est chelou",
+   "gateReasons": [],
+   "e2eMs": 1023
+  },
+  {
+   "provider": "Anthropic/claude-haiku-4-5",
+   "situation": "fr-direct-ask",
+   "outcome": "message",
+   "text": "lol c'est pas comme si je regardais mes pieds en permanence sarah relax",
+   "gateReasons": [],
+   "e2eMs": 975
+  },
+  {
+   "provider": "Anthropic/claude-haiku-4-5",
+   "situation": "en-direct-accuse",
+   "outcome": "message",
+   "text": "lol ok detective, ur the one saying nothing happens on tuesdays",
+   "gateReasons": [],
+   "e2eMs": 943
+  },
+  {
+   "provider": "Anthropic/claude-haiku-4-5",
+   "situation": "en-direct-ask",
+   "outcome": "message",
+   "text": "Lol idk some random one i took like two years ago honestly",
+   "gateReasons": [],
+   "e2eMs": 934
+  },
+  {
+   "provider": "Cerebras/gpt-oss-120b",
+   "situation": "fr-ans-trap",
+   "outcome": "regen_message",
+   "text": "Uhh trois",
+   "firstTry": "2",
+   "gateReasons": [
+    "empty"
+   ],
+   "e2eMs": 664
+  },
+  {
+   "provider": "Cerebras/gpt-oss-120b",
+   "situation": "fr-ans-where",
+   "outcome": "message",
+   "text": "Dans mon salon",
+   "gateReasons": [],
+   "e2eMs": 576
+  },
+  {
+   "provider": "Cerebras/gpt-oss-120b",
+   "situation": "fr-ans-shame",
+   "outcome": "message",
+   "text": "Oups trop tard",
+   "gateReasons": [],
+   "e2eMs": 239
+  },
+  {
+   "provider": "Cerebras/gpt-oss-120b",
+   "situation": "en-ans-trap",
+   "outcome": "regen_message",
+   "text": "uhh 5",
+   "firstTry": "4",
+   "gateReasons": [
+    "empty"
+   ],
+   "e2eMs": 741
+  },
+  {
+   "provider": "Cerebras/gpt-oss-120b",
+   "situation": "en-ans-window",
+   "outcome": "message",
+   "text": "Just a brick wall lol",
+   "gateReasons": [],
+   "e2eMs": 460
+  },
+  {
+   "provider": "Cerebras/gpt-oss-120b",
+   "situation": "en-ans-day",
+   "outcome": "message",
+   "text": "mondays suck",
+   "gateReasons": [],
+   "e2eMs": 379
+  },
+  {
+   "provider": "Cerebras/gpt-oss-120b",
+   "situation": "fr-quiet-1",
+   "outcome": "message",
+   "text": "in secret ? ça intrigue bien",
+   "gateReasons": [],
+   "e2eMs": 324
+  },
+  {
+   "provider": "Cerebras/gpt-oss-120b",
+   "situation": "fr-quiet-2",
+   "outcome": "message",
+   "text": "rose fluo ? haha voilà le futur des sneakers, on va tous finir en néon",
+   "gateReasons": [],
+   "e2eMs": 431
+  },
+  {
+   "provider": "Cerebras/gpt-oss-120b",
+   "situation": "en-quiet-1",
+   "outcome": "message",
+   "text": "tuesday huh weird choice",
+   "gateReasons": [],
+   "e2eMs": 352
+  },
+  {
+   "provider": "Cerebras/gpt-oss-120b",
+   "situation": "en-quiet-2",
+   "outcome": "message",
+   "text": "bts huh lol weird choice",
+   "gateReasons": [],
+   "e2eMs": 281
+  },
+  {
+   "provider": "Cerebras/gpt-oss-120b",
+   "situation": "fr-mid-accuse",
+   "outcome": "message",
+   "text": "inès tu joues au ninja ? lol",
+   "gateReasons": [],
+   "e2eMs": 355
+  },
+  {
+   "provider": "Cerebras/gpt-oss-120b",
+   "situation": "fr-mid-chaos",
+   "outcome": "message",
+   "text": "ah tom toujours stylé avec sa majuscule",
+   "gateReasons": [],
+   "e2eMs": 410
+  },
+  {
+   "provider": "Cerebras/gpt-oss-120b",
+   "situation": "fr-mid-banter",
+   "outcome": "message",
+   "text": "Haha hugo t'es un drama queen",
+   "gateReasons": [],
+   "e2eMs": 285
+  },
+  {
+   "provider": "Cerebras/gpt-oss-120b",
+   "situation": "en-mid-accuse",
+   "outcome": "message",
+   "text": "lol those exclamation marks are wild, i swear they're a secret ai language",
+   "gateReasons": [],
+   "e2eMs": 438
+  },
+  {
+   "provider": "Cerebras/gpt-oss-120b",
+   "situation": "en-mid-chaos",
+   "outcome": "message",
+   "text": "lol ben caps weird",
+   "gateReasons": [],
+   "e2eMs": 268
+  },
+  {
+   "provider": "Cerebras/gpt-oss-120b",
+   "situation": "en-mid-banter",
+   "outcome": "message",
+   "text": "Lol weird but ok",
+   "gateReasons": [],
+   "e2eMs": 389
+  },
+  {
+   "provider": "Cerebras/gpt-oss-120b",
+   "situation": "fr-direct-accuse",
+   "outcome": "message",
+   "text": "Bah c'est pas mon style de radoter",
+   "gateReasons": [],
+   "e2eMs": 301
+  },
+  {
+   "provider": "Cerebras/gpt-oss-120b",
+   "situation": "fr-direct-ask",
+   "outcome": "message",
+   "text": "lol ok mais vraiment tes chaussures sont un crime de mode",
+   "gateReasons": [],
+   "e2eMs": 395
+  },
+  {
+   "provider": "Cerebras/gpt-oss-120b",
+   "situation": "en-direct-accuse",
+   "outcome": "message",
+   "text": "lol nice try jake",
+   "gateReasons": [],
+   "e2eMs": 545
+  },
+  {
+   "provider": "Cerebras/gpt-oss-120b",
+   "situation": "en-direct-ask",
+   "outcome": "message",
+   "text": "Uh idk, just some random beach vibes",
+   "gateReasons": [],
+   "e2eMs": 435
+  },
+  {
+   "provider": "Anthropic/claude-haiku-5-5",
+   "situation": "fr-ans-trap",
+   "outcome": "message",
+   "text": "Ah ouais trop dur comme question",
+   "gateReasons": [],
+   "e2eMs": 1337
+  },
+  {
+   "provider": "Anthropic/claude-haiku-5-5",
+   "situation": "fr-ans-where",
+   "outcome": "message",
+   "text": "Chez moi jsuis affalé sur mon canap",
+   "gateReasons": [],
+   "e2eMs": 937
+  },
+  {
+   "provider": "Anthropic/claude-haiku-5-5",
+   "situation": "fr-ans-shame",
+   "outcome": "message",
+   "text": "Ah ouais super question, rien de spécial",
+   "gateReasons": [],
+   "e2eMs": 1331
+  },
+  {
+   "provider": "Anthropic/claude-haiku-5-5",
+   "situation": "en-ans-trap",
+   "outcome": "message",
+   "text": "idk like 3 maybe",
+   "gateReasons": [],
+   "e2eMs": 796
+  },
+  {
+   "provider": "Anthropic/claude-haiku-5-5",
+   "situation": "en-ans-window",
+   "outcome": "message",
+   "text": "Ok wait do i have to answer this one lol",
+   "gateReasons": [],
+   "e2eMs": 1055
+  },
+  {
+   "provider": "Anthropic/claude-haiku-5-5",
+   "situation": "en-ans-day",
+   "outcome": "message",
+   "text": "monday obviously, but tuesday tries its best",
+   "gateReasons": [],
+   "e2eMs": 837
+  },
+  {
+   "provider": "Anthropic/claude-haiku-5-5",
+   "situation": "fr-quiet-1",
+   "outcome": "message",
+   "text": "inès tu fais la mystérieuse ou quoi lol",
+   "gateReasons": [],
+   "e2eMs": 948
+  },
+  {
+   "provider": "Anthropic/claude-haiku-5-5",
+   "situation": "fr-quiet-2",
+   "outcome": "message",
+   "text": "sarah rose fluo jassume mdr jtavais dit quelque chose de pareil",
+   "gateReasons": [],
+   "e2eMs": 936
+  },
+  {
+   "provider": "Anthropic/claude-haiku-5-5",
+   "situation": "en-quiet-1",
+   "outcome": "message",
+   "text": "liam all of them is cheating lol. zoe sunday night anxiety is lowkey the most real answer here",
+   "gateReasons": [],
+   "e2eMs": 1112
+  },
+  {
+   "provider": "Anthropic/claude-haiku-5-5",
+   "situation": "en-quiet-2",
+   "outcome": "message",
+   "text": "ben really out here with a mountain sunset lmao",
+   "gateReasons": [],
+   "e2eMs": 1148
+  },
+  {
+   "provider": "Anthropic/claude-haiku-5-5",
+   "situation": "fr-mid-accuse",
+   "outcome": "message",
+   "text": "hugo tu fais le malin mais dans le train on dirait bien que tu tapes avec les pouces lol",
+   "gateReasons": [],
+   "e2eMs": 1151
+  },
+  {
+   "provider": "Anthropic/claude-haiku-5-5",
+   "situation": "fr-mid-chaos",
+   "outcome": "message",
+   "text": "max tu demandes ca alors que t es pieds nus toi mdr",
+   "gateReasons": [],
+   "e2eMs": 1052
+  },
+  {
+   "provider": "Anthropic/claude-haiku-5-5",
+   "situation": "fr-mid-banter",
+   "outcome": "message",
+   "text": "Haha hugo tu dis ca parce que t es allergique aux chats ou tu veux juste faire le malin",
+   "gateReasons": [],
+   "e2eMs": 1013
+  },
+  {
+   "provider": "Anthropic/claude-haiku-5-5",
+   "situation": "en-mid-accuse",
+   "outcome": "message",
+   "text": "lol jake the exclamation mark thing got me too. but honestly tuesday is kinda the most relatable answer here, nothing happens on tuesdays is",
+   "gateReasons": [],
+   "e2eMs": 1088
+  },
+  {
+   "provider": "Anthropic/claude-haiku-5-5",
+   "situation": "en-mid-chaos",
+   "outcome": "message",
+   "text": "jake asking me who i voted lol dont think thats how this works",
+   "gateReasons": [],
+   "e2eMs": 1096
+  },
+  {
+   "provider": "Anthropic/claude-haiku-5-5",
+   "situation": "en-mid-banter",
+   "outcome": "message",
+   "text": "Zoe lol thats the most zoe answer possible",
+   "gateReasons": [],
+   "e2eMs": 883
+  },
+  {
+   "provider": "Anthropic/claude-haiku-5-5",
+   "situation": "fr-direct-accuse",
+   "outcome": "message",
+   "text": "Ah bah jsuis là depuis le début moi, c'est juste que j'ai rien à dire sur le canapé de léa lol",
+   "gateReasons": [],
+   "e2eMs": 1142
+  },
+  {
+   "provider": "Anthropic/claude-haiku-5-5",
+   "situation": "fr-direct-ask",
+   "outcome": "message",
+   "text": "ah bah non jregarde jamais mes pieds moi lol et toi tes chaussures rose fluo cest pas un peu agressif pour la vue",
+   "gateReasons": [],
+   "e2eMs": 1253
+  },
+  {
+   "provider": "Anthropic/claude-haiku-5-5",
+   "situation": "en-direct-accuse",
+   "outcome": "message",
+   "text": "lol i didnt agree with everyone, i just said all of them and zoe was right about sunday",
+   "gateReasons": [],
+   "e2eMs": 984
+  },
+  {
+   "provider": "Anthropic/claude-haiku-5-5",
+   "situation": "en-direct-ask",
+   "outcome": "message",
+   "text": "Lol just some random one i saw online idk. why do u care, is it ur beach",
+   "gateReasons": [],
+   "e2eMs": 992
+  },
+  {
+   "provider": "Mistral/mistral-small-latest",
+   "situation": "fr-ans-trap",
+   "outcome": "failed",
+   "text": null,
+   "gateReasons": [],
+   "e2eMs": 898
+  },
+  {
+   "provider": "Mistral/mistral-small-latest",
+   "situation": "fr-ans-where",
+   "outcome": "failed",
+   "text": null,
+   "gateReasons": [],
+   "e2eMs": 778
+  },
+  {
+   "provider": "Mistral/mistral-small-latest",
+   "situation": "fr-ans-shame",
+   "outcome": "failed",
+   "text": null,
+   "gateReasons": [],
+   "e2eMs": 580
+  },
+  {
+   "provider": "Mistral/ministral-14b-latest",
+   "situation": "fr-ans-trap",
+   "outcome": "message",
+   "text": "Putain j'en ai aucune idée",
+   "gateReasons": [],
+   "e2eMs": 796
+  },
+  {
+   "provider": "Mistral/ministral-14b-latest",
+   "situation": "fr-ans-where",
+   "outcome": "message",
+   "text": "Sur mon canapé avec un paquet de chips et un film nul",
+   "gateReasons": [],
+   "e2eMs": 683
+  },
+  {
+   "provider": "Mistral/ministral-14b-latest",
+   "situation": "fr-ans-shame",
+   "outcome": "message",
+   "text": "J’ai posté un story en pyjama à 3h du mat’ en mode \"je suis",
+   "gateReasons": [],
+   "e2eMs": 813
+  },
+  {
+   "provider": "Mistral/ministral-14b-latest",
+   "situation": "en-ans-trap",
+   "outcome": "message",
+   "text": "uhh 5 i think",
+   "gateReasons": [],
+   "e2eMs": 606
+  },
+  {
+   "provider": "Mistral/ministral-14b-latest",
+   "situation": "en-ans-window",
+   "outcome": "message",
+   "text": "Oh just my messy room and a pigeon being dramatic",
+   "gateReasons": [],
+   "e2eMs": 692
+  },
+  {
+   "provider": "Mistral/ministral-14b-latest",
+   "situation": "en-ans-day",
+   "outcome": "message",
+   "text": "mondays but fridays too lol",
+   "gateReasons": [],
+   "e2eMs": 592
+  },
+  {
+   "provider": "Mistral/ministral-14b-latest",
+   "situation": "fr-quiet-1",
+   "outcome": "message",
+   "text": "lol secret c’est trop cliché là non ? genre on est dans un film d’espion",
+   "gateReasons": [],
+   "e2eMs": 966
+  },
+  {
+   "provider": "Mistral/ministral-14b-latest",
+   "situation": "fr-quiet-2",
+   "outcome": "message",
+   "text": "rose fluo c’est un choix de vie ou quoi là ? j’ai vu des gens se faire lyncher pour moins que ça en réunion de",
+   "gateReasons": [],
+   "e2eMs": 1079
+  },
+  {
+   "provider": "Mistral/ministral-14b-latest",
+   "situation": "en-quiet-1",
+   "outcome": "message",
+   "text": "mia why would monday be the end of the weekend lol that’s backwards",
+   "gateReasons": [],
+   "e2eMs": 785
+  },
+  {
+   "provider": "Mistral/ministral-14b-latest",
+   "situation": "en-quiet-2",
+   "outcome": "message",
+   "text": "bts wallpaper tho why",
+   "gateReasons": [],
+   "e2eMs": 819
+  },
+  {
+   "provider": "Mistral/ministral-14b-latest",
+   "situation": "fr-mid-accuse",
+   "outcome": "message",
+   "text": "hugo trop parano mais bon inès t’as l’air d’un ghost",
+   "gateReasons": [],
+   "e2eMs": 1535
+  },
+  {
+   "provider": "Mistral/ministral-14b-latest",
+   "situation": "fr-mid-chaos",
+   "outcome": "message",
+   "text": "tom t'es pas en train de faire ton précieux avec tes majuscules là ou quoi ? c'est pas la finale de miss france",
+   "gateReasons": [],
+   "e2eMs": 1333
+  },
+  {
+   "provider": "Mistral/ministral-14b-latest",
+   "situation": "fr-mid-banter",
+   "outcome": "message",
+   "text": "Max t’es trop sûr de toi là non ? et hugo ‘vous êtes tous nuls’ c’est pas très mature",
+   "gateReasons": [],
+   "e2eMs": 874
+  },
+  {
+   "provider": "Mistral/ministral-14b-latest",
+   "situation": "en-mid-accuse",
+   "outcome": "message",
+   "text": "jake you’re so mean lol but also fair. mia that’s just sad. your weekends are so short you gotta mark the end like it’s a",
+   "gateReasons": [],
+   "e2eMs": 2405
+  },
+  {
+   "provider": "Mistral/ministral-14b-latest",
+   "situation": "en-mid-chaos",
+   "outcome": "message",
+   "text": "bts wallpaper lmao thats a whole personality",
+   "gateReasons": [],
+   "e2eMs": 786
+  },
+  {
+   "provider": "Mistral/ministral-14b-latest",
+   "situation": "en-mid-banter",
+   "outcome": "message",
+   "text": "Tuesday smells like regret ngl",
+   "gateReasons": [],
+   "e2eMs": 891
+  },
+  {
+   "provider": "Mistral/ministral-14b-latest",
+   "situation": "fr-direct-accuse",
+   "outcome": "message",
+   "text": "Lol ouais enfin t as vu mon msg avant ? j ai juste pas envie de parler à un open de plus",
+   "gateReasons": [],
+   "e2eMs": 918
+  },
+  {
+   "provider": "Mistral/ministral-14b-latest",
+   "situation": "fr-direct-ask",
+   "outcome": "message",
+   "text": "pff ouais j suis pressée ok",
+   "gateReasons": [],
+   "e2eMs": 938
+  },
+  {
+   "provider": "Mistral/ministral-14b-latest",
+   "situation": "en-direct-accuse",
+   "outcome": "message",
+   "text": "bro what even means i agreed with everyone",
+   "gateReasons": [],
+   "e2eMs": 723
+  },
+  {
+   "provider": "Mistral/ministral-14b-latest",
+   "situation": "en-direct-ask",
+   "outcome": "message",
+   "text": "Lol the one with the seagulls and the trash, why?",
+   "gateReasons": [],
+   "e2eMs": 996
+  },
+  {
+   "provider": "Groq/qwen/qwen3.8-27b",
+   "situation": "fr-ans-trap",
+   "outcome": "message",
+   "text": "3 Non?",
+   "gateReasons": [],
+   "e2eMs": 349
+  },
+  {
+   "provider": "Groq/qwen/qwen3.8-27b",
+   "situation": "fr-ans-where",
+   "outcome": "message",
+   "text": "Dans mon lit",
+   "gateReasons": [],
+   "e2eMs": 475
+  },
+  {
+   "provider": "Groq/qwen/qwen3.8-27b",
+   "situation": "fr-ans-shame",
+   "outcome": "message",
+   "text": "J ai envoye un mail à tout le bureau au lieu du chat",
+   "gateReasons": [],
+   "e2eMs": 991
+  },
+  {
+   "provider": "Groq/qwen/qwen3.8-27b",
+   "situation": "en-ans-trap",
+   "outcome": "message",
+   "text": "idk three?",
+   "gateReasons": [],
+   "e2eMs": 372
+  },
+  {
+   "provider": "Groq/qwen/qwen3.8-27b",
+   "situation": "en-ans-window",
+   "outcome": "message",
+   "text": "Ceiling",
+   "gateReasons": [],
+   "e2eMs": 352
+  },
+  {
+   "provider": "Groq/qwen/qwen3.8-27b",
+   "situation": "en-ans-day",
+   "outcome": "message",
+   "text": "monday obviously",
+   "gateReasons": [],
+   "e2eMs": 379
+  },
+  {
+   "provider": "Groq/qwen/qwen3.8-27b",
+   "situation": "fr-quiet-1",
+   "outcome": "message",
+   "text": "ines secretaaaaaa mdr",
+   "gateReasons": [],
+   "e2eMs": 359
+  },
+  {
+   "provider": "Groq/qwen/qwen3.8-27b",
+   "situation": "fr-quiet-2",
+   "outcome": "message",
+   "text": "max t es ou tes pieds du coup",
+   "gateReasons": [],
+   "e2eMs": 455
+  },
+  {
+   "provider": "Groq/qwen/qwen3.8-27b",
+   "situation": "en-quiet-1",
+   "outcome": "message",
+   "text": "liam u r so unhelpful lmao",
+   "gateReasons": [],
+   "e2eMs": 350
+  },
+  {
+   "provider": "Groq/qwen/qwen3.8-27b",
+   "situation": "en-quiet-2",
+   "outcome": "message",
+   "text": "lmao ben u sound like a movie trailer",
+   "gateReasons": [],
+   "e2eMs": 563
+  },
+  {
+   "provider": "Groq/qwen/qwen3.8-27b",
+   "situation": "fr-mid-accuse",
+   "outcome": "message",
+   "text": "wait hugo dit ça comme un flic",
+   "gateReasons": [],
+   "e2eMs": 372
+  },
+  {
+   "provider": "Groq/qwen/qwen3.8-27b",
+   "situation": "fr-mid-chaos",
+   "outcome": "message",
+   "text": "max tu m demandes ca là maintenant? mdr c du grand art",
+   "gateReasons": [],
+   "e2eMs": 456
+  },
+  {
+   "provider": "Groq/qwen/qwen3.8-27b",
+   "situation": "fr-mid-banter",
+   "outcome": "message",
+   "text": "Hugo tu es chiant",
+   "gateReasons": [],
+   "e2eMs": 296
+  },
+  {
+   "provider": "Groq/qwen/qwen3.8-27b",
+   "situation": "en-mid-accuse",
+   "outcome": "message",
+   "text": "priya in the shower lol that makes sense but also kinda sus for a bot, idk",
+   "gateReasons": [],
+   "e2eMs": 690
+  },
+  {
+   "provider": "Groq/qwen/qwen3.8-27b",
+   "situation": "en-mid-chaos",
+   "outcome": "message",
+   "text": "probably ngl",
+   "gateReasons": [],
+   "e2eMs": 776
+  },
+  {
+   "provider": "Groq/qwen/qwen3.8-27b",
+   "situation": "en-mid-banter",
+   "outcome": "failed",
+   "text": null,
+   "gateReasons": [],
+   "e2eMs": 870
+  },
+  {
+   "provider": "Groq/qwen/qwen3.8-27b",
+   "situation": "fr-direct-accuse",
+   "outcome": "message",
+   "text": "Ok lmao j etais dans le collie",
+   "gateReasons": [],
+   "e2eMs": 376
+  },
+  {
+   "provider": "Groq/qwen/qwen3.8-27b",
+   "situation": "fr-direct-ask",
+   "outcome": "message",
+   "text": "j avais les yeux fermes ok",
+   "gateReasons": [],
+   "e2eMs": 637
+  },
+  {
+   "provider": "Groq/qwen/qwen3.8-27b",
+   "situation": "en-direct-accuse",
+   "outcome": "message",
+   "text": "lol ok detective what exactly did i agree with",
+   "gateReasons": [],
+   "e2eMs": 506
+  },
+  {
+   "provider": "Groq/qwen/qwen3.8-27b",
+   "situation": "en-direct-ask",
+   "outcome": "message",
+   "text": "The one with the palm trees? u saw it lol",
+   "gateReasons": [],
+   "e2eMs": 721
+  },
+  {
+   "provider": "Groq/openai/gpt-oss-20b",
+   "situation": "fr-ans-trap",
+   "outcome": "regen_message",
+   "text": "Je pense qu'il y a 2.",
+   "firstTry": "3",
+   "gateReasons": [
+    "empty"
+   ],
+   "e2eMs": 774
+  },
+  {
+   "provider": "Groq/openai/gpt-oss-20b",
+   "situation": "fr-ans-where",
+   "outcome": "message",
+   "text": "Je suis dans mon lit, trop paumé.",
+   "gateReasons": [],
+   "e2eMs": 411
+  },
+  {
+   "provider": "Groq/openai/gpt-oss-20b",
+   "situation": "fr-ans-shame",
+   "outcome": "message",
+   "text": "Je suis nul en maths",
+   "gateReasons": [],
+   "e2eMs": 252
+  },
+  {
+   "provider": "Groq/openai/gpt-oss-20b",
+   "situation": "en-ans-trap",
+   "outcome": "regen_message",
+   "text": "i dont know",
+   "firstTry": "3",
+   "gateReasons": [
+    "empty"
+   ],
+   "e2eMs": 875
+  },
+  {
+   "provider": "Groq/openai/gpt-oss-20b",
+   "situation": "en-ans-window",
+   "outcome": "message",
+   "text": "I see a weird cloud that looks like a cat",
+   "gateReasons": [],
+   "e2eMs": 441
+  },
+  {
+   "provider": "Groq/openai/gpt-oss-20b",
+   "situation": "en-ans-day",
+   "outcome": "message",
+   "text": "sunday sucks most",
+   "gateReasons": [],
+   "e2eMs": 530
+  },
+  {
+   "provider": "Groq/openai/gpt-oss-20b",
+   "situation": "fr-quiet-1",
+   "outcome": "message",
+   "text": "hugo dans le train ça roule ou c’est le métro??",
+   "gateReasons": [],
+   "e2eMs": 276
+  },
+  {
+   "provider": "Groq/openai/gpt-oss-20b",
+   "situation": "fr-quiet-2",
+   "outcome": "message",
+   "text": "sarah, tu vas vraiment pas rester discrète avec ces rose fluo ? c’est le truc le plus flashy que j’aie vu",
+   "gateReasons": [],
+   "e2eMs": 720
+  },
+  {
+   "provider": "Groq/openai/gpt-oss-20b",
+   "situation": "en-quiet-1",
+   "outcome": "message",
+   "text": "lol liam all them is weird",
+   "gateReasons": [],
+   "e2eMs": 329
+  },
+  {
+   "provider": "Groq/openai/gpt-oss-20b",
+   "situation": "en-quiet-2",
+   "outcome": "message",
+   "text": "idk just random doodle",
+   "gateReasons": [],
+   "e2eMs": 1399
+  },
+  {
+   "provider": "Groq/openai/gpt-oss-20b",
+   "situation": "fr-mid-accuse",
+   "outcome": "message",
+   "text": "inès t'es la ninja du silence",
+   "gateReasons": [],
+   "e2eMs": 1418
+  },
+  {
+   "provider": "Groq/openai/gpt-oss-20b",
+   "situation": "fr-mid-chaos",
+   "outcome": "message",
+   "text": "ouais les chaussures grises c'est le look du jour",
+   "gateReasons": [],
+   "e2eMs": 668
+  },
+  {
+   "provider": "Groq/openai/gpt-oss-20b",
+   "situation": "fr-mid-banter",
+   "outcome": "message",
+   "text": "Lol max, tu fais le chien trop hard",
+   "gateReasons": [],
+   "e2eMs": 680
+  },
+  {
+   "provider": "Groq/openai/gpt-oss-20b",
+   "situation": "en-mid-accuse",
+   "outcome": "message",
+   "text": "lol jake, that ai‑sentence claim is kinda funny. i guess we all just wanna be weird enough to fit in",
+   "gateReasons": [],
+   "e2eMs": 1161
+  },
+  {
+   "provider": "Groq/openai/gpt-oss-20b",
+   "situation": "en-mid-chaos",
+   "outcome": "message",
+   "text": "lol ben why capital letter again",
+   "gateReasons": [],
+   "e2eMs": 576
+  },
+  {
+   "provider": "Groq/openai/gpt-oss-20b",
+   "situation": "en-mid-banter",
+   "outcome": "message",
+   "text": "Zoo idk why tuesdays smell weird",
+   "gateReasons": [],
+   "e2eMs": 227
+  },
+  {
+   "provider": "Groq/openai/gpt-oss-20b",
+   "situation": "fr-direct-accuse",
+   "outcome": "message",
+   "text": "Lol ok jules mais t'es toujours pas loupé",
+   "gateReasons": [],
+   "e2eMs": 565
+  },
+  {
+   "provider": "Groq/openai/gpt-oss-20b",
+   "situation": "fr-direct-ask",
+   "outcome": "message",
+   "text": "pfff tu rigoles",
+   "gateReasons": [],
+   "e2eMs": 349
+  },
+  {
+   "provider": "Groq/openai/gpt-oss-20b",
+   "situation": "en-direct-accuse",
+   "outcome": "message",
+   "text": "lol i dont agree with everything, but idk",
+   "gateReasons": [],
+   "e2eMs": 169
+  },
+  {
+   "provider": "Groq/openai/gpt-oss-20b",
+   "situation": "en-direct-ask",
+   "outcome": "message",
+   "text": "What beach? i picked a random one that looks like the ocean but is actually a puddle",
+   "gateReasons": [],
+   "e2eMs": 386
+  }
+ ]
+}
