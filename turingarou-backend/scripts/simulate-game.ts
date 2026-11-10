@@ -627,6 +627,8 @@ async function runGame(sc: Scenario): Promise<GameResult> {
     eventCounts[key] = (eventCounts[key] ?? 0) + 1;
   }
   for (const e of events) if (/_error$/.test(e.kind)) offend('bot_errors', `${e.player} ${e.kind} ${e.detail}`);
+  // The room's last net should find nothing the upstream gate missed.
+  for (const e of events) if (e.kind === 'post_drop') offend('final_net_drop', `${e.player} r${e.round} ${e.reason}: "${e.detail}"`);
 
   const telemetryLines = logLines.filter((l) => l.startsWith('[game-telemetry] '));
   let telemetry: Telemetry | null = null;
@@ -869,7 +871,8 @@ function report(results: GameResult[], elapsed: number, games: number): void {
     { name: 'named accusation replied within 10 s', value: `${(accRate * 100).toFixed(1)} % (${sum('named_accusations_replied')}/${sum('named_accusations')}); unnamed ${sum('reply_accusations_replied')}/${sum('reply_accusations')}, questions ${sum('named_questions_replied')}/${sum('named_questions')}`, ok: accRate >= 0.8 && sum('named_accusations') >= 30, keys: ['unanswered_accusation'] },
     { name: 'model result posted after its phase', value: `${sum('stale_result_posted')} (late results dropped: ${sum('results_after_phase_end')})`, ok: sum('stale_result_posted') === 0, keys: ['stale_result_posted'] },
     { name: 'model call started outside its phase / after end', value: `${sum('call_started_outside_phase')} / ${sum('call_started_after_end')}`, ok: sum('call_started_outside_phase') + sum('call_started_after_end') === 0, keys: ['call_started_outside_phase', 'call_started_after_end'] },
-    { name: 'bot lines with no origin / duplicates posted', value: `${sum('bot_line_unexplained')} / ${sum('duplicate_posted')} (dropped by the room's last net: ${ev('post_drop')})`, ok: sum('bot_line_unexplained') + sum('duplicate_posted') === 0, keys: ['bot_line_unexplained', 'duplicate_posted'] },
+    { name: 'bot lines with no origin / duplicates posted', value: `${sum('bot_line_unexplained')} / ${sum('duplicate_posted')}`, ok: sum('bot_line_unexplained') + sum('duplicate_posted') === 0, keys: ['bot_line_unexplained', 'duplicate_posted'] },
+    { name: "lines dropped by the room's last net (<= 0.5 %)", value: `${sum('final_net_drop')} of ${sum('bot_lines') + sum('final_net_drop')}`, ok: sum('final_net_drop') <= 0.005 * (sum('bot_lines') + sum('final_net_drop')), keys: ['final_net_drop'] },
     { name: 'unhandled rejection / uncaught / unexpected error', value: `${sum('unhandled_rejection')} / ${sum('uncaught')} / ${sum('unexpected_errors') + sum('bot_errors')}`, ok: sum('unhandled_rejection') + sum('uncaught') + sum('unexpected_errors') + sum('bot_errors') === 0, keys: ['unhandled_rejection', 'uncaught', 'unexpected_errors', 'bot_errors'] },
     { name: 'telemetry line per game', value: `${games - sum('telemetry')}/${games}; trigger→post p50 ${medianOf('direct')} s direct, ${medianOf('regular')} s regular`, ok: sum('telemetry') === 0, keys: ['telemetry'] },
     { name: 'timers / emits / calls after end', value: `${sum('room_timers_left')} / ${sum('emits_after_end')} / ${sum('call_started_after_end')}, clock drained ${games - sum('clock_not_drained')}/${games}`, ok: sum('room_timers_left') + sum('emits_after_end') + sum('clock_not_drained') === 0, keys: ['room_timers_left', 'emits_after_end', 'clock_not_drained'] },
