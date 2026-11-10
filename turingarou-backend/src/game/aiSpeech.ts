@@ -107,6 +107,8 @@ export async function decideWithGate(
     caseProfile: p.profile.caseProfile,
     dropFinalPeriodProb: p.profile.dropFinalPeriodProb,
     rng: p.rng,
+    style: p.profile,
+    selfName: p.player,
     ...(typeof p.speech === 'function' ? p.speech() : p.speech),
   });
   const v1 = checkMessage(first.decision.message, gateCtx());
@@ -135,7 +137,16 @@ export async function answerWithGate(
       { messages, maxTokens: 80, timeoutMs: 10000, temperatureScale: p.temperatureScale, temperatureOffset: p.profile.temperatureOffset },
       { role: p.role, player: p.player, pool: p.pool, sink: p.llmSink }
     );
-  const gateCtx = { channel: 'answer' as const, caseProfile: p.profile.caseProfile, dropFinalPeriodProb: p.profile.dropFinalPeriodProb, rng: p.rng, ownRecent: p.ownPreviousAnswers, otherAIRecent: [] };
+  const gateCtx = {
+    channel: 'answer' as const,
+    caseProfile: p.profile.caseProfile,
+    dropFinalPeriodProb: p.profile.dropFinalPeriodProb,
+    rng: p.rng,
+    style: p.profile,
+    selfName: p.player,
+    ownRecent: p.ownPreviousAnswers,
+    otherAIRecent: [],
+  };
 
   let messages = p.messages;
   for (let attempt = 0; attempt < 2; attempt++) {

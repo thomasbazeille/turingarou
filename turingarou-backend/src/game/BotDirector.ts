@@ -356,7 +356,16 @@ export class BotDirector {
     const others = lines.filter((m) => m.playerId !== slot.bot.id && this.isBot(m.playerId)).slice(-20).map((m) => m.content);
     const p = slot.bot.spec.profile;
     for (const candidate of pool) {
-      const v = checkMessage(candidate, { channel: 'discussion', caseProfile: p.caseProfile, dropFinalPeriodProb: p.dropFinalPeriodProb, ownRecent: own, otherAIRecent: others, rng: this.deps.rng });
+      const v = checkMessage(candidate, {
+        channel: 'discussion',
+        caseProfile: p.caseProfile,
+        dropFinalPeriodProb: p.dropFinalPeriodProb,
+        style: p,
+        selfName: slot.bot.name,
+        ownRecent: own,
+        otherAIRecent: others,
+        rng: this.deps.rng,
+      });
       if (v.ok) return v.text;
     }
     return null;
