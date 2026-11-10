@@ -181,6 +181,7 @@ class FakeLab {
   readonly counters: Counters = {};
   private n = 99;
   ended = false;
+  cautiousRound1 = false;
 
   constructor(
     private readonly clock: VirtualClock,
@@ -307,8 +308,9 @@ class FakeLab {
       this.count('truncated');
       return { text: `{"shouldRespond": true, "message": "k${task.n} ${this.pick(P.open)} mais att`, finishReason: 'length' };
     }
-    // Round 1 opens shy on the models' side too, so the silence watchdog has something to break.
-    const pTrue = task.direct ? 0.93 : task.quiet ? 0.85 : task.round0 === 1 ? 0.15 : 0.45;
+    // Bench (real providers): models almost never answer shouldRespond false, so the code's skip, cooldown and
+    // ceilings are what pace the bots. Odd seeds open round 1 with cautious models so the silence watchdog runs.
+    const pTrue = task.direct ? 0.97 : task.quiet ? 0.97 : this.cautiousRound1 && task.round0 === 1 ? 0.15 : 0.97;
     if (this.rng() >= pTrue) return { text: '{"shouldRespond": false}', finishReason: 'stop' };
     return { text: JSON.stringify({ shouldRespond: true, message: this.message(task, lang) }), finishReason: 'stop' };
   }
@@ -441,6 +443,7 @@ async function runGame(sc: Scenario): Promise<GameResult> {
 
   let room!: GameRoom;
   const lab = new FakeLab(clock, simRng, () => room);
+  lab.cautiousRound1 = sc.seed % 2 === 1;
   const phases: { t: number; phase: string; round: number }[] = [];
   const endroundVotes = new Map<number, { voterId: string; targetId: string }[]>();
   const eliminatedIn = new Map<number, string | null>();
@@ -707,6 +710,17 @@ async function runGame(sc: Scenario): Promise<GameResult> {
     }
   }
   if (Number.isFinite(minGap)) m.min_gap_ms = minGap;
+  for (let rd = 1; rd <= s.currentRound; rd++) {
+    if (startOf('voting', rd) === null) continue;
+    const lines = s.messages.filter((x) => x.round === rd && x.phase === 'discussion' && x.playerId !== 'system');
+    const present = s.players.filter((p) => !p.isEliminated || eliminatedIn.get(rd) === p.id || [...eliminatedIn.entries()].some(([r, pid]) => pid === p.id && r >= rd));
+    const nBots = present.filter((p) => botIds.has(p.id)).length;
+    const nHumans = present.filter((p) => !botIds.has(p.id)).length;
+    inc('pace_bot_lines', lines.filter((x) => botIds.has(x.playerId)).length);
+    inc('pace_human_lines', lines.filter((x) => !botIds.has(x.playerId)).length);
+    inc('pace_bot_seats', nBots);
+    inc('pace_human_seats', nHumans);
+  }
 
   // Answers.
   const answersOf = (round: number): QuestionAnswer[] => (round === s.currentRound ? s.answers : s.answersByRound?.[round] ?? []);
@@ -864,6 +878,7 @@ function report(results: GameResult[], elapsed: number, games: number): void {
   const rows: { name: string; value: string; ok: boolean; keys: string[] }[] = [
     { name: 'game reaches gameover', value: `${completed - sum('no_gameover')}/${completed} (+${aborted} aborted, back to waiting)`, ok: sum('no_gameover') + sum('game_not_finished') + sum('abort_not_clean') === 0, keys: ['no_gameover', 'game_not_finished', 'abort_not_clean'] },
     { name: 'bot line outside discussion / last 10 s', value: `${sum('bot_line_outside_discussion')} / ${sum('bot_line_in_last_10s')} of ${sum('bot_lines')}`, ok: sum('bot_line_outside_discussion') + sum('bot_line_in_last_10s') === 0, keys: ['bot_line_outside_discussion', 'bot_line_in_last_10s'] },
+    { name: 'lines per player per discussion (info)', value: `bots ${(sum('pace_bot_lines') / Math.max(1, sum('pace_bot_seats'))).toFixed(1)}, humans ${(sum('pace_human_lines') / Math.max(1, sum('pace_human_seats'))).toFixed(1)}`, ok: true, keys: [] },
     { name: 'min gap between bot lines (non-direct)', value: `${(minGap / 1000).toFixed(2)} s over ${sum('gap_pairs')} pairs`, ok: sum('gap_below_2500') === 0, keys: ['gap_below_2500'] },
     { name: 'active bots voted / fallback = no usable vote', value: `${sum('bot_votes_cast')}/${sum('bot_votes_expected')}, fallback ${sum('vote_fallbacks')} (needed ${sum('vote_fallbacks_needed')})`, ok: sum('bot_did_not_vote') + sum('vote_fallback_mismatch') === 0, keys: ['bot_did_not_vote', 'vote_fallback_mismatch'] },
     { name: 'bot answers outside question phase', value: `${sum('answer_outside_question') + sum('answer_unexplained')} of ${sum('bot_answers')}`, ok: sum('answer_outside_question') + sum('answer_unexplained') === 0, keys: ['answer_outside_question', 'answer_unexplained'] },
