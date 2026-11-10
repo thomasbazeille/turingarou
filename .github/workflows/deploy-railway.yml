@@ -38,6 +38,8 @@ jobs:
       - run: npm ci
       - name: Build
         run: npm run build
+      - name: Unit tests (form gate, timing, direct address)
+        run: npm run test:unit
       - name: Smoke test (server + test client)
         # Le serveur refuse de démarrer sans clé LLM ; une fausse suffit, rejoindre
         # une salle n'appelle aucun modèle. Pas de DATABASE_URL : persistance coupée.
@@ -64,6 +66,9 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
+      - name: Stamp served version
+        # Read back by GET /health (`version`) to prove which commit is live.
+        run: echo "${GITHUB_SHA}" > turingarou-backend/version.txt
       - name: Deploy to Railway
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}

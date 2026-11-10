@@ -1,19 +1,57 @@
-import { LLMProvider } from '../llm/LLMProvider.js';
-import { AIPlayerData, GameMessage, LLMMessage, AIPersonality, GameFormat, QuestionAnswer } from '../types/game.types.js';
+import { ChatProvider } from '../llm/chatClient.js';
+import { callLLM, LLMEventSink } from '../llm/llmCall.js';
+import { matchPlayerName } from '../llm/parse.js';
+import { AIPlayerData, GameMessage, LLMMessage, GameFormat, QuestionAnswer } from '../types/game.types.js';
 import { getInstructionsWithSetup, AI_GOAL_BLOCK } from './AIPlayerInstructions.js';
 import type { HumanPersona } from './GameLogger.js';
+import { AIStyleProfile, AISpeechSink, DecisionOutcome, SpeechContext, answerWithGate, decideWithGate } from './aiSpeech.js';
+
+export interface AIPlayerDeps {
+  pool: ChatProvider[];
+  profile: AIStyleProfile;
+  llmSink?: LLMEventSink;
+  eventSink?: AISpeechSink;
+}
+
+export interface OwnAnswer {
+  round: number;
+  question: string;
+  answer: string;
+}
+
+export interface DirectAddress {
+  from: string;
+  content: string;
+  accusation: boolean;
+}
+
+/** Stable pseudo-random 0..99 from a string: the same message is forgotten (or not) on every tick. */
+function stableBucket(key: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < key.length; i++) {
+    h ^= key.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0) % 100;
+}
+
+const CONTEXT_WINDOW = 40;
+const FORGET_PERCENT = 12;
 
 export interface GameContextOptions {
   activePlayerIds: string[];
   eliminatedNames: string[];
   aiRemainingCount: number;
-  /** Optional text summary of previous rounds (eliminations + votes) shown to humans between rounds. */
+  /** Optional text summary of previous rounds (questions, answers, eliminations, votes) shown to humans between rounds. */
   previousRoundsSummary?: string;
+  /** This AI's own answers in previous rounds, so it stays consistent and does not repeat itself. */
+  ownAnswers?: OwnAnswer[];
 }
 
 export class AIPlayer {
   private player: AIPlayerData;
-  private llmProvider: LLMProvider;
+  private llmProvider: ChatProvider;
+  private deps: AIPlayerDeps;
   private strategyContent: string;
   private gameContext: string = '';
   private gameFormat: GameFormat | null = null;
@@ -21,18 +59,28 @@ export class AIPlayer {
 
   constructor(
     player: AIPlayerData,
-    llmProvider: LLMProvider,
+    llmProvider: ChatProvider,
     strategyContent: string,
-    humanPersona?: HumanPersona | null
+    humanPersona: HumanPersona | null,
+    deps: AIPlayerDeps
   ) {
     this.player = player;
     this.llmProvider = llmProvider;
+    this.deps = deps;
     this.strategyContent = strategyContent;
     this.humanPersona = humanPersona ?? null;
   }
 
   setGameFormat(format: GameFormat): void {
     this.gameFormat = format;
+  }
+
+  getProviderName(): string {
+    return this.llmProvider.name;
+  }
+
+  getProfile(): AIStyleProfile {
+    return this.deps.profile;
   }
 
   /**
@@ -67,6 +115,13 @@ export class AIPlayer {
       context += `## Previous rounds summary (same info humans see between rounds):\n`;
       context += `${options.previousRoundsSummary}\n\n`;
     }
+    if (options?.ownAnswers && options.ownAnswers.length > 0) {
+      context += `## Your own answers in previous rounds (stay consistent with them, don't repeat them):\n`;
+      options.ownAnswers.forEach((a) => {
+        context += `Round ${a.round} — "${a.question}" → ${a.answer}\n`;
+      });
+      context += `\n`;
+    }
 
     if (answers.length > 0) {
       context += `## Answers to the question this round:\n`;
@@ -83,18 +138,24 @@ export class AIPlayer {
     if (phase === 'discussion') {
       const discussionMessages = messagesToShow.filter((m) => m.phase === 'discussion');
       if (discussionMessages.length === 0) {
-        context += `\n⚠️ No one has posted in this discussion yet. Being the first to speak is suspicious. Prefer shouldRespond: false, or if you do respond use a long delay (delayMs: 15000-25000).\n\n`;
+        context += `\nNo one has posted in this discussion yet. Only speak first if you have a genuine reaction to the answers; otherwise shouldRespond: false.\n\n`;
       }
     }
 
     if (messagesToShow.length > 0) {
       context += `## Recent conversation (only players still in the game):\n`;
-      const recentMessages = messagesToShow.slice(-20);
-      recentMessages.forEach((msg) => {
-        // 15% chance to silently drop a message not sent by this AI — simulates
-        // humans occasionally missing messages (scrolled past, phone, distracted).
-        // Never drop messages sent by this AI itself (it remembers what it said).
-        if (msg.playerId !== this.player.id && Math.random() < 0.15) return;
+      const recentMessages = messagesToShow.slice(-CONTEXT_WINDOW);
+      const ownName = this.player.username.toLowerCase();
+      recentMessages.forEach((msg, idx) => {
+        // Humans miss some messages (scrolled past, phone, distracted). The forgotten set is STABLE per AI
+        // (hash of message id + AI id), so a message never reappears or vanishes from one tick to the next.
+        // Never forgotten: the last 3 messages, the AI's own, system lines, and messages that name the AI.
+        const protectedMsg =
+          idx >= recentMessages.length - 3 ||
+          msg.playerId === this.player.id ||
+          msg.playerId === 'system' ||
+          msg.content.toLowerCase().includes(ownName);
+        if (!protectedMsg && stableBucket(msg.id + this.player.id) < FORGET_PERCENT) return;
         context += `[${msg.playerName}]: ${msg.content}\n`;
       });
     }
@@ -102,101 +163,72 @@ export class AIPlayer {
     this.gameContext = context;
   }
 
-  /**
-   * L'IA décide si elle doit répondre et quoi dire
-   */
-  async decideAction(): Promise<{ shouldRespond: boolean; message?: string; delayMs?: number }> {
+  /** Discussion decision. The timing is computed by the room, never asked to the model. */
+  async decideAction(speech: SpeechContext, direct?: DirectAddress): Promise<DecisionOutcome> {
     const messages: LLMMessage[] = [
-      {
-        role: 'system',
-        content: this.buildFullSystemPrompt(),
-      },
-      {
-        role: 'user',
-        content: this.gameContext,
-      },
-      {
-        role: 'user',
-        content: this.buildDecisionPrompt(),
-      },
+      { role: 'system', content: this.buildFullSystemPrompt() },
+      { role: 'user', content: this.gameContext },
+      { role: 'user', content: this.buildDecisionPrompt(direct) },
     ];
-
-    try {
-      const response = await this.llmProvider.query(messages);
-      return response;
-    } catch (error) {
-      console.error(`AI ${this.player.username} decision error:`, error);
-      return { shouldRespond: false };
-    }
+    return decideWithGate({
+      provider: this.llmProvider,
+      pool: this.deps.pool,
+      role: 'decision',
+      player: this.player.username,
+      profile: this.deps.profile,
+      llmSink: this.deps.llmSink,
+      eventSink: this.deps.eventSink,
+      messages,
+      speech,
+      temperatureScale: 1.0,
+    });
   }
 
-  /**
-   * L'IA répond à la question posée, ou retourne null pour ne pas répondre (comme un humain qui skip).
-   */
-  async answerQuestion(question: string): Promise<string | null> {
+  /** Answer to the round question, or null to skip like a human. */
+  async answerQuestion(question: string, ownAnswers: OwnAnswer[] = []): Promise<string | null> {
+    const lang = this.gameFormat?.language ?? 'fr';
+    const previous =
+      ownAnswers.length > 0
+        ? `\nYour answers in previous rounds (don't reuse the same words or the same kind of joke): ${ownAnswers.map((a) => `"${a.answer}"`).join(', ')}\n`
+        : '';
     const messages: LLMMessage[] = [
-      {
-        role: 'system',
-        content: this.buildBaseSystemPrompt(),
-      },
+      { role: 'system', content: this.buildBaseSystemPrompt() },
       {
         role: 'user',
-        content: `You are playing as ${this.player.username}. Answer this question as a human would, staying in character.\n\nIMPORTANT: Keep your answer SHORT: one short sentence or a few words only. No paragraph, no list. Do NOT end your answer with a period or any punctuation (no full stop at the end).\n\nTake some distance: you can take the question with a grain of salt, answer with light second-degree or humor, or answer very simply (minimal, even one word). Humans often don't take every question literally.\n\nHumans often skip or don't answer. If you prefer not to answer, reply with exactly: SKIP\n\n"${question}"\n\nProvide ONLY your short answer (no period at the end), or exactly SKIP to not answer.`,
+        content: `You are playing as ${this.player.username}. Answer this question as a human would, staying in character${lang === 'fr' ? ', in French' : ', in English'}.\n\nIMPORTANT: Keep your answer SHORT: one short sentence or a few words only. No paragraph, no list.\n\nTake some distance: you can take the question with a grain of salt, answer with light second-degree or humor, or answer very simply (minimal, even one word). Humans often don't take every question literally.\n${previous}\nHumans sometimes skip. If you prefer not to answer, reply with exactly: SKIP\n\n"${question}"\n\nProvide ONLY your short answer, or exactly SKIP.`,
       },
     ];
-
-    try {
-      const response = await this.llmProvider.query(messages);
-      const raw = (response.message || '').trim();
-      if (!raw || raw.toUpperCase() === 'SKIP' || raw.toUpperCase().startsWith('SKIP')) {
-        return null;
-      }
-      const firstSentence = raw.split(/[.!?]\s/)[0]?.trim() || raw;
-      const short = firstSentence.length > 80 ? firstSentence.slice(0, 77) + '...' : firstSentence;
-      const final = short || raw.slice(0, 80);
-      // Ne jamais enlever le ? ; pour . et ! on n'enlève que dans 60% des cas (40% on garde)
-      if (Math.random() < 0.6) {
-        return final.replace(/[.!]+$/, '').trim();
-      }
-      return final.trim();
-    } catch (error) {
-      console.error(`AI ${this.player.username} answer error:`, error);
-      return null;
-    }
+    return answerWithGate({
+      provider: this.llmProvider,
+      pool: this.deps.pool,
+      role: 'answer',
+      player: this.player.username,
+      profile: this.deps.profile,
+      llmSink: this.deps.llmSink,
+      eventSink: this.deps.eventSink,
+      messages,
+      ownPreviousAnswers: ownAnswers.map((a) => a.answer),
+    });
   }
 
-  /**
-   * L'IA décide pour qui voter (basé sur suspicion).
-   * Retourne null s'il n'y a personne d'autre à voter (ex: seul joueur actif).
-   */
+  /** Vote target id, or null when the model's answer matches nobody (the room then casts a logged fallback vote). */
   async decideVote(players: { id: string; username: string }[]): Promise<string | null> {
     const otherPlayers = players.filter((p) => p.id !== this.player.id);
     if (otherPlayers.length === 0) return null;
-
     const messages: LLMMessage[] = [
-      {
-        role: 'system',
-        content: this.buildBaseSystemPrompt(),
-      },
+      { role: 'system', content: this.buildBaseSystemPrompt() },
       {
         role: 'user',
         content: `${this.gameContext}\n\nVoting time. Think strategically:\n- Who seemed robotic, overly neutral, or suspiciously agreeable in the discussion?\n- Who might already have votes gathering against them (bandwagon = safer for you)?\n- Is anyone trying to deflect suspicion too hard — or not engaging enough?\n- Your goal is to survive: vote for whoever is most dangerous to you or most likely an AI.\n\nPlayers you can vote for: ${otherPlayers.map((p) => p.username).join(', ')}\n\nRespond with ONLY the player's name, nothing else.`,
       },
     ];
-
-    try {
-      const response = await this.llmProvider.query(messages);
-      const voteName = response.message?.trim() || '';
-
-      const targetPlayer = otherPlayers.find(
-        (p) => p.username.toLowerCase() === voteName.toLowerCase()
-      );
-
-      return targetPlayer?.id ?? null; // unmatched name → no vote
-    } catch (error) {
-      console.error(`AI ${this.player.username} vote error:`, error);
-      return null;
-    }
+    const r = await callLLM(
+      this.llmProvider,
+      { messages, maxTokens: 20, timeoutMs: 6000, temperatureScale: 0.5, temperatureOffset: this.deps.profile.temperatureOffset },
+      { role: 'vote', player: this.player.username, pool: this.deps.pool, sink: this.deps.llmSink }
+    );
+    if (!r) return null;
+    return matchPlayerName(r.text, otherPlayers)?.id ?? null;
   }
 
   /** System prompt WITHOUT the JSON decision format — use for answerQuestion and decideVote. */
@@ -221,7 +253,13 @@ export class AIPlayer {
       lang === 'fr'
         ? 'LANGUAGE: You must speak and write only in French. All your messages, answers, and vote reasoning must be in French.'
         : 'LANGUAGE: You must speak and write only in English. All your messages, answers, and vote reasoning must be in English.';
-    const styleRule = 'MANDATORY STYLE: Never use emojis or smileys. Never use capital letters (write in lowercase only, e.g. "i think" not "I think").';
+    const caseRule =
+      this.deps.profile.caseProfile === 'lower'
+        ? 'Never use capital letters (write in lowercase only, e.g. "i think" not "I think").'
+        : this.deps.profile.caseProfile === 'sentence'
+          ? 'Type casually: a capital letter at the start of a message is fine, the rest stays lowercase.'
+          : 'Type casually, mostly lowercase.';
+    const styleRule = `MANDATORY STYLE: Never use emojis or smileys. No dashes, no semicolons, no lists. ${caseRule}`;
 
     const personaBlock = this.buildPersonaBlock(lang);
 
@@ -234,8 +272,7 @@ export class AIPlayer {
 Output a JSON object — nothing else:
 {
   "shouldRespond": true/false,
-  "message": "your message here" (only if shouldRespond is true),
-  "delayMs": 2000-8000 (random delay to seem human)
+  "message": "your message here" (only if shouldRespond is true)
 }
 Only respond when it fits the conversation; humans don't answer every message.` : '';
 
@@ -283,7 +320,7 @@ ${personaBlock}${decisionFormat}`;
     return `${header}\nExemples de messages :\n${msgs}${ansBlock}\n`;
   }
 
-  private buildDecisionPrompt(): string {
+  private buildDecisionPrompt(direct?: DirectAddress): string {
     const lastMessages = this.player.messageHistory.slice(-3);
     const timeSinceLastMessage =
       lastMessages.length > 0 ? Date.now() - lastMessages[lastMessages.length - 1].timestamp : 99999;
@@ -291,6 +328,14 @@ ${personaBlock}${decisionFormat}`;
     const lastMsgSummary = lastMessages.length > 0
       ? `Your last messages (DON'T repeat the same topic or target — move on): ${lastMessages.map((m) => m.content).join(' | ')}`
       : 'You haven\'t spoken yet.';
+
+    if (direct) {
+      return `${direct.from} just ${direct.accusation ? 'accused you' : 'talked to you'}: "${direct.content}"
+
+${lastMsgSummary}
+
+A real player answers that, quickly and with a real reaction: amused, annoyed, counter-attacking, or turning it back on them. One short line. No long justification, no "i assure you". Set shouldRespond to true.`;
+    }
 
     return `Should you respond to this conversation?
 

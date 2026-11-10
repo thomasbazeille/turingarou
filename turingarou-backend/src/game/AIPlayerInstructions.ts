@@ -16,10 +16,10 @@ Focus on players still in the game; eliminated players are irrelevant.`;
  */
 export function buildCurrentGameSetup(format: GameFormat): string {
   const lines: string[] = [
-    `🎮 ${format.maxPlayers}-player game:`,
-    ...Array.from({ length: format.humanCount }, (_, i) => `   👤 Human ${i + 1} (Player)`),
-    ...Array.from({ length: format.aiCount }, () => `   🤖 AI (You - using random name)`),
-    `⏱️  Timing:`,
+    `${format.maxPlayers}-player game:`,
+    ...Array.from({ length: format.humanCount }, (_, i) => `   - Human ${i + 1} (Player)`),
+    ...Array.from({ length: format.aiCount }, () => `   - AI (You - using random name)`),
+    `Timing:`,
     `   - Question phase: ${format.questionSec} seconds`,
     `   - Discussion phase: ${format.discussionSec} seconds`,
     `   - Vote phase: ${format.voteSec} seconds`,
@@ -34,5 +34,16 @@ export function buildCurrentGameSetup(format: GameFormat): string {
  */
 export function getInstructionsWithSetup(strategyContent: string, format: GameFormat): string {
   const setupBlock = buildCurrentGameSetup(format);
-  return strategyContent.replace('{{CURRENT_GAME_SETUP}}', setupBlock);
+  return stripPictographs(strategyContent).replace('{{CURRENT_GAME_SETUP}}', setupBlock);
+}
+
+/**
+ * Emojis shown in a prompt — even as "never do this" examples — are tokens the model sees on every call, and it echoes them.
+ * Strategy files are left untouched; their emojis are removed when the prompt is assembled.
+ */
+export function stripPictographs(text: string): string {
+  return text
+    .replace(/[\p{Extended_Pictographic}\u{1F000}-\u{1FAFF}\uFE0F\u200D]/gu, '')
+    .replace(/\(\s*\)/g, '')
+    .replace(/[ \t]+$/gm, '');
 }

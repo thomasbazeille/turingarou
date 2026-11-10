@@ -29,3 +29,6 @@ build/
 # Temporary files
 *.tmp
 .cache/
+
+# Written by CI before `railway up`, read by /health
+turingarou-backend/version.txt

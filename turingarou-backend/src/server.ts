@@ -7,10 +7,10 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { GameRoom } from './game/GameRoom.js';
 import { initDB, isDBEnabled } from './game/GameLogger.js';
-import { DeepseekProvider } from './llm/DeepseekProvider.js';
-import { MistralProvider } from './llm/MistralProvider.js';
-import { AnthropicProvider } from './llm/AnthropicProvider.js';
-import { LLMProvider } from './llm/LLMProvider.js';
+import fs from 'fs';
+import { ChatProvider } from './llm/chatClient.js';
+import { OpenAICompatProvider } from './llm/OpenAICompatProvider.js';
+import { AnthropicChatProvider } from './llm/AnthropicChatProvider.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -32,16 +32,36 @@ app.use(express.json());
 
 // Build pool: all providers whose API key is set.
 // Each AI in a game will pick independently at random — within a game you can get mixed providers.
-const llmProviders: LLMProvider[] = [];
+// A provider failing mid-call falls back to another one of this pool (llmCall.ts).
+const llmProviders: ChatProvider[] = [];
 
 if (process.env.DEEPSEEK_API_KEY) {
-  llmProviders.push(new DeepseekProvider({ apiKey: process.env.DEEPSEEK_API_KEY }));
+  llmProviders.push(
+    new OpenAICompatProvider({
+      vendor: 'Deepseek',
+      baseUrl: 'https://api.deepseek.com/v1',
+      apiKey: process.env.DEEPSEEK_API_KEY,
+      model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
+      defaultTemperature: 1.3,
+      supportsJson: true,
+    })
+  );
 }
 if (process.env.MISTRAL_API_KEY) {
-  llmProviders.push(new MistralProvider({ apiKey: process.env.MISTRAL_API_KEY }));
+  llmProviders.push(
+    new OpenAICompatProvider({
+      vendor: 'Mistral',
+      baseUrl: 'https://api.mistral.ai/v1',
+      apiKey: process.env.MISTRAL_API_KEY,
+      model: process.env.MISTRAL_MODEL || 'mistral-small-latest',
+      defaultTemperature: 1.0,
+      maxTemperature: 1.0,
+      supportsJson: true,
+    })
+  );
 }
 if (process.env.ANTHROPIC_API_KEY) {
-  llmProviders.push(new AnthropicProvider({ apiKey: process.env.ANTHROPIC_API_KEY }));
+  llmProviders.push(new AnthropicChatProvider(process.env.ANTHROPIC_API_KEY, process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5'));
 }
 
 if (llmProviders.length === 0) {
@@ -50,6 +70,15 @@ if (llmProviders.length === 0) {
 }
 
 console.log(`Using LLM provider(s): ${llmProviders.map((p) => p.name).join(', ')}`);
+
+// Commit served, written by the deploy workflow; "dev" locally.
+const VERSION = (() => {
+  try {
+    return fs.readFileSync(path.join(__dirname, '..', 'version.txt'), 'utf8').trim() || 'dev';
+  } catch {
+    return 'dev';
+  }
+})();
 
 // ====== GAME ROOMS MANAGEMENT ======
 
@@ -212,6 +241,7 @@ app.get('/', (req, res) => {
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
+    version: VERSION,
     rooms: gameRooms.size,
     llmProviders: llmProviders.map((p) => p.name),
     aiCount: parseInt(process.env.AI_COUNT || '3'),

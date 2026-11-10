@@ -97,8 +97,3 @@ export interface LLMMessage {
   content: string;
 }
 
-export interface LLMResponse {
-  shouldRespond: boolean;
-  message?: string;
-  delayMs?: number; // Temps avant de répondre (naturalité)
-}

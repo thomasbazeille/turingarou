@@ -1,7 +1,10 @@
-import { LLMProvider } from '../llm/LLMProvider.js';
+import { ChatProvider } from '../llm/chatClient.js';
+import { callLLM } from '../llm/llmCall.js';
+import { matchPlayerName } from '../llm/parse.js';
 import { GameMessage, LLMMessage, GameFormat, QuestionAnswer } from '../types/game.types.js';
 import { getInstructionsWithSetup } from './AIPlayerInstructions.js';
-import type { GameContextOptions } from './AIPlayer.js';
+import type { AIPlayerDeps, GameContextOptions } from './AIPlayer.js';
+import { DecisionOutcome, SpeechContext, answerWithGate, decideWithGate } from './aiSpeech.js';
 
 /**
  * Controls an "AI Inspector" player: a bot that fills a human slot and uses
@@ -9,7 +12,8 @@ import type { GameContextOptions } from './AIPlayer.js';
  */
 export class InspectorController {
   private inspectorPromptContent: string;
-  private llmProvider: LLMProvider;
+  private llmProvider: ChatProvider;
+  private deps: AIPlayerDeps;
   private playerId: string;
   private playerName: string;
   private gameFormat: GameFormat | null = null;
@@ -19,12 +23,18 @@ export class InspectorController {
     playerId: string,
     playerName: string,
     inspectorPromptContent: string,
-    llmProvider: LLMProvider
+    llmProvider: ChatProvider,
+    deps: AIPlayerDeps
   ) {
     this.playerId = playerId;
     this.playerName = playerName;
     this.inspectorPromptContent = inspectorPromptContent;
     this.llmProvider = llmProvider;
+    this.deps = deps;
+  }
+
+  getProviderName(): string {
+    return this.llmProvider.name;
   }
 
   setGameFormat(format: GameFormat): void {
@@ -63,7 +73,7 @@ export class InspectorController {
     }
     if (messagesToShow.length > 0) {
       context += `## Recent conversation (only players still in the game):\n`;
-      messagesToShow.slice(-20).forEach((m) => {
+      messagesToShow.slice(-40).forEach((m) => {
         context += `[${m.playerName}]: ${m.content}\n`;
       });
     }
@@ -93,41 +103,47 @@ export class InspectorController {
       { role: 'system', content: this.getSystemPrompt() },
       {
         role: 'user',
-        content: `You are ${this.playerName}. Answer this question briefly as a human would. Keep it short (a few words). No period at the end. Same style as other players: lowercase, casual.\n\n"${question}"\n\nYour short answer:`,
+        content: `You are ${this.playerName}. Answer this question briefly as a human would. Keep it short (a few words). Same style as other players: casual.\n\n"${question}"\n\nYour short answer:`,
       },
     ];
-    try {
-      const response = await this.llmProvider.query(messages);
-      const raw = (response.message || '').trim();
-      if (!raw) return null;
-      return raw.replace(/[.!?]+$/, '').trim();
-    } catch (err) {
-      console.error(`Inspector ${this.playerName} answer error:`, err);
-      return null;
-    }
+    return answerWithGate({
+      provider: this.llmProvider,
+      pool: this.deps.pool,
+      role: 'inspector_answer',
+      player: this.playerName,
+      profile: this.deps.profile,
+      llmSink: this.deps.llmSink,
+      eventSink: this.deps.eventSink,
+      messages,
+      ownPreviousAnswers: [],
+    });
   }
 
-  async decideAction(): Promise<{ shouldRespond: boolean; message?: string; delayMs?: number }> {
+  async decideAction(speech: SpeechContext): Promise<DecisionOutcome> {
     const messages: LLMMessage[] = [
       { role: 'system', content: this.getSystemPrompt() },
       { role: 'user', content: this.gameContext },
       {
         role: 'user',
-        content: `Should you send a message? Reply with JSON only: { "shouldRespond": true or false, "message": "your short message or null", "delayMs": 3000-12000 }
-Only respond if something in the conversation genuinely calls for it — a reaction, a question, something worth saying. One short line, lowercase, no emojis. If nothing stands out, shouldRespond: false.`,
+        content: `Should you send a message? Reply with JSON only: { "shouldRespond": true or false, "message": "your short message or null" }
+Only respond if something in the conversation genuinely calls for it — a reaction, a question, something worth saying. One short line, no emojis. If nothing stands out, shouldRespond: false.`,
       },
     ];
-    try {
-      const response = await this.llmProvider.query(messages);
-      const out = { ...response };
-      if (out.shouldRespond && (out.delayMs == null || out.delayMs < 4000)) out.delayMs = 5000 + Math.floor(Math.random() * 10000);
-      return out;
-    } catch (err) {
-      console.error(`Inspector ${this.playerName} decideAction error:`, err);
-      return { shouldRespond: false };
-    }
+    return decideWithGate({
+      provider: this.llmProvider,
+      pool: this.deps.pool,
+      role: 'inspector_decision',
+      player: this.playerName,
+      profile: this.deps.profile,
+      llmSink: this.deps.llmSink,
+      eventSink: this.deps.eventSink,
+      messages,
+      speech,
+      temperatureScale: 1.0,
+    });
   }
 
+  /** Vote target id, or null when the model's answer matches nobody (the room casts a logged fallback vote). */
   async decideVote(players: { id: string; username: string }[]): Promise<string | null> {
     const others = players.filter((p) => p.id !== this.playerId);
     if (others.length === 0) return null;
@@ -139,16 +155,12 @@ Only respond if something in the conversation genuinely calls for it — a react
         content: `${this.gameContext}\n\nYou are ${this.playerName}. You must vote for ONE OTHER player to eliminate (the one you think is most likely the AI). You cannot vote for yourself. Vote for exactly one of: ${namesList}. Reply with ONLY that player's name, nothing else.`,
       },
     ];
-    try {
-      const response = await this.llmProvider.query(messages);
-      let voteName = (response.message || '').trim();
-      if (voteName.toLowerCase() === this.playerName.toLowerCase()) voteName = '';
-      const target = others.find((p) => p.username.toLowerCase() === voteName.toLowerCase());
-      if (target) return target.id;
-      return others[Math.floor(Math.random() * others.length)]?.id ?? others[0]?.id ?? null;
-    } catch (err) {
-      console.error(`Inspector ${this.playerName} vote error:`, err);
-      return others[0]?.id ?? null;
-    }
+    const r = await callLLM(
+      this.llmProvider,
+      { messages, maxTokens: 20, timeoutMs: 6000, temperatureScale: 0.5, temperatureOffset: this.deps.profile.temperatureOffset },
+      { role: 'inspector_vote', player: this.playerName, pool: this.deps.pool, sink: this.deps.llmSink }
+    );
+    if (!r) return null;
+    return matchPlayerName(r.text, others)?.id ?? null;
   }
 }
