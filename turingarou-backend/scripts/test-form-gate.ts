@@ -290,6 +290,24 @@ for (const t of [...human.map((h) => h.text), ...bot.map((b) => b.text)]) {
   }
 }
 
+// Real model output (fixtures/form-gate-model-probe.json): measured, not asserted. Length is the tell the gate can only
+// fix through the per-AI habits (maxWords, brevity), so the distribution is printed next to the human one.
+const probe = load<{ source: string; lines: string[] }>('form-gate-model-probe.json').lines;
+const words = (t: string) => t.split(/\s+/).filter(Boolean).length;
+const median = (xs: number[]) => [...xs].sort((x, y) => x - y)[Math.floor(xs.length / 2)];
+const share = (xs: number[], n: number) => xs.filter((x) => x > n).length / xs.length;
+const probeBare = probe.map((t) => checkMessage(t, ctx()));
+const probeProfiled: number[] = [];
+for (let s = 0; s < 12; s++) {
+  const p = drawStyleProfile(seeded(200 + s));
+  for (const t of probe) {
+    const v = checkMessage(t, ctx({ caseProfile: p.caseProfile, dropFinalPeriodProb: p.dropFinalPeriodProb, style: p, rng: seeded(s) }));
+    if (v.ok) probeProfiled.push(words(v.text));
+  }
+}
+const humanWords = human.map((h) => words(h.text));
+const probeWords = probe.map(words);
+
 const modifiedRatio = humanModified.length / human.length;
 const caughtRatio = (bot.length - botMissed.length) / bot.length;
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
@@ -297,6 +315,10 @@ console.log(`human corpus: ${human.length} lines, rejected ${humanRejected.lengt
 console.log(`human corpus under 12 drawn profiles (case + habits): rejected ${profileRejected.length}`);
 console.log(`bot corpus: ${bot.length} lines, caught ${bot.length - botMissed.length} = ${pct(caughtRatio)} (min ${pct(BOT_MIN_CAUGHT_RATIO)})`);
 console.log(`idempotence under the GameRoom last net: ${notIdempotent.length} violation(s)`);
+console.log(
+  `model probe (${probe.length} real lines, measured only): bare rejected ${probeBare.filter((v) => !v.ok).length}, modified ${probeBare.filter((v, i) => v.ok && v.text !== probe[i]).length}; ` +
+    `words median/share>12: human ${median(humanWords)}/${pct(share(humanWords, 12))}, model raw ${median(probeWords)}/${pct(share(probeWords, 12))}, model under drawn profiles ${median(probeProfiled)}/${pct(share(probeProfiled, 12))}`
+);
 const show = (title: string, items: string[]) => {
   if (items.length) console.log(`${title}:\n  ${items.slice(0, 30).join('\n  ')}`);
 };

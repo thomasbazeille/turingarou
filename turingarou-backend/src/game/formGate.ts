@@ -30,6 +30,8 @@ export interface StyleHabits {
   questionMarks?: QuestionMarkHabit;
   /** Per-player length habit, capped by the channel limit. */
   maxWords?: number;
+  /** Per-message chance that a long line is cut back to its first clean clause: model lines are uniformly long, human ones vary (R8, T006). */
+  brevity?: number;
 }
 
 export interface GateContext {
@@ -55,6 +57,7 @@ const CHANNEL_CAP = {
 const TOO_LONG_FACTOR = 3;
 // Capitalized, comma-laden, period-terminated and long: written prose, not a chat line.
 const POLISHED_MAX_WORDS = 14;
+const BRIEF_MAX_WORDS = 8;
 const NEAR_DUP_JACCARD = 0.6;
 const NEAR_DUP_DICE = 0.82;
 const OPENING_WINDOW = 6;
@@ -143,6 +146,10 @@ const SERVICE_FORMULA = wordsRe([
   'permettez-moi de',
   'je tiens à (?:préciser|souligner|clarifier)',
   'je vais vous expliquer',
+  'je vous remercie',
+  "c'(?:est|était) (?:toujours |vraiment )?un (?:réel |vrai |grand )?plaisir de",
+  'thank you (?:all )?for (?:this|the) (?:game|round|discussion)',
+  "it(?:'s| is| was) (?:always )?a pleasure",
   'feel free to',
   'how (?:can|may) i (?:help|assist)',
   "(?:i'd|i would|i'll|i will) be (?:happy|glad|delighted) to",
@@ -486,8 +493,9 @@ const CLAUSE_BEFORE_RE = new RegExp(
   'giu'
 );
 
-/** Shortens to the caps at the cleanest boundary: sentence end, then clause boundary, then word, never leaving a dangling function word. */
-function fitLength(t: string, maxWords: number, maxChars: number): string {
+/** Shortens to the caps at the cleanest boundary: sentence end, then clause boundary, then word, never leaving a dangling function word.
+ * cleanOnly: no word cut; returns the text unchanged when no sentence or clause boundary fits. */
+function fitLength(t: string, maxWords: number, maxChars: number, cleanOnly = false): string {
   const fits = (s: string) => wordCount(s) <= maxWords && s.length <= maxChars;
   if (fits(t)) return t;
   type Cut = { end: number; prio: number };
@@ -512,6 +520,7 @@ function fitLength(t: string, maxWords: number, maxChars: number): string {
   const clause = best((c) => c.prio >= 2, 3);
   if (sentence && (!clause || sentence.length >= clause.length * 0.6)) return sentence;
   if (clause) return clause;
+  if (cleanOnly) return t;
   const words = t.split(/\s+/).filter((w) => w.length > 0);
   const kept: string[] = [];
   for (const w of words) {
@@ -568,6 +577,13 @@ function repair(input: string, ctx: GateContext): Repaired {
   if (fitted !== t) {
     t = fitted;
     notes.add(polished && wordsBeforeFit > POLISHED_MAX_WORDS ? 'polished' : 'truncated');
+  }
+  if (ctx.style?.brevity && wordCount(t) > BRIEF_MAX_WORDS && (ctx.rng ?? Math.random)() < ctx.style.brevity) {
+    const brief = fitLength(t, BRIEF_MAX_WORDS, cap.chars, true);
+    if (brief !== t) {
+      t = brief;
+      notes.add('brevity');
+    }
   }
 
   t = applyCase(t, ctx.caseProfile, notes);
@@ -822,7 +838,7 @@ function pickDistinct<T>(items: readonly T[], n: number, rng: () => number): T[]
   return out;
 }
 
-/** Draws one player's persistent habits: two FR and two EN spelling habits, negation, contractions, accents, question marks, length. */
+/** Draws one player's persistent habits: two FR and two EN spelling habits, negation, contractions, accents, question marks, length, brevity. */
 export function drawStyleHabits(rng: () => number = Math.random): Required<StyleHabits> {
   const variant = (g: ReadonlyArray<Variant>) => g[Math.floor(rng() * g.length)];
   const rewrites = [...pickDistinct(FR_HABIT_GROUPS, 2, rng), ...pickDistinct(EN_HABIT_GROUPS, 2, rng)].flatMap(variant);
@@ -835,5 +851,6 @@ export function drawStyleHabits(rng: () => number = Math.random): Required<Style
     dropAccents: rng() < 0.25,
     questionMarks: q < 0.55 ? 'keep' : q < 0.8 ? 'drop' : 'double',
     maxWords: len < 0.35 ? 10 : len < 0.75 ? 16 : 25,
+    brevity: Math.round((0.25 + rng() * 0.35) * 100) / 100,
   };
 }
