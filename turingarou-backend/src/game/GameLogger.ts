@@ -15,6 +15,10 @@
  */
 
 import pg from 'pg';
+import { selectHumanPersona, type HumanPersona, type PersonaQuery } from '../history/persona.js';
+import { withReadOnly } from '../history/readonly.js';
+
+export type { HumanPersona, PersonaQuery };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -223,49 +227,17 @@ export async function initDB(): Promise<void> {
 
 // ─── Persona ──────────────────────────────────────────────────────────────────
 
-export interface HumanPersona {
-  username: string;
-  sampleMessages: string[];
-  sampleAnswers: { question: string; answer: string }[];
-}
-
 /**
- * Renvoie un profil humain aléatoire de la base (avec au moins 2 messages enregistrés).
- * Retourne null si la base est vide ou absente.
+ * A real human player's messages and answers, used as a writing-style reference for an AI.
+ * Without options: any language (previous behaviour). Pass { language, exclude } to get a persona of
+ * the game's language not already used in the room. Selection rules: src/history/persona.ts.
+ * Read-only transaction; null when the base is empty, absent or unreachable.
  */
-export async function getRandomHumanProfile(): Promise<HumanPersona | null> {
+export async function getRandomHumanProfile(opts: PersonaQuery = {}): Promise<HumanPersona | null> {
   const pool = getPool();
   if (!pool) return null;
   try {
-    const { rows } = await pool.query<{ username: string }>(
-      `SELECT hp.username
-       FROM human_profiles hp
-       JOIN human_messages hm ON hp.username = hm.username
-       GROUP BY hp.username
-       HAVING COUNT(hm.id) >= 2
-       ORDER BY RANDOM()
-       LIMIT 1`
-    );
-
-    if (rows.length === 0) return null;
-
-    const { username } = rows[0];
-
-    const messages = await pool.query<{ content: string }>(
-      `SELECT content FROM human_messages WHERE username = $1 ORDER BY RANDOM() LIMIT 10`,
-      [username]
-    );
-
-    const answers = await pool.query<{ question: string; answer: string }>(
-      `SELECT question, answer FROM human_answers WHERE username = $1 ORDER BY RANDOM() LIMIT 5`,
-      [username]
-    );
-
-    return {
-      username,
-      sampleMessages: messages.rows.map((m) => m.content),
-      sampleAnswers: answers.rows,
-    };
+    return await withReadOnly(pool, (client) => selectHumanPersona(client, opts));
   } catch (err) {
     console.error('[GameLogger] getRandomHumanProfile error:', err);
     return null;

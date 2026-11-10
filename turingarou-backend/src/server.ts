@@ -7,6 +7,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { GameRoom } from './game/GameRoom.js';
 import { initDB, isDBEnabled } from './game/GameLogger.js';
+import { registerHistoryRoutes } from './history/routes.js';
 import fs from 'fs';
 import { ChatProvider } from './llm/chatClient.js';
 import { buildProviderPool, describePool } from './llm/providerRegistry.js';
@@ -236,6 +237,8 @@ app.get('/rooms', (req, res) => {
 
   res.json({ rooms });
 });
+
+registerHistoryRoutes(app);
 
 // ====== START SERVER ======
 
