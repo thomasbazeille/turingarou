@@ -1,406 +1,320 @@
 import * as assert from 'node:assert/strict';
-import {
-  checkMessage,
-  sanitizeMessage,
-  similarity,
-  contentWords,
-} from '../src/game/formGate.js';
-import type { GateContext } from '../src/game/formGate.js';
+import { readFileSync } from 'node:fs';
+import { checkMessage, sanitizeMessage, similarity, contentWords, drawStyleHabits } from '../src/game/formGate.js';
+import type { GateContext, GateReason, StyleHabits } from '../src/game/formGate.js';
+import { drawStyleProfile } from '../src/game/aiSpeech.js';
+
+// Thresholds of the corpus run (spec B-realisme-forme R13: a gate that cries wolf gets unplugged).
+const HUMAN_MAX_REJECTED = 0;
+const HUMAN_MAX_MODIFIED_RATIO = 0.1;
+const BOT_MIN_CAUGHT_RATIO = 0.9;
 
 function ctx(over: Partial<GateContext> = {}): GateContext {
-  return {
-    channel: 'discussion',
-    caseProfile: 'raw',
-    dropFinalPeriodProb: 0,
-    ownRecent: [],
-    otherAIRecent: [],
-    ...over,
+  return { channel: 'discussion', caseProfile: 'raw', dropFinalPeriodProb: 0, ownRecent: [], otherAIRecent: [], ...over };
+}
+// Exactly what GameRoom.addMessage passes as its last net.
+const NET_CTX: GateContext = { channel: 'discussion', caseProfile: 'raw', dropFinalPeriodProb: 0, ownRecent: [], otherAIRecent: [] };
+const NET_DROPS: GateReason[] = ['structure', 'json_leak', 'ai_admission', 'empty'];
+
+function seeded(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
 
-type NamedCase = { name: string; run: () => void };
-const cases: NamedCase[] = [];
-function test(name: string, run: () => void): void {
-  cases.push({ name, run });
+function ok(text: string, over: Partial<GateContext> = {}): string {
+  const v = checkMessage(text, ctx(over));
+  assert.equal(v.ok, true, `expected ok for ${JSON.stringify(text)}, got ${v.ok ? '' : `${v.reason}: ${v.detail}`}`);
+  return v.text;
+}
+function rejects(text: string, reason: GateReason, over: Partial<GateContext> = {}): void {
+  const v = checkMessage(text, ctx(over));
+  assert.equal(v.ok ? 'ok' : v.reason, reason, `${JSON.stringify(text)} → ${v.ok ? `ok "${v.text}"` : v.detail}`);
+}
+function withStyle(text: string, style: StyleHabits): string {
+  return ok(text, { style });
 }
 
-// --- structure ---
+const cases: Array<{ name: string; run: () => void }> = [];
+const test = (name: string, run: () => void) => cases.push({ name, run });
 
-test('reject:structure — fenced code block', () => {
-  const v = checkMessage('voilà ce que je ferais :\n```\nvoter luc\n```', ctx());
-  assert.equal(v.ok, false);
-  if (!v.ok) assert.equal(v.reason, 'structure');
+// --- R2 structure ---
+test('structure: fenced code block rejected', () => rejects('voilà :\n```\nvoter luc\n```', 'structure'));
+test('structure: bullet list rejected', () => rejects("dans l'ordre :\n- on vote luc\n- ensuite marion", 'structure'));
+test('structure: three plain lines rejected', () => rejects('salut\nje pense que c luc\net vous', 'structure'));
+test('structure: two plain lines joined', () => assert.equal(ok('salut\nça va ou quoi'), 'salut ça va ou quoi'));
+test('structure: single line starting with a dash untouched', () => assert.equal(ok('- non mais franchement'), '- non mais franchement'));
+test('structure: "1. oui 2. non" joke on one line untouched', () => assert.equal(ok('1. oui 2. non mdr'), '1. oui 2. non mdr'));
+
+// --- R11 leaks and preambles ---
+test('json_leak: braces and quotes without a JSON object pass', () => ok('il a dit "coucou" puis il est parti {du coup}'));
+test('json_leak: delayMs object rejected', () => rejects('{"delayMs": 300, "text": "coucou"}', 'json_leak'));
+test('preamble: nothing left after it is empty', () => rejects('Voici ma réponse :', 'empty'));
+test('preamble: own name label stripped only for selfName', () => {
+  assert.equal(ok('Lucas : non', { selfName: 'Lucas' }), 'non');
+  assert.equal(ok('lucas : t’es où'), 'lucas : t’es où');
+});
+test('preamble: "la réponse de lucas : …" from a human is not a preamble', () => assert.equal(ok('réponse de lucas : trop bizarre'), 'réponse de lucas : trop bizarre'));
+
+// --- R4 admissions ---
+test('admission: typographic apostrophe', () => rejects('En tant qu’IA je ne mange pas', 'ai_admission'));
+test('admission: unaccented, lowercase', () => rejects("en tant qu'ia jsp", 'ai_admission'));
+test('admission: negations pass', () => {
+  ok('je suis pas une ia');
+  ok('je ne suis pas un robot');
+  ok("I'm not an AI");
+  ok('i am not a bot i swear');
+});
+test('admission: questions and reported speech pass', () => {
+  ok('tu crois que je suis une ia ??');
+  ok('il dit que je suis un bot');
+  ok('so now im a bot because i type fast');
+  ok("I'm not saying I'm an AI but i'm not saying I'm not either lmao");
+});
+test('admission: joke with a laugh marker passes, plain claim does not', () => {
+  ok('ouais je suis une ia mdr');
+  rejects('Bon ok, je suis une IA.', 'ai_admission');
+  rejects('jsuis un bot, voilà', 'ai_admission');
+});
+test('admission: accusations naming models pass', () => {
+  ok("t'écris comme un modèle de langage");
+  ok('you sound like a language model ngl');
+  ok('lucas t’es chatgpt ou quoi');
 });
 
-test('benign:structure — same message without fence or list', () => {
-  const v = checkMessage('voilà ce que je ferais : voter luc et après on voit', ctx());
-  assert.equal(v.ok, true);
+// --- R4 formulas, openers, lexicon ---
+test('formula: human uses of "bonne question", "great question", "hésite pas" pass', () => {
+  ok('bonne question mdr');
+  ok('great question lol idk');
+  ok('hésite pas à voter lucas');
+  ok("n'hésitez surtout pas");
+  ok('je comprends pas ce que tu veux dire');
+});
+test('opener: standalone or without punctuation is left alone', () => {
+  assert.equal(ok('Absolument !'), 'Absolument !');
+  assert.equal(ok('absolument pas'), 'absolument pas');
+  assert.equal(ok('bien sûr que non'), 'bien sûr que non');
+});
+test('opener + preamble chained', () => assert.equal(ok('Bien sûr ! Voici ma réponse : « lucas ment »'), 'lucas ment'));
+test('lexicon: a single AI word is a note, not a rejection', () => {
+  const v = checkMessage('moreover he is quiet', ctx());
+  assert.ok(v.ok && v.notes.includes('ai_word:moreover'));
 });
 
-test('reject:structure — bulleted list', () => {
-  const v = checkMessage("on fait ça dans l'ordre :\n- on vote luc\n- ensuite marion", ctx());
-  assert.equal(v.ok, false);
-  if (!v.ok) assert.equal(v.reason, 'structure');
+// --- R1 typography ---
+test('typography: winking smiley kept, semicolon replaced', () => {
+  assert.equal(ok('tkt ;)'), 'tkt ;)');
+  assert.equal(ok('ok ;-) et toi ; tu votes qui'), 'ok ;-) et toi, tu votes qui');
+});
+test('typography: leading dash removed, ASCII hyphen kept', () => {
+  assert.equal(ok('— non'), 'non');
+  assert.equal(ok("j'ai mis 3 min - pas mal"), "j'ai mis 3 min - pas mal");
+});
+test('typography: curly apostrophes untouched', () => assert.equal(ok('c’est pas moi'), 'c’est pas moi'));
+
+// --- R9 stage directions ---
+test('stage: correction asterisk and arithmetic kept', () => {
+  assert.equal(ok('*elle'), '*elle');
+  assert.equal(ok('5*3*2 ça fait 30'), '5*3*2 ça fait 30');
+});
+test('stage: non-stage parentheses kept', () => assert.equal(ok('mdr (je rigole)'), 'mdr (je rigole)'));
+test('stage: emoticon parentheses are not stage directions', () => assert.equal(ok('bon :( lucas :)'), 'bon :( lucas :)'));
+
+// --- R3 case and final period ---
+test("case 'lower': lowercases words, keeps emoticons", () => assert.equal(ok('Je pense que Lucas ment xD', { caseProfile: 'lower' }), 'je pense que lucas ment xD'));
+test("case 'sentence': capitalizes the first letter, keeps names and English I", () => {
+  assert.equal(ok('i think Jake is lying and I know it', { caseProfile: 'sentence' }), 'I think Jake is lying and I know it');
+  assert.equal(ok('je pense que Lucas ment. Et toi ?', { caseProfile: 'sentence' }), 'Je pense que Lucas ment. Et toi ?');
+});
+test("case 'raw': untouched", () => assert.equal(ok('Je pense que Lucas ment'), 'Je pense que Lucas ment'));
+test('final period: dropped at rng 0, kept at 0.99, "..." never dropped', () => {
+  assert.equal(ok('je vote luc.', { dropFinalPeriodProb: 0.5, rng: () => 0 }), 'je vote luc');
+  assert.equal(ok('je vote luc.', { dropFinalPeriodProb: 0.5, rng: () => 0.99 }), 'je vote luc.');
+  assert.equal(ok('bon...', { dropFinalPeriodProb: 1, rng: () => 0 }), 'bon...');
+});
+test('determinism: same seed, same output', () => {
+  const run = () => ['un.', 'deux.', 'trois.', 'quatre.'].map((t) => ok(t, { dropFinalPeriodProb: 0.5, rng: seeded(7) })).join('|');
+  assert.equal(run(), run());
 });
 
-test('reject:structure — numbered list with . and )', () => {
-  const v = checkMessage('deux options :\n1. voter luc\n2) attendre', ctx());
-  assert.equal(v.ok, false);
-  if (!v.ok) assert.equal(v.reason, 'structure');
+// --- R8 length ---
+test('length: clause-aware cut never leaves a dangling function word', () => {
+  const out = ok('je pense que lucas ment parce que hier il a dit un truc complètement différent de ce qu il raconte maintenant à tout le monde ici');
+  assert.ok(out.split(/\s+/).length <= 25, out);
+  assert.ok(!/(?:\s|^)(?:de|que|qu|le|la|les|un|une|et|à|il|parce)$/.test(out), out);
 });
-
-test('benign:structure — single line starting with a dash', () => {
-  const v = checkMessage('- non mais franchement', ctx());
-  assert.equal(v.ok, true);
+test('length: answer channel caps at 12 words / 60 chars', () => {
+  const out = ok('franchement je dirais les lasagnes de ma grand-mère avec beaucoup de fromage et une salade verte à côté', { channel: 'answer' });
+  assert.ok(out.split(/\s+/).length <= 12 && out.length <= 60, out);
 });
-
-test('benign:structure — list-like pattern mid-sentence', () => {
-  const v = checkMessage("j'ai mis 1. point à luc sur mon bloc", ctx());
-  assert.equal(v.ok, true);
+test('length: per-AI maxWords habit applies', () => {
+  const out = withStyle('je sais pas trop moi mais lucas il a un comportement bizarre depuis le début de la partie', { maxWords: 10 });
+  assert.ok(out.split(/\s+/).length <= 10, out);
 });
+test('length: 25-word human line with commas but no capital/period is not "polished"', () =>
+  assert.equal(
+    ok('moi je pense que c’est julien, il a répondu super vite, et sa phrase était trop parfaite pour un humain qui tape'),
+    'moi je pense que c’est julien, il a répondu super vite, et sa phrase était trop parfaite pour un humain qui tape'
+  ));
 
-// --- json_leak ---
-
-test('reject:json_leak — delayMs object', () => {
-  const v = checkMessage('{"delayMs": 300, "text": "coucou"}', ctx());
-  assert.equal(v.ok, false);
-  if (!v.ok) assert.equal(v.reason, 'json_leak');
-});
-
-test('reject:json_leak — shouldRespond field', () => {
-  const v = checkMessage('{"shouldRespond": false}', ctx());
-  assert.equal(v.ok, false);
-  if (!v.ok) assert.equal(v.reason, 'json_leak');
-});
-
-test('benign:json_leak — braces and quotes without a JSON object', () => {
-  const v = checkMessage('il a dit "coucou" puis il est parti {du coup}', ctx());
-  assert.equal(v.ok, true);
-});
-
-test('benign:json_leak — quoted word not after a brace', () => {
-  const v = checkMessage('son "plan" c\'est de voter luc', ctx());
-  assert.equal(v.ok, true);
-});
-
-// --- ai_admission ---
-
-test('reject:ai_admission — English "as an ai"', () => {
-  const v = checkMessage('honnêtement as an ai je ne peux pas défendre luc', ctx());
-  assert.equal(v.ok, false);
-  if (!v.ok) assert.equal(v.reason, 'ai_admission');
-});
-
-test('reject:ai_admission — French with typographic apostrophe', () => {
-  const v = checkMessage('je suis désolé mais en tant qu’ia je dois rester neutre', ctx());
-  assert.equal(v.ok, false);
-  if (!v.ok) assert.equal(v.reason, 'ai_admission');
-});
-
-test('reject:ai_admission — "modèle de langage" accented and capitalized', () => {
-  const v = checkMessage('franchement tu es un Modèle de langage déguisé', ctx());
-  assert.equal(v.ok, false);
-  if (!v.ok) assert.equal(v.reason, 'ai_admission');
-});
-
-test('accent: unaccented "modele de langage" does not trigger ai_admission', () => {
-  const v = checkMessage('son modele de langage est trop propre pour un humain', ctx());
-  assert.equal(v.ok, true);
-});
-
-test('accent: plural "modèles de langages" blocked by word boundary', () => {
-  const v = checkMessage("il collectionne les modèles de langages pour s'entraîner", ctx());
-  assert.equal(v.ok, true);
-});
-
-test('benign:ai_admission — talks about AI without admitting being one', () => {
-  const v = checkMessage('luc se comporte comme une ia je trouve, il répond trop vite', ctx());
-  assert.equal(v.ok, true);
-});
-
-// --- assistant_formula ---
-
-test('reject:assistant_formula — "great question"', () => {
-  const v = checkMessage("great question ! je pense que c'est marion", ctx());
-  assert.equal(v.ok, false);
-  if (!v.ok) assert.equal(v.reason, 'assistant_formula');
-});
-
-test('reject:assistant_formula — "n’hésitez pas" typographic apostrophe', () => {
-  const v = checkMessage('n’hésitez pas à voter luc si vous doutez', ctx());
-  assert.equal(v.ok, false);
-  if (!v.ok) assert.equal(v.reason, 'assistant_formula');
-});
-
-test('benign:assistant_formula — "n’hésitez surtout pas" breaks the phrase', () => {
-  const v = checkMessage('n’hésitez surtout pas à voter luc', ctx());
-  assert.equal(v.ok, true);
-});
-
-test('benign:assistant_formula — near-miss wording', () => {
-  const v = checkMessage('belle question mais je pense plutôt à marion', ctx());
-  assert.equal(v.ok, true);
-});
-
-// --- empty ---
-
-test('reject:empty — emoji only', () => {
-  const v = checkMessage('🔥👍', ctx());
-  assert.equal(v.ok, false);
-  if (!v.ok) assert.equal(v.reason, 'empty');
-});
-
-test('reject:empty — whitespace only', () => {
-  const v = checkMessage('   \n  ', ctx());
-  assert.equal(v.ok, false);
-  if (!v.ok) assert.equal(v.reason, 'empty');
-});
-
-test('benign:empty — emoji plus words', () => {
-  const v = checkMessage('coucou 🔥', ctx());
-  assert.equal(v.ok, true);
-  if (v.ok) assert.equal(v.text, 'coucou');
-});
-
-// --- duplicate_own ---
-
-test('reject:duplicate_own — exact match after normalization', () => {
-  const v = checkMessage('carrément oui', ctx({ ownRecent: ['Carrément, oui !'] }));
-  assert.equal(v.ok, false);
-  if (!v.ok) assert.equal(v.reason, 'duplicate_own');
-});
-
-test('reject:duplicate_own — near-duplicate with reordered words', () => {
-  const v = checkMessage(
-    'ouais elle est carrément bizarre sa réponse',
-    ctx({ ownRecent: ['ouais carrément elle est bizarre sa réponse'] }),
-  );
-  assert.equal(v.ok, false);
-  if (!v.ok) assert.equal(v.reason, 'duplicate_own');
-});
-
-test('reject:duplicate_own — check runs after sanitizing', () => {
-  const v = checkMessage(
-    'franchement luc — impressionne 👍',
-    ctx({ ownRecent: ['franchement luc impressionne'] }),
-  );
-  assert.equal(v.ok, false);
-  if (!v.ok) assert.equal(v.reason, 'duplicate_own');
-});
-
-test('benign:duplicate_own — shared words under the similarity threshold', () => {
-  const v = checkMessage(
-    'ouais carrément je la trouve louche aussi',
-    ctx({ ownRecent: ['ouais carrément elle est bizarre sa réponse'] }),
-  );
-  assert.equal(v.ok, true);
-});
-
-// --- duplicate_other ---
-
-test('reject:duplicate_other — echo of another AI', () => {
-  const v = checkMessage(
-    "franchement luc il m'impressionne vraiment",
-    ctx({ otherAIRecent: ["franchement luc il m'impressionne"] }),
-  );
-  assert.equal(v.ok, false);
-  if (!v.ok) assert.equal(v.reason, 'duplicate_other');
-});
-
-test('benign:duplicate_other — same topic, different words', () => {
-  const v = checkMessage(
-    'luc joue trop bien pour un humain normal',
-    ctx({ otherAIRecent: ["franchement luc il m'impressionne"] }),
-  );
-  assert.equal(v.ok, true);
-});
-
-// --- same_opening ---
-
-test('reject:same_opening — identical first two content words', () => {
-  const v = checkMessage(
-    "je pense que c'est marion ou thomas",
-    ctx({ otherAIRecent: ['je pense que marion cache quelque chose'] }),
-  );
-  assert.equal(v.ok, false);
-  if (!v.ok) assert.equal(v.reason, 'same_opening');
-});
-
-test('benign:same_opening — different opening', () => {
-  const v = checkMessage(
-    'je penche pour marion moi franchement',
-    ctx({ otherAIRecent: ['je pense que marion cache quelque chose'] }),
-  );
-  assert.equal(v.ok, true);
-});
-
-test('benign:same_opening — skipped under 4 words', () => {
-  const v = checkMessage(
-    'je pense marion',
-    ctx({ otherAIRecent: ['je pense que marion cache quelque chose'] }),
-  );
-  assert.equal(v.ok, true);
-});
-
-// --- sanitize: punctuation and symbols ---
-
-test('em dash replaced by comma', () => {
-  const r = sanitizeMessage('franchement oui — mais bon là', ctx());
-  assert.equal(r.text, 'franchement oui, mais bon là');
-  assert.ok(r.notes.includes('dash'));
-});
-
-test('en dash replaced by comma', () => {
-  const r = sanitizeMessage('non – attends', ctx());
-  assert.equal(r.text, 'non, attends');
-  assert.ok(r.notes.includes('dash'));
-});
-
-test('emoji removed and spaces collapsed', () => {
-  const r = sanitizeMessage('ok 👍🔥 je suis partant', ctx());
-  assert.equal(r.text, 'ok je suis partant');
-  assert.ok(r.notes.includes('emoji'));
-});
-
-test('semicolon turned into comma', () => {
-  const r = sanitizeMessage('oui; enfin je crois', ctx());
-  assert.equal(r.text, 'oui, enfin je crois');
-  assert.ok(r.notes.includes('semicolon'));
-});
-
-test('surrounding guillemets stripped', () => {
-  const r = sanitizeMessage('« carrément »', ctx());
-  assert.equal(r.text, 'carrément');
-  assert.ok(r.notes.includes('quotes'));
-});
-
-test('markdown markers removed', () => {
-  const r = sanitizeMessage('**franchement** __non__ `peut-être`', ctx());
-  assert.equal(r.text, 'franchement non peut-être');
-  assert.ok(r.notes.includes('markdown'));
-});
-
-test('multi-line non-list text joined', () => {
-  const v = checkMessage('franchement\nlà je dis bravo\nà luc', ctx());
-  assert.equal(v.ok, true);
-  if (v.ok) {
-    assert.equal(v.text, 'franchement là je dis bravo à luc');
-    assert.ok(v.notes.includes('multiline'));
-  }
-});
-
-test('leading heading removed on multi-line message', () => {
-  const r = sanitizeMessage('# Mon avis\nluc est louche', ctx());
-  assert.equal(r.text, 'Mon avis luc est louche');
-  assert.ok(r.notes.includes('markdown'));
-  assert.ok(r.notes.includes('multiline'));
-});
-
-// --- sanitize: case profile ---
-
-test("profile 'sentence' lowercases then capitalizes", () => {
-  const r = sanitizeMessage('OUAIS CARRéMENT ELLE EST BIZARRE', ctx({ caseProfile: 'sentence' }));
-  assert.equal(r.text, 'Ouais carrément elle est bizarre');
-  assert.ok(r.notes.includes('case'));
-});
-
-test("profile 'lower' lowercases everything", () => {
-  const r = sanitizeMessage('OUAIS CARRéMENT', ctx({ caseProfile: 'lower' }));
-  assert.equal(r.text, 'ouais carrément');
-  assert.ok(r.notes.includes('case'));
-});
-
-test("profile 'raw' leaves casing untouched", () => {
-  const r = sanitizeMessage('OUAIS', ctx({ caseProfile: 'raw' }));
-  assert.equal(r.text, 'OUAIS');
-  assert.ok(!r.notes.includes('case'));
-});
-
-// --- sanitize: final period ---
-
-test('final period dropped when rng returns 0', () => {
-  const r = sanitizeMessage('je sais pas.', ctx({ dropFinalPeriodProb: 0.5, rng: () => 0 }));
-  assert.equal(r.text, 'je sais pas');
-  assert.ok(r.notes.includes('final_period'));
-});
-
-test('final period kept when rng returns 0.99', () => {
-  const r = sanitizeMessage('je sais pas.', ctx({ dropFinalPeriodProb: 0.5, rng: () => 0.99 }));
-  assert.equal(r.text, 'je sais pas.');
-  assert.ok(!r.notes.includes('final_period'));
-});
-
-test("'...' is never dropped", () => {
-  const r = sanitizeMessage('attends...', ctx({ dropFinalPeriodProb: 1, rng: () => 0 }));
-  assert.equal(r.text, 'attends...');
-  assert.ok(!r.notes.includes('final_period'));
-});
-
-// --- sanitize: truncation ---
-
-test('truncation: 40-word discussion message fits both caps', () => {
-  const raw = Array.from({ length: 40 }, (_, i) => `motnumero${i + 1}trestreslong`).join(' ');
-  const r = sanitizeMessage(raw, ctx({ channel: 'discussion' }));
-  const words = r.text.split(' ');
-  assert.ok(r.notes.includes('truncated'));
-  assert.ok(words.length <= 25, `expected <= 25 words, got ${words.length}`);
-  assert.ok(r.text.length <= 140, `expected <= 140 chars, got ${r.text.length}`);
-  assert.ok(words.length < 40);
-});
-
-test('truncation: answer channel caps at 14 words and 80 chars', () => {
-  const raw = Array.from({ length: 30 }, (_, i) => `louche${i + 1}`).join(' ');
-  const r = sanitizeMessage(raw, ctx({ channel: 'answer' }));
-  const words = r.text.split(' ');
-  assert.ok(r.notes.includes('truncated'));
-  assert.ok(words.length <= 14, `expected <= 14 words, got ${words.length}`);
-  assert.ok(r.text.length <= 80, `expected <= 80 chars, got ${r.text.length}`);
-});
-
-// --- medium-severity AI words ---
-
-test("ai_word:moreover noted without rejection", () => {
-  const v = checkMessage('moreover luc plays too well', ctx());
-  assert.equal(v.ok, true);
-  if (v.ok) assert.ok(v.notes.includes('ai_word:moreover'));
-});
-
-test("ai_word:par ailleurs noted without rejection", () => {
-  const v = checkMessage("par ailleurs marion m'étonne", ctx());
-  assert.equal(v.ok, true);
-  if (v.ok) assert.ok(v.notes.includes('ai_word:par ailleurs'));
-});
-
-// --- direct unit checks ---
-
-test('similarity: identical, disjoint, and empty sets', () => {
-  assert.equal(similarity('cette reponse est bizarre', 'cette reponse est bizarre'), 1);
-  assert.equal(similarity('je vote luc', 'marion chante faux'), 0);
+// --- R5/R6 similarity ---
+test('similarity: identical 1, unrelated low, empty 0', () => {
+  assert.equal(similarity('cette reponse est bizarre', 'Cette réponse est bizarre !'), 1);
+  assert.ok(similarity('je vote luc', 'marion chante faux') < 0.2);
   assert.equal(similarity('', 'coucou'), 0);
 });
-
-test('contentWords: accents folded, stopwords and short tokens dropped', () => {
-  assert.deepEqual(contentWords('Très louche ça, les IA !'), ['louche']);
+test('contentWords: accents folded, stopwords and short tokens dropped', () => assert.deepEqual(contentWords('Très louche ça, les IA !'), ['louche']));
+const NOT_DUPLICATES: Array<[string, string]> = [
+  ["c'est pas moi", "c'est pas lui"],
+  ['je vote lucas', 'je vote marie'],
+  ['ouais carrément', 'ouais grave'],
+  ["je pense que c'est lucas", "je pense que c'est marie"],
+  ['je suis pas un bot', 'je suis pas une ia'],
+  ['mdr', 'mdrr t nul'],
+  ['lucas il a rien dit', 'marie elle parle trop'],
+  ['who voted for jake', 'who voted for emma'],
+  ['i think its mike', 'i think its sam'],
+  ['qui a voté marie ?', 'qui a voté julien ?'],
+];
+test('similarity: different meanings with the same template are not duplicates', () => {
+  for (const [a, b] of NOT_DUPLICATES) ok(a, { ownRecent: [b] });
 });
 
-// --- runner ---
+// --- R12 habits ---
+test('habit drop_ne', () => {
+  assert.equal(withStyle('je ne sais pas', { dropNe: true }), 'je sais pas');
+  assert.equal(withStyle("je n'ai pas vu", { dropNe: true }), "j'ai pas vu");
+  assert.equal(withStyle("ce n'est pas n'importe qui", { dropNe: true }), "c'est pas n'importe qui");
+  assert.equal(withStyle('personne ne sait', { dropNe: true }), 'personne ne sait');
+});
+test('habit contractions', () => {
+  assert.equal(withStyle('Tu es sûr ?', { contractions: true }), "T'es sûr ?");
+  assert.equal(withStyle('il y a un truc', { contractions: true }), "y'a un truc");
+  assert.equal(withStyle("I'm going to vote jake", { contractions: true }), "I'm gonna vote jake");
+  assert.equal(withStyle("I'm going to the store", { contractions: true }), "I'm going to the store");
+});
+test('habit rewrites keep the initial capital and skip contractions', () => {
+  assert.equal(withStyle('Je sais pas trop', { rewrites: [['je sais pas', 'jsp']] }), 'Jsp trop');
+  assert.equal(withStyle('are you sure', { rewrites: [['you', 'u']] }), 'are u sure');
+  assert.equal(withStyle("you're sure", { rewrites: [['you', 'u']] }), "you're sure");
+});
+test('habit accents and question marks', () => {
+  assert.equal(withStyle("t'es sérieux ?", { dropAccents: true }), "t'es serieux ?");
+  assert.equal(withStyle("t'es sérieux ?", { questionMarks: 'double' }), "t'es sérieux ??");
+  assert.equal(withStyle("t'es sérieux ?", { questionMarks: 'drop' }), "t'es sérieux");
+  assert.equal(withStyle("t'es sérieux ??", { questionMarks: 'drop' }), "t'es sérieux ??");
+});
+test('drawStyleHabits: deterministic and well-formed', () => {
+  assert.deepEqual(drawStyleHabits(seeded(3)), drawStyleHabits(seeded(3)));
+  for (let s = 0; s < 50; s++) {
+    const h = drawStyleHabits(seeded(s));
+    assert.ok(h.rewrites.length >= 4 && [10, 16, 25].includes(h.maxWords) && ['keep', 'double', 'drop'].includes(h.questionMarks));
+  }
+});
+test('drawStyleProfile: the first three draws keep their v0 meaning', () => {
+  const seq = [0.6, 0.0, 1.0];
+  let i = 0;
+  const p = drawStyleProfile(() => (i < seq.length ? seq[i++] : 0.5));
+  assert.equal(p.caseProfile, 'sentence');
+  assert.equal(p.dropFinalPeriodProb, 0.5);
+  assert.equal(p.temperatureOffset, 0.15);
+  assert.ok(Array.isArray(p.rewrites));
+});
+test('sanitizeMessage: repairs without rejecting', () => {
+  const s = sanitizeMessage('Lucas — franchement', ctx());
+  assert.equal(s.text, 'Lucas, franchement');
+  assert.ok(s.notes.includes('dash'));
+});
 
+// --- runner: unit cases ---
 let failures = 0;
 for (const c of cases) {
   try {
     c.run();
-    console.log(`✅ ${c.name}`);
   } catch (err) {
     failures += 1;
     const msg = err instanceof Error ? err.message : String(err);
-    console.log(`❌ ${c.name}`);
-    console.log(`   ${msg.split('\n').join('\n   ')}`);
+    console.log(`❌ ${c.name}\n   ${msg.split('\n').slice(0, 4).join('\n   ')}`);
+  }
+}
+console.log(`unit: ${cases.length - failures}/${cases.length} passed`);
+
+// --- corpus run ---
+type HumanLine = { id: string; text: string };
+type BotLine = { id: string; text: string; ctx?: Partial<GateContext>; expect: { reason?: GateReason; text?: string } };
+const load = <T>(name: string): T => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8')) as T;
+const human = load<HumanLine[]>('form-gate-human.json');
+const bot = load<BotLine[]>('form-gate-bot.json');
+
+const humanRejected: string[] = [];
+const humanModified: string[] = [];
+const notIdempotent: string[] = [];
+for (const h of human) {
+  const v = checkMessage(h.text, ctx());
+  if (!v.ok) {
+    humanRejected.push(`${h.id} [${v.reason}] ${v.detail}`);
+    continue;
+  }
+  if (v.text !== h.text.trim()) humanModified.push(`${h.id}: ${JSON.stringify(h.text)} → ${JSON.stringify(v.text)}`);
+}
+// Case profiles and drawn habits must never turn a human line into a rejection.
+const profileRejected: string[] = [];
+for (let s = 0; s < 12; s++) {
+  const p = drawStyleProfile(seeded(100 + s));
+  for (const h of human) {
+    const v = checkMessage(h.text, ctx({ caseProfile: p.caseProfile, dropFinalPeriodProb: p.dropFinalPeriodProb, style: p, rng: seeded(s) }));
+    if (!v.ok) profileRejected.push(`${h.id} (profile seed ${100 + s}) [${v.reason}] ${v.detail} → ${JSON.stringify(v.text)}`);
   }
 }
 
-if (failures > 0) {
-  console.log(`\n${failures}/${cases.length} case(s) failed`);
+const botMissed: string[] = [];
+for (const b of bot) {
+  const v = checkMessage(b.text, ctx(b.ctx));
+  const got = v.ok ? `ok ${JSON.stringify(v.text)}` : `${v.reason} (${v.detail})`;
+  const hit = b.expect.reason ? !v.ok && v.reason === b.expect.reason : v.ok && v.text === b.expect.text;
+  if (!hit) botMissed.push(`${b.id}: expected ${b.expect.reason ?? JSON.stringify(b.expect.text)}, got ${got}`);
+}
+
+// The last net in GameRoom.addMessage re-checks the gated text: it must not drop or change it.
+for (const t of [...human.map((h) => h.text), ...bot.map((b) => b.text)]) {
+  const first = checkMessage(t, ctx());
+  if (!first.ok) continue;
+  const second = checkMessage(first.text, NET_CTX);
+  if ((!second.ok && NET_DROPS.includes(second.reason)) || (second.ok && second.text !== first.text)) {
+    notIdempotent.push(`${JSON.stringify(first.text)} → ${second.ok ? JSON.stringify(second.text) : second.reason}`);
+  }
+}
+
+const modifiedRatio = humanModified.length / human.length;
+const caughtRatio = (bot.length - botMissed.length) / bot.length;
+const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
+console.log(`human corpus: ${human.length} lines, rejected ${humanRejected.length} (max ${HUMAN_MAX_REJECTED}), modified ${humanModified.length} = ${pct(modifiedRatio)} (max ${pct(HUMAN_MAX_MODIFIED_RATIO)}, raw case)`);
+console.log(`human corpus under 12 drawn profiles (case + habits): rejected ${profileRejected.length}`);
+console.log(`bot corpus: ${bot.length} lines, caught ${bot.length - botMissed.length} = ${pct(caughtRatio)} (min ${pct(BOT_MIN_CAUGHT_RATIO)})`);
+console.log(`idempotence under the GameRoom last net: ${notIdempotent.length} violation(s)`);
+const show = (title: string, items: string[]) => {
+  if (items.length) console.log(`${title}:\n  ${items.slice(0, 30).join('\n  ')}`);
+};
+show('human rejected', humanRejected);
+show('human modified', humanModified);
+show('human rejected under a profile', profileRejected);
+show('bot missed', botMissed);
+show('not idempotent', notIdempotent);
+
+const corpusFail =
+  humanRejected.length > HUMAN_MAX_REJECTED ||
+  profileRejected.length > 0 ||
+  modifiedRatio > HUMAN_MAX_MODIFIED_RATIO ||
+  caughtRatio < BOT_MIN_CAUGHT_RATIO ||
+  notIdempotent.length > 0;
+if (failures > 0 || corpusFail) {
+  console.log('form gate: FAIL');
   process.exit(1);
 }
-console.log(`\nAll ${cases.length} cases passed`);
+console.log('form gate: all checks passed');
 process.exit(0);

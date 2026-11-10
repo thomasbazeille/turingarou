@@ -1,11 +1,11 @@
 import { ChatProvider } from '../llm/chatClient.js';
 import { callLLM, CallRole, LLMEventSink } from '../llm/llmCall.js';
 import { parseDecision, cleanPlain } from '../llm/parse.js';
-import { checkMessage, CaseProfile, GateReason } from './formGate.js';
+import { checkMessage, drawStyleHabits, CaseProfile, GateReason, StyleHabits } from './formGate.js';
 import { LLMMessage } from '../types/game.types.js';
 
 /** Writing habits drawn once per AI and kept for the whole game (a real player's style does not change per message). */
-export interface AIStyleProfile {
+export interface AIStyleProfile extends StyleHabits {
   caseProfile: CaseProfile;
   dropFinalPeriodProb: number;
   temperatureOffset: number;
@@ -13,11 +13,10 @@ export interface AIStyleProfile {
 
 export function drawStyleProfile(rng: () => number = Math.random): AIStyleProfile {
   const r = rng();
-  return {
-    caseProfile: r < 0.55 ? 'lower' : r < 0.85 ? 'sentence' : 'raw',
-    dropFinalPeriodProb: 0.5 + rng() * 0.45,
-    temperatureOffset: Math.round((rng() * 0.3 - 0.15) * 100) / 100,
-  };
+  const caseProfile: CaseProfile = r < 0.55 ? 'lower' : r < 0.85 ? 'sentence' : 'raw';
+  const dropFinalPeriodProb = 0.5 + rng() * 0.45;
+  const temperatureOffset = Math.round((rng() * 0.3 - 0.15) * 100) / 100;
+  return { caseProfile, dropFinalPeriodProb, temperatureOffset, ...drawStyleHabits(rng) };
 }
 
 export interface SpeechContext {
@@ -41,14 +40,16 @@ export type DecisionOutcome =
   | { kind: 'dropped'; reason: GateReason; detail: string };
 
 const REJECT_HINT: Record<GateReason, string> = {
-  empty: 'it was empty',
+  empty: 'it had no actual chat text (empty, emoji only, or only a stage direction like *laughs*)',
   structure: 'no lists and no line breaks, one single chat line',
   json_leak: 'the message field must contain only what you type in the chat',
   ai_admission: 'never talk about being an AI or a model',
-  assistant_formula: 'it sounds like a chatbot assistant, not a player',
+  assistant_formula: 'it sounds like a chatbot assistant or polished prose, not a player typing on a phone',
   duplicate_own: 'you already said almost exactly that',
   duplicate_other: 'another player already said almost exactly that',
   same_opening: 'it starts exactly like another player\'s message',
+  too_long: 'way too long for a chat line, one short sentence at most',
+  tic_overuse: 'you keep using the same filler or opening word, vary it',
 };
 
 interface SpeakParams {
