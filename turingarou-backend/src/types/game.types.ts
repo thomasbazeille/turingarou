@@ -19,7 +19,6 @@ export interface HumanPlayer extends PlayerBase {
 export interface AIPlayerData extends PlayerBase {
   type: 'ai';
   personality: AIPersonality;
-  messageHistory: GameMessage[];
 }
 
 export type Player = HumanPlayer | AIPlayerData;

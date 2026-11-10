@@ -91,7 +91,7 @@ function getOrCreateRoom(roomId: string): GameRoom {
     const lobbyAiCount = parseInt(process.env.AI_COUNT || '3');
     const humanSlots = 8 - lobbyAiCount; // maxPlayers - aiCount
     for (const [id, room] of gameRooms) {
-      if (id.startsWith('public-') && room.getState().phase === 'waiting') {
+      if (id.startsWith('public-') && room.isJoinable()) {
         const humanCount = room.getState().players.filter(p => p.type === 'human').length;
         if (humanCount < humanSlots) {
           console.log(`Joining existing public room: ${id} (${humanCount}/${humanSlots} players)`);

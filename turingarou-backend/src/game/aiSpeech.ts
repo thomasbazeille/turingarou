@@ -59,6 +59,9 @@ interface SpeakParams {
   profile: AIStyleProfile;
   llmSink?: LLMEventSink;
   eventSink?: AISpeechSink;
+  /** Rechecked after every LLM call: once false (phase changed, job superseded), no further call is made. */
+  alive?: () => boolean;
+  rng?: () => number;
 }
 
 /** A discussion decision: strict JSON, form gate on the message, one regeneration, never posts raw model output. */
@@ -66,6 +69,7 @@ export async function decideWithGate(
   p: SpeakParams & { messages: LLMMessage[]; speech: SpeechContext; temperatureScale: number }
 ): Promise<DecisionOutcome> {
   const emit = (e: Omit<AISpeechEvent, 'player' | 'at'>) => p.eventSink?.({ player: p.player, at: Date.now(), ...e });
+  const stale = () => p.alive !== undefined && !p.alive();
   const ask = (messages: LLMMessage[]) =>
     callLLM(
       p.provider,
@@ -75,25 +79,28 @@ export async function decideWithGate(
 
   const readDecision = async (messages: LLMMessage[]) => {
     const r = await ask(messages);
+    if (stale()) return { failed: 'stale' as const };
     if (!r) return { failed: 'llm' as const };
     let d = parseDecision(r.text, r.finishReason);
     if (!d.ok) {
       const retry = await ask([...messages, { role: 'user', content: 'Reply with the JSON object only, nothing else.' }]);
+      if (stale()) return { failed: 'stale' as const };
       if (!retry) return { failed: 'llm' as const };
       d = parseDecision(retry.text, retry.finishReason);
       if (!d.ok) return { failed: `parse:${d.error}` as const };
     }
     return { decision: d };
   };
+  const failure = (failed: string): DecisionOutcome => {
+    if (failed !== 'stale') emit({ kind: failed === 'llm' ? 'llm_fail' : 'parse_fail', reason: failed });
+    return { kind: 'failed', reason: failed };
+  };
 
   const first = await readDecision(p.messages);
-  if ('failed' in first) {
-    emit({ kind: first.failed === 'llm' ? 'llm_fail' : 'parse_fail', reason: first.failed });
-    return { kind: 'failed', reason: first.failed! };
-  }
+  if ('failed' in first) return failure(first.failed ?? 'llm');
   if (!first.decision.shouldRespond) return { kind: 'silent' };
 
-  const gateCtx = { channel: 'discussion' as const, caseProfile: p.profile.caseProfile, dropFinalPeriodProb: p.profile.dropFinalPeriodProb, ...p.speech };
+  const gateCtx = { channel: 'discussion' as const, caseProfile: p.profile.caseProfile, dropFinalPeriodProb: p.profile.dropFinalPeriodProb, rng: p.rng, ...p.speech };
   const v1 = checkMessage(first.decision.message, gateCtx);
   if (v1.ok) return { kind: 'message', message: v1.text, regenerated: false, notes: v1.notes };
 
@@ -102,10 +109,7 @@ export async function decideWithGate(
     ...p.messages,
     { role: 'user', content: `Your message "${first.decision.message.slice(0, 200)}" cannot be posted: ${REJECT_HINT[v1.reason]}. Write something different, one short casual line, same JSON format.` },
   ]);
-  if ('failed' in second) {
-    emit({ kind: second.failed === 'llm' ? 'llm_fail' : 'parse_fail', reason: second.failed });
-    return { kind: 'failed', reason: second.failed! };
-  }
+  if ('failed' in second) return failure(second.failed ?? 'llm');
   if (!second.decision.shouldRespond) return { kind: 'silent' };
   const v2 = checkMessage(second.decision.message, gateCtx);
   if (v2.ok) return { kind: 'message', message: v2.text, regenerated: true, notes: v2.notes };
@@ -115,19 +119,20 @@ export async function decideWithGate(
 
 /** A question-phase answer: plain text, SKIP allowed, form gate, one regeneration. Returns null to skip. */
 export async function answerWithGate(
-  p: SpeakParams & { messages: LLMMessage[]; ownPreviousAnswers: string[] }
+  p: SpeakParams & { messages: LLMMessage[]; ownPreviousAnswers: string[]; temperatureScale?: number }
 ): Promise<string | null> {
   const ask = (messages: LLMMessage[]) =>
     callLLM(
       p.provider,
-      { messages, maxTokens: 80, timeoutMs: 10000, temperatureOffset: p.profile.temperatureOffset },
+      { messages, maxTokens: 80, timeoutMs: 10000, temperatureScale: p.temperatureScale, temperatureOffset: p.profile.temperatureOffset },
       { role: p.role, player: p.player, pool: p.pool, sink: p.llmSink }
     );
-  const gateCtx = { channel: 'answer' as const, caseProfile: p.profile.caseProfile, dropFinalPeriodProb: p.profile.dropFinalPeriodProb, ownRecent: p.ownPreviousAnswers, otherAIRecent: [] };
+  const gateCtx = { channel: 'answer' as const, caseProfile: p.profile.caseProfile, dropFinalPeriodProb: p.profile.dropFinalPeriodProb, rng: p.rng, ownRecent: p.ownPreviousAnswers, otherAIRecent: [] };
 
   let messages = p.messages;
   for (let attempt = 0; attempt < 2; attempt++) {
     const r = await ask(messages);
+    if (p.alive !== undefined && !p.alive()) return null;
     if (!r) {
       p.eventSink?.({ player: p.player, kind: 'llm_fail', reason: 'answer', at: Date.now() });
       return null;

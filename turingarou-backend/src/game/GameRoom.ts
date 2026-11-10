@@ -1,54 +1,64 @@
-import { Server as SocketServer } from 'socket.io';
-import { AIPlayer } from './AIPlayer.js';
-import { InspectorController } from './InspectorController.js';
-import { getRandomAIPlayerStrategy, getInspectorPromptContent } from './StrategyLoader.js';
+import { getRandomAIPlayerStrategy, getInspectorPromptContent, StrategyEntry } from './StrategyLoader.js';
 import { addPlayerName, pickAIName } from './PlayerNamesStore.js';
 import {
   GameRoomState,
-  Player,
   HumanPlayer,
   AIPlayerData,
   GameMessage,
   QuestionAnswer,
-  Vote,
   AIPersonality,
   GameFormat,
 } from '../types/game.types.js';
 import { ChatProvider } from '../llm/chatClient.js';
-import { LLMCallEvent } from '../llm/llmCall.js';
 import { getQuestionsForLanguage } from './QuestionBank.js';
-import { saveGameLog, updateHumanProfiles, getRandomHumanProfile, saveMessageFlag, RoundLog, MessageLog, PlayerLog } from './GameLogger.js';
-import { AISpeechEvent, drawStyleProfile } from './aiSpeech.js';
-import { addressedTo } from './directAddress.js';
-import { checkMessage } from './formGate.js';
 import {
-  ResponseStyle,
-  answerTarget,
-  cooldownMs,
-  discussionDelay,
-  firstMessageDelay,
-  globalGapMs,
-  skipProbability,
-  voteDelay,
-} from './humanTiming.js';
+  saveGameLog,
+  updateHumanProfiles,
+  getRandomHumanProfile,
+  saveMessageFlag,
+  GameLogData,
+  HumanPersona,
+  RoundLog,
+  MessageLog,
+  PlayerLog,
+} from './GameLogger.js';
+import { drawStyleProfile } from './aiSpeech.js';
+import { checkMessage } from './formGate.js';
+import { Bot } from './Bot.js';
+import { BotDirector, VOTE_DEADLINE_MS } from './BotDirector.js';
+import { RoundRecord } from './botContext.js';
+import { Clock, systemClock, TimerHandle, Timers } from './clock.js';
 
-const DISCUSSION_LOCK_MS = 10000;
-const VOTE_DEADLINE_MS = 25000;
-/** Share of direct addresses / accusations an AI answers for sure; the rest goes through the normal flow (humans ignore some too). */
-const DIRECT_REPLY_PROB = 0.85;
-
-/** Bot-side event (gate, parse, fallback vote, direct reply, dropped post). Logged as JSON lines, no DB table. */
-interface AIEventLog {
-  round: number;
-  phase: string;
-  player: string;
-  kind: string;
-  reason: string | null;
-  detail: string | null;
-  ts: number;
+/** The part of Socket.io a room uses: broadcast to its own channel. */
+export interface RoomEmitter {
+  to(room: string): { emit(event: string, payload: unknown): unknown };
 }
 
-type Speaker = { kind: 'ai'; id: string; actor: AIPlayer } | { kind: 'inspector'; id: string; actor: InspectorController };
+/** Everything a room touches outside itself; defaults are the production ones, the simulation swaps them. */
+export interface GameRoomDeps {
+  clock: Clock;
+  rng: () => number;
+  names: { add(name: string): void; pick(exclude: string[]): string };
+  strategies: { aiPlayer(name: string): Promise<StrategyEntry>; inspector(): Promise<string> };
+  persistence: {
+    saveGameLog(data: GameLogData): Promise<void>;
+    updateHumanProfiles(data: GameLogData): Promise<void>;
+    saveMessageFlag(gameId: string, messageId: string, flaggedBy: string, round: number, reason?: string): Promise<void>;
+    getRandomHumanProfile(): Promise<HumanPersona | null>;
+  };
+  log: (line: string) => void;
+}
+
+const defaultDeps: GameRoomDeps = {
+  clock: systemClock,
+  rng: Math.random,
+  names: { add: addPlayerName, pick: pickAIName },
+  strategies: { aiPlayer: getRandomAIPlayerStrategy, inspector: getInspectorPromptContent },
+  persistence: { saveGameLog, updateHumanProfiles, saveMessageFlag, getRandomHumanProfile },
+  log: (line) => console.log(line),
+};
+
+type PlayerKind = 'human' | 'ai' | 'inspector';
 
 const COLORS = [
   { name: 'Red', hex: '#ef4444' },
@@ -61,56 +71,62 @@ const COLORS = [
   { name: 'Lime', hex: '#84cc16' },
 ];
 
-const QUESTION_PHASE_MS = 20000;
-const DISCUSSION_PHASE_MS = 100000; // 100 s de discussion par round (+ temps de vote après)
-const VOTE_PHASE_MS = 30000;
-const MAX_ROUNDS = 7;
+export const QUESTION_PHASE_MS = 20000;
+export const DISCUSSION_PHASE_MS = 100000;
+export const VOTE_PHASE_MS = 30000;
+export const ENDROUND_MS = 8000;
+export const MAX_ROUNDS = 7;
 
+if (VOTE_DEADLINE_MS >= VOTE_PHASE_MS) throw new Error('bot vote deadline must fall inside the vote phase');
+
+const PERSONALITY_TEMPLATES: Omit<AIPersonality, 'name'>[] = [
+  { traits: ['analytical', 'calm', 'logical'], systemPrompt: `You are {name}, a calm and analytical person. You tend to think before you speak and use logic. You're playing a social deduction game and must act like a human.`, responseStyle: 'thoughtful', suspicionLevel: 0.3 },
+  { traits: ['friendly', 'chatty', 'enthusiastic'], systemPrompt: `You are {name}, a friendly and enthusiastic person. You like to chat and engage with others. Sometimes you type quickly and make small typos. You're playing a social deduction game.`, responseStyle: 'quick', suspicionLevel: 0.5 },
+  { traits: ['quiet', 'observant', 'skeptical'], systemPrompt: `You are {name}, a quiet and observant person. You don't talk much but when you do, it's meaningful. You're naturally skeptical. You're playing a social deduction game.`, responseStyle: 'random', suspicionLevel: 0.7 },
+  { traits: ['humorous', 'casual', 'witty'], systemPrompt: `You are {name}, a witty and humorous person. You like to make jokes and keep things light. You're playing a social deduction game and must act like a human.`, responseStyle: 'quick', suspicionLevel: 0.4 },
+  { traits: ['strategic', 'thoughtful', 'careful'], systemPrompt: `You are {name}, a strategic and careful thinker. You analyze situations before acting. You're playing a social deduction game and must act like a human.`, responseStyle: 'thoughtful', suspicionLevel: 0.6 },
+  { traits: ['emotional', 'reactive', 'passionate'], systemPrompt: `You are {name}, an emotional and passionate person. You react quickly and speak from the heart. You're playing a social deduction game and must act like a human.`, responseStyle: 'quick', suspicionLevel: 0.5 },
+  { traits: ['neutral', 'balanced', 'diplomatic'], systemPrompt: `You are {name}, a balanced and diplomatic person. You try to see all sides and stay neutral. You're playing a social deduction game and must act like a human.`, responseStyle: 'random', suspicionLevel: 0.4 },
+];
+
+/**
+ * One game: phase state machine, socket emits, persistence. Every bot behaviour lives in BotDirector; the room
+ * only tells it when a phase starts and receives its posts, answers and votes through the same doors as humans.
+ */
 export class GameRoom {
   private state: GameRoomState;
-  private io: SocketServer;
-  private aiPlayers: Map<string, AIPlayer> = new Map();
+  private io: RoomEmitter;
   private llmProviders: ChatProvider[];
-  private discussionTimer: NodeJS.Timeout | null = null;
-  private aiThinkingInterval: NodeJS.Timeout | null = null;
-  private votePhaseTimeout: NodeJS.Timeout | null = null;
-  private questionPhaseTimeout: NodeJS.Timeout | null = null;
-  /** AIs and inspectors with a decision or a message in flight. */
-  private aiPendingMessage = new Set<string>();
-  private inspectors: Map<string, InspectorController> = new Map();
-  /** Strategy name picked for each AI player id */
-  private aiStrategyNames: Map<string, string> = new Map();
-  /** Votes archived per round (round → list of {voter, target}) */
-  private votesByRound: Map<number, { voter: string; target: string }[]> = new Map();
-  /** Eliminations archived per round */
-  private eliminationsByRound: Map<number, { name: string; isAI: boolean }> = new Map();
-  /** Question asked per round */
-  private questionsByRound: Map<number, string> = new Map();
-  /** True once all humans have left — blocks every further LLM call and timer */
-  private aborted = false;
-  /** Chronological list of eliminated player IDs (index 0 = round 1 elimination) */
+  private deps: GameRoomDeps;
+  private director: BotDirector;
+  private phaseTimers: Timers;
+  private phaseTimer: TimerHandle | null = null;
+  /** Kind of every player who ever joined, departed humans included (their messages stay in the log). */
+  private kinds = new Map<string, PlayerKind>();
+  private votesByRound = new Map<number, { voter: string; target: string }[]>();
+  private eliminationsByRound = new Map<number, { name: string; isAI: boolean }>();
+  private questionsByRound = new Map<number, string>();
   private eliminationOrder: string[] = [];
-  /** Last time each AI sent a discussion message (for rate limiting) */
-  private lastAIMessageTime: Map<string, number> = new Map();
-  /** Whether the last message sent by each AI was short (< 80 chars) */
-  private lastAIMessageShort: Map<string, boolean> = new Map();
-  /** Earliest time each AI/inspector may post again (cooldown drawn at post time from its response style). */
-  private nextAllowedAt: Map<string, number> = new Map();
-  /** Last time ANY AI or inspector posted: two bots never post one second apart. */
-  private lastAnyAIPostAt = 0;
-  private discussionStartedAt = 0;
-  private tickRunning = false;
-  private tickQueued = false;
-  /** Provider label per AI/inspector id, persisted with the game. */
-  private providerNames: Map<string, string> = new Map();
-  /** Every LLM call of the game (role, provider, latency, failures) — summarised in the game-end telemetry line. */
-  private llmEvents: (LLMCallEvent & { round: number; phase: string })[] = [];
-  /** Gate regenerations and drops, parse failures, fallback votes, direct replies — one JSON log line each. */
-  private aiEvents: AIEventLog[] = [];
+  /** True once all humans have left: blocks every further timer, bot call and join. */
+  private aborted = false;
+  /** Bots are being created for a full room: no further join. */
+  private starting = false;
 
-  constructor(roomId: string, io: SocketServer, llmProvider: ChatProvider | ChatProvider[], aiCount: number = 1) {
+  constructor(roomId: string, io: RoomEmitter, llmProvider: ChatProvider | ChatProvider[], aiCount: number = 1, deps: Partial<GameRoomDeps> = {}) {
     this.io = io;
     this.llmProviders = Array.isArray(llmProvider) ? llmProvider : [llmProvider];
+    this.deps = { ...defaultDeps, ...deps };
+    this.phaseTimers = new Timers(this.deps.clock);
+    this.director = new BotDirector(
+      {
+        state: () => this.state,
+        history: () => this.history(),
+        postMessage: (id, text) => this.addMessage(id, text),
+        submitAnswer: (id, text) => this.addAnswer(id, text),
+        castVote: (id, target) => this.addVote(id, target),
+      },
+      { clock: this.deps.clock, rng: this.deps.rng, log: this.deps.log }
+    );
 
     this.state = {
       roomId,
@@ -134,282 +150,241 @@ export class GameRoom {
     };
   }
 
-  /** Picks a random provider from the pool (uniform distribution). */
+  private now(): number {
+    return this.deps.clock.now();
+  }
+
+  private newId(prefix: string): string {
+    return `${prefix}-${this.now()}-${this.deps.rng()}`;
+  }
+
   private pickProvider(): ChatProvider {
-    return this.llmProviders[Math.floor(Math.random() * this.llmProviders.length)];
+    return this.llmProviders[Math.floor(this.deps.rng() * this.llmProviders.length)];
   }
 
-  private readonly llmSink = (e: LLMCallEvent): void => {
-    this.llmEvents.push({ ...e, round: this.state.currentRound, phase: this.state.phase });
-  };
-
-  private readonly speechSink = (e: AISpeechEvent): void => {
-    this.logAIEvent(e.player, e.kind, e.reason, e.detail);
-  };
-
-  private logAIEvent(player: string, kind: string, reason?: string, detail?: string): void {
-    const event: AIEventLog = { round: this.state.currentRound, phase: this.state.phase, player, kind, reason: reason ?? null, detail: detail ?? null, ts: Date.now() };
-    this.aiEvents.push(event);
-    console.log(`[ai-event] ${JSON.stringify({ room: this.state.roomId, ...event })}`);
-  }
-
-  private aiDeps(caseProfile?: 'lower') {
-    const profile = drawStyleProfile();
-    if (caseProfile) profile.caseProfile = caseProfile;
-    return { pool: this.llmProviders, profile, llmSink: this.llmSink, eventSink: this.speechSink };
+  private freeColor(): (typeof COLORS)[number] | undefined {
+    const used = this.state.players.map((p) => p.color);
+    return COLORS.find((c) => !used.includes(c.hex));
   }
 
   // ====== PLAYER MANAGEMENT ======
 
+  /** A public lobby may send new players here. */
+  isJoinable(): boolean {
+    return this.state.phase === 'waiting' && !this.aborted && !this.starting;
+  }
+
   async addHumanPlayer(socketId: string, username: string, language?: 'fr' | 'en'): Promise<boolean> {
-    if (this.state.players.length >= this.state.maxPlayers) {
-      return false;
-    }
-    if (language && !this.state.players.length) {
-      this.state.language = language;
-    }
-
-    const usedColors = this.state.players.map((p) => p.color);
-    const availableColor = COLORS.find((c) => !usedColors.includes(c.hex));
-
-    if (!availableColor) return false;
+    if (!this.isJoinable() || this.state.players.length >= this.state.maxPlayers) return false;
+    if (language && !this.state.players.length) this.state.language = language;
+    const color = this.freeColor();
+    if (!color) return false;
 
     const player: HumanPlayer = {
       type: 'human',
-      id: `player-${Date.now()}-${Math.random()}`,
+      id: this.newId('player'),
       socketId,
       username,
-      color: availableColor.hex,
-      colorName: availableColor.name,
+      color: color.hex,
+      colorName: color.name,
       isReady: true,
       isEliminated: false,
     };
-
     this.state.players.push(player);
-    addPlayerName(username);
+    this.kinds.set(player.id, 'human');
+    this.deps.names.add(username);
     this.emitState();
-
-    if (this.state.players.length === this.state.maxPlayers - this.state.aiCount) {
-      await this.addAIPlayers();
-      this.shufflePlayers();
-      this.startGame();
-    }
-
+    await this.startIfFull();
     return true;
   }
 
-  /** Add an AI Inspector to fill the last human slot (call when 2 humans waiting). */
+  /** Add an AI Inspector to fill the last human slot (4 humans waiting). */
   async addInspectorPlayer(): Promise<boolean> {
     const humanCount = this.state.players.filter((p) => p.type === 'human').length;
-    if (this.state.phase !== 'waiting' || humanCount !== 4 || this.state.players.length >= this.state.maxPlayers) {
-      return false;
-    }
-    const usedColors = this.state.players.map((p) => p.color);
-    const availableColor = COLORS.find((c) => !usedColors.includes(c.hex));
-    if (!availableColor) return false;
+    if (!this.isJoinable() || humanCount !== 4 || this.state.players.length >= this.state.maxPlayers) return false;
+    const color = this.freeColor();
+    if (!color) return false;
 
     const humanNames = this.state.players.filter((p) => p.type === 'human').map((p) => p.username);
-    const inspectorUsername = pickAIName(humanNames);
-
-    const inspectorId = `inspector-${Date.now()}-${Math.random()}`;
     const player: HumanPlayer = {
       type: 'human',
-      id: inspectorId,
+      id: this.newId('inspector'),
       socketId: '',
-      username: inspectorUsername,
-      color: availableColor.hex,
-      colorName: availableColor.name,
+      username: this.deps.names.pick(humanNames),
+      color: color.hex,
+      colorName: color.name,
       isReady: true,
       isEliminated: false,
     };
     this.state.players.push(player);
-    const inspectorPrompt = await getInspectorPromptContent();
-    const inspectorProvider = this.pickProvider();
-    const controller = new InspectorController(
-      inspectorId,
-      player.username,
-      inspectorPrompt,
-      inspectorProvider,
-      this.aiDeps('lower')
+    this.kinds.set(player.id, 'inspector');
+    const prompt = await this.deps.strategies.inspector();
+    const provider = this.pickProvider();
+    const profile = drawStyleProfile(this.deps.rng);
+    profile.caseProfile = 'lower';
+    this.director.addBot(
+      new Bot(
+        { id: player.id, name: player.username, role: 'inspector', provider, pool: this.llmProviders, profile, responseStyle: 'random', strategy: prompt },
+        { llm: this.director.llmSink, speech: this.director.speechSink, rng: this.deps.rng }
+      )
     );
-    this.providerNames.set(inspectorId, inspectorProvider.name);
-    console.log(`[GameRoom] Inspector ${player.username} uses provider: ${inspectorProvider.name}`);
-    controller.setGameFormat(this.getGameFormat());
-    this.inspectors.set(inspectorId, controller);
+    this.deps.log(`[GameRoom] Inspector ${player.username} uses provider: ${provider.name}`);
     this.emitState();
-    console.log(`[GameRoom] AI Inspector added to room ${this.state.roomId}`);
-
-    if (this.state.players.length === this.state.maxPlayers - this.state.aiCount) {
-      await this.addAIPlayers();
-      this.shufflePlayers();
-      this.startGame();
-    }
+    await this.startIfFull();
     return true;
+  }
+
+  private async startIfFull(): Promise<void> {
+    if (this.starting || this.state.players.length !== this.state.maxPlayers - this.state.aiCount) return;
+    this.starting = true;
+    await this.addAIPlayers();
+    if (this.aborted) return;
+    this.shufflePlayers();
+    this.startGame();
   }
 
   removePlayer(socketId: string): void {
-    this.state.players = this.state.players.filter(
-      (p) => p.type !== 'human' || p.socketId !== socketId
-    );
+    this.state.players = this.state.players.filter((p) => p.type !== 'human' || p.socketId !== socketId);
 
-    // Si la partie est en cours et qu'il ne reste plus aucun humain réel, abandonner
+    // A game where no real human is left (inspectors are bots) stops instead of burning model calls.
     const gameInProgress = !['waiting', 'gameover'].includes(this.state.phase);
-    const humanCount = this.state.players.filter(
-      (p) => p.type === 'human' && !p.isEliminated
-    ).length;
-
+    const humanCount = this.state.players.filter((p) => this.kinds.get(p.id) === 'human' && !p.isEliminated).length;
     if (gameInProgress && humanCount === 0) {
       this.abortGame();
-    } else {
-      this.emitState();
-      // If a player disconnects during voting, check if all remaining players have now voted
-      if (this.state.phase === 'voting') {
-        this.tryEndVotingEarly();
-      }
+      return;
     }
+    this.emitState();
+    if (this.state.phase === 'voting') this.tryEndVotingEarly();
   }
 
-  /** Arrête la partie proprement quand tous les humains ont quitté. */
   private abortGame(): void {
     if (this.aborted) return;
     this.aborted = true;
-
-    console.log(`[GameRoom ${this.state.roomId}] All humans disconnected — aborting game.`);
-
-    // Annuler tous les timers actifs
-    if (this.discussionTimer) { clearTimeout(this.discussionTimer); this.discussionTimer = null; }
-    if (this.aiThinkingInterval) { clearTimeout(this.aiThinkingInterval); this.aiThinkingInterval = null; }
-    if (this.votePhaseTimeout) { clearTimeout(this.votePhaseTimeout); this.votePhaseTimeout = null; }
-    if (this.questionPhaseTimeout) { clearTimeout(this.questionPhaseTimeout); this.questionPhaseTimeout = null; }
-
-    // Vider les sets de messages en attente pour ne pas poster en retard
-    this.aiPendingMessage.clear();
-
-    // Remettre en waiting pour que le frontend affiche l'écran d'attente
+    this.deps.log(`[GameRoom ${this.state.roomId}] All humans disconnected — aborting game.`);
+    this.phaseTimers.clearAll();
+    this.phaseTimer = null;
+    this.director.dispose();
+    this.logTelemetry('aborted');
+    // Back to waiting so the frontend shows the waiting screen.
     this.state.phase = 'waiting';
     this.emitState();
   }
 
   private async addAIPlayers(): Promise<void> {
-    const aiPersonalities = this.generateAIPersonalities(this.state.aiCount);
     const usedPersonaNames = new Set<string>();
-
-    for (const personality of aiPersonalities) {
-      const usedColors = this.state.players.map((p) => p.color);
-      const availableColor = COLORS.find((c) => !usedColors.includes(c.hex));
-
-      if (!availableColor) return;
-
-      const aiPlayerData: AIPlayerData = {
+    for (const personality of this.generateAIPersonalities(this.state.aiCount)) {
+      const color = this.freeColor();
+      if (!color) return;
+      const player: AIPlayerData = {
         type: 'ai',
-        id: `ai-${Date.now()}-${Math.random()}`,
+        id: this.newId('ai'),
         username: personality.name,
-        color: availableColor.hex,
-        colorName: availableColor.name,
+        color: color.hex,
+        colorName: color.name,
         isReady: true,
         isEliminated: false,
         personality,
-        messageHistory: [],
       };
+      this.state.players.push(player);
+      this.kinds.set(player.id, 'ai');
 
-      this.state.players.push(aiPlayerData);
-
-      const chosen = await getRandomAIPlayerStrategy(personality.name);
-
-      // Tenter de trouver un profil humain non encore utilisé dans cette partie
-      let persona = await getRandomHumanProfile();
-      let attempts = 0;
-      while (persona && usedPersonaNames.has(persona.username) && attempts < 5) {
-        persona = await getRandomHumanProfile();
-        attempts++;
+      const strategy = await this.deps.strategies.aiPlayer(personality.name);
+      let persona = await this.deps.persistence.getRandomHumanProfile();
+      for (let attempts = 0; persona && usedPersonaNames.has(persona.username) && attempts < 5; attempts++) {
+        persona = await this.deps.persistence.getRandomHumanProfile();
       }
-      if (persona) {
-        usedPersonaNames.add(persona.username);
-        console.log(`[GameRoom] AI ${personality.name} uses human persona: ${persona.username} (${persona.sampleMessages.length} msgs)`);
-      }
+      if (persona) usedPersonaNames.add(persona.username);
 
       const provider = this.pickProvider();
-      const deps = this.aiDeps();
-      const aiPlayer = new AIPlayer(aiPlayerData, provider, chosen.content, persona ?? null, deps);
-      this.aiPlayers.set(aiPlayerData.id, aiPlayer);
-      this.aiStrategyNames.set(aiPlayerData.id, chosen.name);
-      this.providerNames.set(aiPlayerData.id, provider.name);
-      console.log(`[GameRoom] AI ${personality.name} uses provider: ${provider.name}, style ${personality.responseStyle}, case ${deps.profile.caseProfile}`);
+      const profile = drawStyleProfile(this.deps.rng);
+      this.director.addBot(
+        new Bot(
+          {
+            id: player.id,
+            name: player.username,
+            role: 'ai',
+            provider,
+            pool: this.llmProviders,
+            profile,
+            responseStyle: personality.responseStyle,
+            strategy: strategy.content,
+            strategyName: strategy.name,
+            personality: personality.systemPrompt,
+            persona: persona ?? null,
+          },
+          { llm: this.director.llmSink, speech: this.director.speechSink, rng: this.deps.rng }
+        )
+      );
+      this.deps.log(
+        `[GameRoom] AI ${personality.name} uses provider: ${provider.name}, style ${personality.responseStyle}, case ${profile.caseProfile}` +
+          (persona ? `, persona ${persona.username}` : '')
+      );
     }
   }
 
-  /** Fisher–Yates shuffle so the AI is not always in the same position (e.g. middle). */
-  private shufflePlayers(): void {
-    const arr = this.state.players;
+  private shuffle<T>(items: T[]): T[] {
+    const arr = [...items];
     for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = Math.floor(this.deps.rng() * (i + 1));
       [arr[i], arr[j]] = [arr[j], arr[i]];
     }
-    // Reassign colors after shuffle so the AI doesn't always get the same color (e.g. Gold)
-    const shuffledColors = [...COLORS].sort(() => Math.random() - 0.5);
-    arr.forEach((p, idx) => {
-      const c = shuffledColors[idx % shuffledColors.length];
+    return arr;
+  }
+
+  /** The AIs are not always in the same seats nor the same colors. */
+  private shufflePlayers(): void {
+    this.state.players = this.shuffle(this.state.players);
+    const colors = this.shuffle(COLORS);
+    this.state.players.forEach((p, idx) => {
+      const c = colors[idx % colors.length];
       p.color = c.hex;
       p.colorName = c.name;
     });
   }
 
   private generateAIPersonalities(count: number): AIPersonality[] {
-    const humanNames = this.state.players.filter((p) => p.type === 'human').map((p) => p.username);
-    const templates: Omit<AIPersonality, 'name'>[] = [
-      { traits: ['analytical', 'calm', 'logical'], systemPrompt: `You are {name}, a calm and analytical person. You tend to think before you speak and use logic. You're playing a social deduction game and must act like a human.`, responseStyle: 'thoughtful', suspicionLevel: 0.3 },
-      { traits: ['friendly', 'chatty', 'enthusiastic'], systemPrompt: `You are {name}, a friendly and enthusiastic person. You like to chat and engage with others. Sometimes you type quickly and make small typos. You're playing a social deduction game.`, responseStyle: 'quick', suspicionLevel: 0.5 },
-      { traits: ['quiet', 'observant', 'skeptical'], systemPrompt: `You are {name}, a quiet and observant person. You don't talk much but when you do, it's meaningful. You're naturally skeptical. You're playing a social deduction game.`, responseStyle: 'random', suspicionLevel: 0.7 },
-      { traits: ['humorous', 'casual', 'witty'], systemPrompt: `You are {name}, a witty and humorous person. You like to make jokes and keep things light. You're playing a social deduction game and must act like a human.`, responseStyle: 'quick', suspicionLevel: 0.4 },
-      { traits: ['strategic', 'thoughtful', 'careful'], systemPrompt: `You are {name}, a strategic and careful thinker. You analyze situations before acting. You're playing a social deduction game and must act like a human.`, responseStyle: 'thoughtful', suspicionLevel: 0.6 },
-      { traits: ['emotional', 'reactive', 'passionate'], systemPrompt: `You are {name}, an emotional and passionate person. You react quickly and speak from the heart. You're playing a social deduction game and must act like a human.`, responseStyle: 'quick', suspicionLevel: 0.5 },
-      { traits: ['neutral', 'balanced', 'diplomatic'], systemPrompt: `You are {name}, a balanced and diplomatic person. You try to see all sides and stay neutral. You're playing a social deduction game and must act like a human.`, responseStyle: 'random', suspicionLevel: 0.4 },
-    ];
-    const shuffled = [...templates].sort(() => Math.random() - 0.5);
+    const used = this.state.players.filter((p) => p.type === 'human').map((p) => p.username);
+    const templates = this.shuffle(PERSONALITY_TEMPLATES);
     const result: AIPersonality[] = [];
-    const used: string[] = [...humanNames];
     for (let i = 0; i < count; i++) {
-      const name = pickAIName(used);
+      const name = this.deps.names.pick(used);
       used.push(name);
-      addPlayerName(name);
-      const t = shuffled[i % templates.length];
-      result.push({
-        name,
-        traits: t.traits,
-        systemPrompt: t.systemPrompt.replace(/\{name\}/g, name),
-        responseStyle: t.responseStyle,
-        suspicionLevel: t.suspicionLevel,
-      });
+      this.deps.names.add(name);
+      const t = templates[i % templates.length];
+      result.push({ name, traits: t.traits, systemPrompt: t.systemPrompt.replace(/\{name\}/g, name), responseStyle: t.responseStyle, suspicionLevel: t.suspicionLevel });
     }
     return result;
   }
 
   // ====== GAME FLOW ======
 
-  private startGame(): void {
-    this.eliminationOrder = [];
-    this.state.phase = 'question';
-    this.state.currentRound = 1;
-    this.state.currentQuestion = this.getRandomQuestion();
-    this.questionsByRound.set(1, this.state.currentQuestion ?? '');
-    this.state.questionEndTime = Date.now() + QUESTION_PHASE_MS;
-    this.emitState();
-
-    // The format (language, timings) must reach the AIs BEFORE their first answer: the round-1 prompt used to be built
-    // without it, so English games asked for French answers.
-    this.setGameFormatForAllAI();
-    this.aiAnswerQuestion();
-    if (this.questionPhaseTimeout) clearTimeout(this.questionPhaseTimeout);
-    this.questionPhaseTimeout = setTimeout(() => {
-      this.questionPhaseTimeout = null;
-      this.startDiscussion();
-    }, QUESTION_PHASE_MS);
+  private schedulePhase(ms: number, next: () => void): void {
+    this.phaseTimers.cancel(this.phaseTimer);
+    this.phaseTimer = this.phaseTimers.after(ms, () => {
+      this.phaseTimer = null;
+      next();
+    });
   }
 
-  private setGameFormatForAllAI(): void {
-    const format = this.getGameFormat();
-    this.aiPlayers.forEach((ai) => ai.setGameFormat(format));
-    this.inspectors.forEach((insp) => insp.setGameFormat(format));
+  private startGame(): void {
+    this.starting = false;
+    this.eliminationOrder = [];
+    this.beginQuestion(1);
+  }
+
+  private beginQuestion(round: number): void {
+    this.state.phase = 'question';
+    this.state.currentRound = round;
+    this.state.currentQuestion = this.getRandomQuestion();
+    this.questionsByRound.set(round, this.state.currentQuestion ?? '');
+    this.state.answers = [];
+    this.state.votes = [];
+    this.state.questionEndTime = this.now() + QUESTION_PHASE_MS;
+    this.emitState();
+    // The format (language, timings) reaches the bots with the question: round 1 of an English game used to be
+    // prompted in French because the format was set after the first answers were requested.
+    this.director.startQuestion(this.getGameFormat());
+    this.schedulePhase(QUESTION_PHASE_MS, () => this.startDiscussion());
   }
 
   getGameFormat(): GameFormat {
@@ -425,741 +400,255 @@ export class GameRoom {
     };
   }
 
-  /** This AI's answers in previous rounds, with their questions. */
-  private ownAnswersOf(id: string): { round: number; question: string; answer: string }[] {
-    const out: { round: number; question: string; answer: string }[] = [];
-    for (const [round, answers] of Object.entries(this.state.answersByRound ?? {})) {
-      const mine = answers.find((a) => a.playerId === id);
-      if (mine) out.push({ round: Number(round), question: this.questionsByRound.get(Number(round)) ?? '', answer: mine.answer });
-    }
-    return out;
-  }
-
-  private async aiAnswerQuestion(): Promise<void> {
-    if (this.aborted) return;
-    const question = this.state.currentQuestion;
-    if (!question) return;
-    const phaseStart = Date.now();
-    const round = this.state.currentRound;
-
-    // Each answer is scheduled as soon as ITS model returns, at an independent target time: no barrier waiting for the
-    // slowest provider, no shared "first human answered" gate that made every AI answer in the same burst.
-    const submitWhenDue = (id: string, answer: string | null): void => {
-      if (answer == null || answer.trim() === '') return;
-      const wait = Math.max(200 + Math.random() * 800, phaseStart + answerTarget() - Date.now());
-      setTimeout(() => {
-        if (this.aborted || this.state.phase !== 'question' || this.state.currentRound !== round) return;
-        this.addAnswer(id, answer);
-      }, wait);
-    };
-
-    for (const [id, aiPlayer] of this.aiPlayers) {
-      const p = this.state.players.find((pl) => pl.id === id);
-      if (!p || p.isEliminated) continue;
-      aiPlayer.answerQuestion(question, this.ownAnswersOf(id)).then((a) => submitWhenDue(id, a));
-    }
-    for (const [id, inspector] of this.inspectors) {
-      const p = this.state.players.find((pl) => pl.id === id);
-      if (!p || p.isEliminated) continue;
-      inspector.answerQuestion(question).then((a) => submitWhenDue(id, a));
-    }
-  }
-
   private startDiscussion(): void {
+    if (this.aborted || this.state.phase !== 'question') return;
     this.state.phase = 'discussion';
-    const discussionMs = DISCUSSION_PHASE_MS; // 100 s pour tous les rounds
-    this.state.discussionEndTime = Date.now() + discussionMs;
-    this.discussionStartedAt = Date.now();
+    this.state.discussionEndTime = this.now() + DISCUSSION_PHASE_MS;
     this.emitState();
-
-    this.discussionTimer = setTimeout(() => {
-      // Ne pas lancer une nouvelle phase si la room est déjà passée à autre chose
-      if (this.aborted || this.state.phase !== 'discussion') return;
-      this.startVoting();
-    }, discussionMs);
-
-    // Les IA commencent à "penser" et réagir aux messages
-    this.startAIThinking();
-  }
-
-  private startAIThinking(): void {
-    const scheduleNextTick = () => {
-      if (this.aborted || this.state.phase !== 'discussion') return;
-      // Variable interval 3–8s instead of fixed 5s — avoids mechanical regularity
-      const nextMs = 3000 + Math.floor(Math.random() * 5000);
-      this.aiThinkingInterval = setTimeout(async () => {
-        if (this.aborted || this.state.phase !== 'discussion') {
-          this.aiThinkingInterval = null;
-          return;
-        }
-        await this.runAIThinkingTick();
-        scheduleNextTick();
-      }, nextMs);
-    };
-    scheduleNextTick();
-  }
-
-  private buildPreviousRoundsSummary(): string {
-    const lines: string[] = [];
-    for (let rd = 1; rd < this.state.currentRound; rd++) {
-      const elim = this.eliminationsByRound.get(rd);
-      const votes = this.votesByRound.get(rd) ?? [];
-      const answers = this.state.answersByRound?.[rd] ?? [];
-      const question = this.questionsByRound.get(rd);
-      const parts: string[] = [];
-      if (question) parts.push(`Question: "${question}"`);
-      if (answers.length > 0) parts.push(`Answers: ${answers.map((a) => `${a.playerName}: ${a.answer}`).join(' / ')}`);
-      parts.push(elim ? `Eliminated: ${elim.name} (${elim.isAI ? 'AI' : 'human'})` : 'Eliminated: none');
-      parts.push(`Votes: ${votes.length > 0 ? votes.map((v) => `${v.voter} → ${v.target}`).join(', ') : 'none recorded'}`);
-      lines.push(`Round ${rd}. ${parts.join('. ')}`);
-    }
-    return lines.join('\n');
-  }
-
-  private contextOptionsFor(id: string) {
-    const activePlayers = this.state.players.filter((p) => !p.isEliminated);
-    return {
-      activePlayerIds: activePlayers.map((p) => p.id),
-      eliminatedNames: this.state.players.filter((p) => p.isEliminated).map((p) => p.username),
-      aiRemainingCount: activePlayers.filter((p) => p.type === 'ai').length,
-      previousRoundsSummary: this.buildPreviousRoundsSummary(),
-      ownAnswers: this.ownAnswersOf(id),
-    };
-  }
-
-  private isBot(playerId: string): boolean {
-    return this.aiPlayers.has(playerId) || this.inspectors.has(playerId);
-  }
-
-  private speechContextFor(id: string) {
-    const discussion = this.state.messages.filter((m) => m.playerId !== 'system');
-    return {
-      ownRecent: discussion.filter((m) => m.playerId === id).slice(-5).map((m) => m.content),
-      otherAIRecent: discussion.filter((m) => m.playerId !== id && this.isBot(m.playerId)).slice(-20).map((m) => m.content),
-    };
-  }
-
-  private styleOf(speaker: Speaker): ResponseStyle {
-    if (speaker.kind === 'inspector') return 'random';
-    const p = this.state.players.find((pl) => pl.id === speaker.id) as AIPlayerData | undefined;
-    return p?.personality.responseStyle ?? 'random';
-  }
-
-  private speakers(): Speaker[] {
-    const list: Speaker[] = [
-      ...[...this.aiPlayers.entries()].map(([id, actor]) => ({ kind: 'ai' as const, id, actor })),
-      ...[...this.inspectors.entries()].map(([id, actor]) => ({ kind: 'inspector' as const, id, actor })),
-    ];
-    return list.sort(() => Math.random() - 0.5);
-  }
-
-  private discussionRemaining(): number {
-    return this.state.phase === 'discussion' && this.state.discussionEndTime != null ? this.state.discussionEndTime - Date.now() : Infinity;
-  }
-
-  /**
-   * Thinking tick (timer, human message, burst). One tick at a time; the AIs decide IN PARALLEL, so the slowest
-   * provider no longer sets the pace of the others.
-   */
-  private async runAIThinkingTick(): Promise<void> {
-    if (this.aborted || this.state.phase !== 'discussion') return;
-    if (this.tickRunning) {
-      this.tickQueued = true;
-      return;
-    }
-    this.tickRunning = true;
-    try {
-      if (this.discussionRemaining() <= DISCUSSION_LOCK_MS) return;
-      const now = Date.now();
-      const discussion = this.state.messages.filter((m) => m.phase === 'discussion' && m.round === this.state.currentRound && m.playerId !== 'system');
-      const lastAt = discussion.length > 0 ? discussion[discussion.length - 1].timestamp : this.discussionStartedAt;
-      // Nobody has said anything for 12 s: one bot speaks up instead of everyone waiting for everyone.
-      let watchdog = now - lastAt > 12000 && now - this.discussionStartedAt > 8000;
-
-      const chosen: Speaker[] = [];
-      for (const sp of this.speakers()) {
-        const player = this.state.players.find((p) => p.id === sp.id);
-        if (!player || player.isEliminated || this.aiPendingMessage.has(sp.id)) continue;
-        if ((this.nextAllowedAt.get(sp.id) ?? 0) > now) continue;
-        const style = this.styleOf(sp);
-        if (watchdog) watchdog = false;
-        else if (Math.random() < skipProbability(style)) continue;
-        this.aiPendingMessage.add(sp.id);
-        chosen.push(sp);
-      }
-      await Promise.allSettled(chosen.map((sp) => this.runOneDecision(sp)));
-    } finally {
-      this.tickRunning = false;
-      if (this.tickQueued) {
-        this.tickQueued = false;
-        setTimeout(() => this.runAIThinkingTick(), 300);
-      }
-    }
-  }
-
-  /** One AI decides and, if it speaks, its message is scheduled at a human-plausible time. Caller holds the pending lock. */
-  private async runOneDecision(sp: Speaker, direct?: { from: string; content: string; accusation: boolean }): Promise<void> {
-    const release = (): void => {
-      this.aiPendingMessage.delete(sp.id);
-    };
-    try {
-      const style = this.styleOf(sp);
-      sp.actor.buildGameContext(this.state.messages, this.state.currentQuestion, this.state.phase, this.state.currentRound, this.state.answers, this.contextOptionsFor(sp.id));
-      const speech = this.speechContextFor(sp.id);
-      const outcome = sp.kind === 'ai' ? await sp.actor.decideAction(speech, direct) : await sp.actor.decideAction(speech);
-      if (this.aborted || this.state.phase !== 'discussion' || outcome.kind !== 'message') return release();
-      if (direct) this.logAIEvent(this.nameOf(sp.id), 'direct_reply', direct.accusation ? 'accusation' : 'named', direct.content.slice(0, 120));
-
-      const discussion = this.state.messages.filter((m) => m.phase === 'discussion' && m.round === this.state.currentRound && m.playerId !== 'system');
-      const others = discussion.filter((m) => m.playerId !== sp.id);
-      const myLast = discussion.filter((m) => m.playerId === sp.id).pop();
-      const unseen = others.filter((m) => !myLast || m.timestamp > myLast.timestamp);
-      let delay: number;
-      if (discussion.length === 0 && !direct) {
-        delay = Math.max(250, this.discussionStartedAt + firstMessageDelay() - Date.now());
-      } else {
-        delay = discussionDelay({
-          triggerAt: others.length > 0 ? others[others.length - 1].timestamp : this.discussionStartedAt,
-          now: Date.now(),
-          newMsgCount: unseen.length,
-          newChars: unseen.reduce((n, m) => n + m.content.length, 0),
-          replyChars: outcome.message.length,
-          style,
-          direct: !!direct,
-        });
-      }
-      this.schedulePost(sp, outcome.message, delay, style, !!direct);
-    } catch (err) {
-      console.error(`[GameRoom] decision error for ${sp.id}:`, err);
-      release();
-    }
-  }
-
-  private nameOf(id: string): string {
-    return this.state.players.find((p) => p.id === id)?.username ?? id;
-  }
-
-  /** Posts at the scheduled time, keeping a jittered minimum gap between two bot messages. Releases the pending lock. */
-  private schedulePost(sp: Speaker, text: string, delay: number, style: ResponseStyle, direct: boolean): void {
-    const attempt = () => {
-      if (this.aborted || this.state.phase !== 'discussion' || this.discussionRemaining() <= DISCUSSION_LOCK_MS) {
-        this.aiPendingMessage.delete(sp.id);
-        return;
-      }
-      const sinceLastBot = Date.now() - this.lastAnyAIPostAt;
-      const gap = globalGapMs();
-      if (!direct && sinceLastBot < gap) {
-        setTimeout(attempt, gap - sinceLastBot + Math.random() * 600);
-        return;
-      }
-      const posted = this.addMessage(sp.id, text);
-      this.aiPendingMessage.delete(sp.id);
-      if (!posted) return;
-      const isShort = text.length < 50;
-      const now = Date.now();
-      this.lastAIMessageTime.set(sp.id, now);
-      this.lastAIMessageShort.set(sp.id, isShort);
-      this.nextAllowedAt.set(sp.id, now + cooldownMs(style, isShort));
-      this.lastAnyAIPostAt = now;
-      // Burst: ~15% chance that a short message gets a follow-up, like humans sending 2-3 lines in a row.
-      if (sp.kind === 'ai' && isShort && Math.random() < 0.15) this.scheduleBurstCheck(sp);
-    };
-    setTimeout(attempt, delay);
-  }
-
-  private stopAIThinking(): void {
-    if (this.aiThinkingInterval) {
-      clearTimeout(this.aiThinkingInterval);
-      this.aiThinkingInterval = null;
-    }
-    this.aiPendingMessage.clear();
-    this.lastAIMessageTime.clear();
-    this.lastAIMessageShort.clear();
-    this.nextAllowedAt.clear();
-    this.tickQueued = false;
-  }
-
-  /** Solo follow-up check for one AI after a short message (burst mode). */
-  private scheduleBurstCheck(sp: Speaker): void {
-    const burstDelay = 4000 + Math.floor(Math.random() * 5000); // 4–9s
-    setTimeout(() => {
-      if (this.aborted || this.state.phase !== 'discussion') return;
-      if (this.aiPendingMessage.has(sp.id) || this.discussionRemaining() <= DISCUSSION_LOCK_MS) return;
-      const player = this.state.players.find((p) => p.id === sp.id);
-      if (!player || player.isEliminated) return;
-      this.aiPendingMessage.add(sp.id);
-      void this.runOneDecision(sp);
-    }, burstDelay);
+    this.director.startDiscussion();
+    this.schedulePhase(DISCUSSION_PHASE_MS, () => this.startVoting());
   }
 
   private startVoting(): void {
-    this.stopAIThinking();
+    if (this.aborted || this.state.phase !== 'discussion') return;
     this.state.phase = 'voting';
-    this.state.voteEndTime = Date.now() + VOTE_PHASE_MS;
-    // Keep existing votes (cast during discussion); no reset
+    this.state.voteEndTime = this.now() + VOTE_PHASE_MS;
+    // Votes cast during the discussion are kept.
     this.emitState();
-
-    this.aiVote();
-
-    this.votePhaseTimeout = setTimeout(() => {
-      this.votePhaseTimeout = null;
-      this.processVotes();
-    }, VOTE_PHASE_MS);
-  }
-
-  /**
-   * Bots vote: the model is asked right away on a FRESH context, the vote lands at a human-plausible time
-   * (non-uniform, 1–20 s), and a deadline casts a logged fallback vote instead of a silent abstention.
-   */
-  private async aiVote(): Promise<void> {
-    if (this.aborted) return;
-    const voteStart = Date.now();
-    const round = this.state.currentRound;
-    const activePlayers = this.state.players
-      .filter((p) => !p.isEliminated && p.id !== this.state.protectedPlayerId)
-      .map((p) => ({ id: p.id, username: p.username }));
-
-    for (const sp of this.speakers()) {
-      const player = this.state.players.find((p) => p.id === sp.id);
-      if (!player || player.isEliminated) continue;
-      const candidates = activePlayers.filter((p) => p.id !== sp.id);
-      if (candidates.length === 0) continue;
-      sp.actor.buildGameContext(this.state.messages, this.state.currentQuestion, 'voting', round, this.state.answers, this.contextOptionsFor(sp.id));
-
-      let cast = false;
-      const castVote = (targetId: string | null) => {
-        if (cast) return;
-        cast = true;
-        if (this.aborted || this.state.phase !== 'voting' || this.state.currentRound !== round) return;
-        let target = targetId;
-        if (!target) {
-          target = candidates[Math.floor(Math.random() * candidates.length)].id;
-          this.logAIEvent(player.username, 'vote_fallback', 'no_usable_answer', this.nameOf(target));
-        }
-        this.addVote(sp.id, target);
-      };
-      const deadline = setTimeout(() => castVote(null), Math.max(1000, voteStart + VOTE_DEADLINE_MS - Date.now()));
-      const target = voteStart + voteDelay();
-      sp.actor
-        .decideVote(activePlayers)
-        .catch(() => null)
-        .then((targetId) => {
-          setTimeout(() => {
-            clearTimeout(deadline);
-            castVote(targetId);
-          }, Math.max(0, target - Date.now()));
-        });
-    }
+    this.director.startVoting();
+    this.schedulePhase(VOTE_PHASE_MS, () => this.processVotes());
   }
 
   private processVotes(): void {
-    if (this.aborted) return;
-    if (this.state.phase !== 'voting') return;
-    try {
-      const voteCounts = new Map<string, number>();
+    if (this.aborted || this.state.phase !== 'voting') return;
+    this.director.stop();
+    const voteCounts = new Map<string, number>();
+    for (const vote of this.state.votes) voteCounts.set(vote.targetId, (voteCounts.get(vote.targetId) ?? 0) + 1);
 
-      this.state.votes.forEach((vote) => {
-        const count = voteCounts.get(vote.targetId) || 0;
-        voteCounts.set(vote.targetId, count + 1);
-      });
-
-      // Trouver le joueur avec le plus de votes — égalité = personne d'éliminé
-      let eliminatedId = '';
-      if (voteCounts.size > 0) {
-        const maxVotes = Math.max(...Array.from(voteCounts.values()));
-        const topPlayers = Array.from(voteCounts.entries())
-          .filter(([, count]) => count === maxVotes)
-          .map(([id]) => id);
-        if (topPlayers.length === 1) {
-          eliminatedId = topPlayers[0];
-        }
-        // tie → eliminatedId stays '' → nobody eliminated
-      }
-
-      // Protéger un joueur aléatoire (pas l'éliminé) — seulement si > 4 joueurs restants
-      const survivorsAfterElim = this.state.players.filter(
-        (p) => !p.isEliminated && p.id !== eliminatedId
-      );
-      if (survivorsAfterElim.length > 4) {
-        const protectedIndex = Math.floor(Math.random() * survivorsAfterElim.length);
-        this.state.protectedPlayerId = survivorsAfterElim[protectedIndex].id;
-      } else {
-        this.state.protectedPlayerId = null;
-      }
-
-      // Éliminer le joueur (si pas d'égalité)
-      const eliminatedPlayer = this.state.players.find((p) => p.id === eliminatedId);
-      if (eliminatedPlayer) {
-        eliminatedPlayer.isEliminated = true;
-      }
-      this.state.eliminatedPlayerId = eliminatedId || null;
-      this.state.eliminatedPlayerIsAI = eliminatedPlayer ? eliminatedPlayer.type !== 'human' : null;
-
-      // Archiver les votes de ce round pour le log
-      const roundVotes = this.state.votes.map((v) => {
-        const voter = this.state.players.find((p) => p.id === v.voterId);
-        const target = this.state.players.find((p) => p.id === v.targetId);
-        return { voter: voter?.username ?? v.voterId, target: target?.username ?? v.targetId };
-      });
-      this.votesByRound.set(this.state.currentRound, roundVotes);
-      if (eliminatedPlayer) {
-        this.eliminationsByRound.set(this.state.currentRound, {
-          name: eliminatedPlayer.username,
-          isAI: eliminatedPlayer.type !== 'human',
-        });
-        this.eliminationOrder.push(eliminatedPlayer.id);
-      }
-
-      this.state.phase = 'endround';
-      this.state.voteEndTime = null;
-      this.emitState();
-
-      // Passer au round suivant
-      setTimeout(() => {
-        this.nextRound();
-      }, 8000); // 8 secondes sur l'écran de fin de round
-    } catch (err) {
-      console.error('[GameRoom] processVotes error', err);
-      this.state.phase = 'endround';
-      this.state.eliminatedPlayerId = null;
-      this.state.voteEndTime = null;
-      this.emitState();
-      setTimeout(() => this.nextRound(), 8000);
+    // Most votes is eliminated; a tie eliminates nobody.
+    let eliminatedId = '';
+    if (voteCounts.size > 0) {
+      const maxVotes = Math.max(...voteCounts.values());
+      const top = [...voteCounts.entries()].filter(([, c]) => c === maxVotes).map(([id]) => id);
+      if (top.length === 1) eliminatedId = top[0];
     }
+
+    // A random survivor (not the eliminated) is protected next round, only while more than 4 players remain.
+    const survivors = this.state.players.filter((p) => !p.isEliminated && p.id !== eliminatedId);
+    this.state.protectedPlayerId = survivors.length > 4 ? survivors[Math.floor(this.deps.rng() * survivors.length)].id : null;
+
+    const eliminated = this.state.players.find((p) => p.id === eliminatedId);
+    if (eliminated) eliminated.isEliminated = true;
+    this.state.eliminatedPlayerId = eliminatedId || null;
+    this.state.eliminatedPlayerIsAI = eliminated ? eliminated.type !== 'human' : null;
+
+    this.votesByRound.set(
+      this.state.currentRound,
+      this.state.votes.map((v) => ({ voter: this.nameOf(v.voterId), target: this.nameOf(v.targetId) }))
+    );
+    if (eliminated) {
+      this.eliminationsByRound.set(this.state.currentRound, { name: eliminated.username, isAI: eliminated.type !== 'human' });
+      this.eliminationOrder.push(eliminated.id);
+    }
+
+    this.state.phase = 'endround';
+    this.state.voteEndTime = null;
+    this.emitState();
+    this.schedulePhase(ENDROUND_MS, () => this.nextRound());
   }
 
   private nextRound(): void {
-    if (this.aborted) return;
-    const activePlayers = this.state.players.filter((p) => !p.isEliminated);
+    if (this.aborted || this.state.phase !== 'endround') return;
+    const active = this.state.players.filter((p) => !p.isEliminated);
+    const remainingAI = active.filter((p) => p.type === 'ai').length;
+    // Inspectors are bots: they do not keep the game alive once they are the only "humans" left.
+    const remainingHumans = active.filter((p) => this.kinds.get(p.id) === 'human').length;
 
-    // Vérifier si le jeu est terminé
-    const remainingAI = activePlayers.filter((p) => p.type === 'ai').length;
-    // Only count real humans here — inspectors are AI-controlled and should not
-    // keep the game alive once they are the only \"humans\" left.
-    const remainingHumans = activePlayers.filter(
-      (p) => p.type === 'human' && !this.inspectors.has(p.id)
-    ).length;
-
-    if (remainingAI === 0 || remainingHumans === 0 || activePlayers.length <= 2 || this.state.currentRound >= MAX_ROUNDS) {
-      this.endGame(remainingAI, remainingHumans, activePlayers.length);
+    if (remainingAI === 0 || remainingHumans === 0 || active.length <= 2 || this.state.currentRound >= MAX_ROUNDS) {
+      this.endGame(remainingAI, remainingHumans);
       return;
     }
 
     this.state.eliminatedPlayerId = null;
     if (!this.state.answersByRound) this.state.answersByRound = {};
     this.state.answersByRound[this.state.currentRound] = [...this.state.answers];
-    this.state.currentRound++;
-    this.state.currentQuestion = this.getRandomQuestion();
-    this.questionsByRound.set(this.state.currentRound, this.state.currentQuestion ?? '');
-    this.state.answers = [];
-    this.state.votes = [];
-    // protectedPlayerId is intentionally NOT reset here — it must persist through
-    // the next round's voting phase so the immunity assigned in processVotes() is honoured.
-    // It will be overwritten by the new processVotes() at the end of the next round.
-    this.state.phase = 'question';
-    this.state.questionEndTime = Date.now() + QUESTION_PHASE_MS;
-    this.emitState();
-
-    this.aiAnswerQuestion();
-
-    if (this.questionPhaseTimeout) clearTimeout(this.questionPhaseTimeout);
-    this.questionPhaseTimeout = setTimeout(() => {
-      this.questionPhaseTimeout = null;
-      this.startDiscussion();
-    }, QUESTION_PHASE_MS);
+    // protectedPlayerId persists through the next vote: the immunity drawn in processVotes() is honoured there.
+    this.beginQuestion(this.state.currentRound + 1);
   }
 
-  private endGame(remainingAI: number, remainingHumans: number, activeCount: number): void {
-    if (remainingAI === 0) {
-      this.state.gameOverReason = 'humans_win';
-    } else if (remainingHumans === 0) {
-      this.state.gameOverReason = 'ai_win';
-    } else {
-      this.state.gameOverReason = 'draw';
-    }
+  private endGame(remainingAI: number, remainingHumans: number): void {
+    this.state.gameOverReason = remainingAI === 0 ? 'humans_win' : remainingHumans === 0 ? 'ai_win' : 'draw';
     this.state.phase = 'gameover';
     this.state.eliminatedPlayerId = null;
+    this.phaseTimers.clearAll();
+    this.phaseTimer = null;
+    this.director.dispose();
     this.emitState();
     this.persistGameLog();
+    this.logTelemetry(this.state.gameOverReason);
+  }
+
+  /** Finished rounds as humans saw them between rounds (the current round is not included). */
+  private history(): RoundRecord[] {
+    const out: RoundRecord[] = [];
+    for (let rd = 1; rd < this.state.currentRound; rd++) {
+      out.push({
+        round: rd,
+        question: this.questionsByRound.get(rd) ?? '',
+        answers: this.state.answersByRound?.[rd] ?? [],
+        votes: this.votesByRound.get(rd) ?? [],
+        eliminated: this.eliminationsByRound.get(rd) ?? null,
+      });
+    }
+    return out;
   }
 
   private persistGameLog(): void {
     try {
-      const now = new Date().toISOString();
-
-      // ── Players ──────────────────────────────────────────────────────────
-      const playerLogs: PlayerLog[] = this.state.players.map((p) => {
-        // Find which round they were eliminated in
+      const kindOf = (id: string): PlayerKind => this.kinds.get(id) ?? 'human';
+      // Inspectors were persisted as humans, so their lines fed the human style profiles that AIs imitate.
+      const players: PlayerLog[] = this.state.players.map((p) => {
         let eliminatedRound: number | undefined;
         for (const [round, info] of this.eliminationsByRound) {
-          if (info.name === p.username) { eliminatedRound = round; break; }
+          if (info.name === p.username) {
+            eliminatedRound = round;
+            break;
+          }
         }
-        const entry: PlayerLog = {
-          id: p.id,
-          name: p.username,
-          type: p.type === 'human' ? 'human' : (this.inspectors.has(p.id) ? 'inspector' : 'ai'),
-          eliminated: p.isEliminated,
-        };
+        const entry: PlayerLog = { id: p.id, name: p.username, type: kindOf(p.id), eliminated: p.isEliminated };
         if (eliminatedRound !== undefined) entry.eliminatedRound = eliminatedRound;
-        if (p.type !== 'human') {
-          const strategy = this.aiStrategyNames.get(p.id);
+        if (p.type === 'ai') {
+          const strategy = this.director.bots().find((b) => b.id === p.id)?.spec.strategyName;
           if (strategy) entry.strategy = strategy;
         }
         return entry;
       });
 
-      // ── Rounds ───────────────────────────────────────────────────────────
-      const allAnswersByRound: Record<number, typeof this.state.answers> = {
-        ...(this.state.answersByRound ?? {}),
-        // Le dernier round n'est pas encore archivé dans answersByRound
-        [this.state.currentRound]: this.state.answers,
-      };
-
-      const roundLogs: RoundLog[] = [];
+      const answersByRound: Record<number, QuestionAnswer[]> = { ...(this.state.answersByRound ?? {}), [this.state.currentRound]: this.state.answers };
+      const rounds: RoundLog[] = [];
       for (let rd = 1; rd <= this.state.currentRound; rd++) {
-        const question = this.questionsByRound.get(rd) ?? '';
-        const answers = (allAnswersByRound[rd] ?? []).map((a) => {
-          const p = this.state.players.find((pl) => pl.id === a.playerId);
-          return {
-            player: a.playerName,
-            type: p?.type === 'human' ? 'human' : 'ai',
-            answer: a.answer,
-          };
-        });
-        roundLogs.push({
+        rounds.push({
           round: rd,
-          question,
-          answers,
+          question: this.questionsByRound.get(rd) ?? '',
+          answers: (answersByRound[rd] ?? []).map((a) => ({ player: a.playerName, type: kindOf(a.playerId), answer: a.answer })),
           votes: this.votesByRound.get(rd) ?? [],
           eliminated: this.eliminationsByRound.get(rd) ?? null,
         });
       }
 
-      // ── Messages ─────────────────────────────────────────────────────────
-      const messageLogs: MessageLog[] = this.state.messages
+      // A human who left mid-game is no longer in players: their lines used to be logged as 'ai'.
+      const messages: MessageLog[] = this.state.messages
         .filter((m) => m.playerId !== 'system')
-        .map((m) => {
-          const p = this.state.players.find((pl) => pl.id === m.playerId);
-          // Bug fix: inspector players have type 'human' on the Player object but must be
-          // logged as 'inspector' — check the inspectors map explicitly.
-          const msgType = p?.type !== 'human' ? 'ai'
-            : this.inspectors.has(m.playerId) ? 'inspector'
-            : 'human';
-          return {
-            round: m.round,
-            player: m.playerName,
-            type: msgType,
-            content: m.content,
-            timestamp: m.timestamp,
-          };
-        });
+        .map((m) => ({ round: m.round, player: m.playerName, type: kindOf(m.playerId), content: m.content, timestamp: m.timestamp }));
 
-      const data = {
+      const data: GameLogData = {
         gameId: this.state.roomId,
-        date: now,
-        language: (this.state.language ?? 'fr') as 'fr' | 'en',
-        result: (this.state.gameOverReason ?? 'draw') as 'humans_win' | 'ai_win' | 'draw',
-        players: playerLogs,
-        rounds: roundLogs,
-        messages: messageLogs,
+        date: new Date(this.now()).toISOString(),
+        language: this.state.language ?? 'fr',
+        result: this.state.gameOverReason ?? 'draw',
+        players,
+        rounds,
+        messages,
       };
-
-      saveGameLog(data);
-      updateHumanProfiles(data);
+      void this.deps.persistence.saveGameLog(data);
+      void this.deps.persistence.updateHumanProfiles(data);
     } catch (err) {
       console.error('[GameRoom] persistGameLog error:', err);
     }
-    this.logTelemetry();
   }
 
-  /** One JSON line per game: LLM health per provider and bot events by kind (read with `railway logs | grep game-telemetry`). */
-  private logTelemetry(): void {
-    const pct = (xs: number[], q: number) => {
-      if (xs.length === 0) return null;
-      const sorted = [...xs].sort((a, b) => a - b);
-      return sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
-    };
-    const byProvider: Record<string, { calls: number; failed: number; fallback: number; retried: number; p50: number | null; p90: number | null }> = {};
-    const groups = new Map<string, LLMCallEvent[]>();
-    for (const e of this.llmEvents) {
-      const list = groups.get(e.provider) ?? [];
-      list.push(e);
-      groups.set(e.provider, list);
-    }
-    for (const [provider, list] of groups) {
-      const ok = list.filter((e) => e.ok).map((e) => e.latencyMs);
-      byProvider[provider] = {
-        calls: list.length,
-        failed: list.filter((e) => !e.ok).length,
-        fallback: list.filter((e) => e.fallback).length,
-        retried: list.filter((e) => e.attempts > 1).length,
-        p50: pct(ok, 0.5),
-        p90: pct(ok, 0.9),
-      };
-    }
-    const events: Record<string, number> = {};
-    for (const e of this.aiEvents) {
-      const key = e.reason ? `${e.kind}:${e.reason}` : e.kind;
-      events[key] = (events[key] ?? 0) + 1;
-    }
-    const providers: Record<string, string> = {};
-    for (const [id, name] of this.providerNames) providers[this.nameOf(id)] = name;
-    console.log(
-      `[game-telemetry] ${JSON.stringify({ room: this.state.roomId, result: this.state.gameOverReason, rounds: this.state.currentRound, providers, llm: byProvider, events })}`
-    );
+  /** One JSON line per game: LLM health per provider and bot events by kind (`railway logs | grep game-telemetry`). */
+  private logTelemetry(result: string): void {
+    this.deps.log(`[game-telemetry] ${JSON.stringify({ room: this.state.roomId, result, rounds: this.state.currentRound, ...this.director.telemetry() })}`);
   }
 
   // ====== ACTIONS ======
 
-  /** Returns true when the message was posted. */
+  /** Returns true when the message was posted. Single exit to the chat for humans and bots alike. */
   addMessage(playerId: string, content: string): boolean {
-    if (this.aborted) return false;
-    if (this.state.phase !== 'discussion') return false;
+    if (this.aborted || this.state.phase !== 'discussion') return false;
     const player = this.state.players.find((p) => p.id === playerId);
     if (!player || player.isEliminated) return false;
 
-    if (this.isBot(playerId)) {
+    if (this.director.isBot(playerId)) {
       // Last net before the chat: whatever path produced the text, a list, a JSON fragment or an AI admission never
       // reaches the players.
       const net = checkMessage(content, { channel: 'discussion', caseProfile: 'raw', dropFinalPeriodProb: 0, ownRecent: [], otherAIRecent: [] });
       if (!net.ok && (net.reason === 'structure' || net.reason === 'json_leak' || net.reason === 'ai_admission' || net.reason === 'empty')) {
-        this.logAIEvent(player.username, 'post_drop', net.reason, content.slice(0, 160));
+        this.director.logEvent(player.username, 'post_drop', net.reason, content.slice(0, 160));
         return false;
       }
-      // Exact duplicates of its own last 5 lines or of another bot's last 20.
       const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
       const norm = normalize(content);
       const recentOwn = this.state.messages.filter((m) => m.playerId === playerId).slice(-5);
-      const otherBots = this.state.messages.filter((m) => m.playerId !== playerId && this.isBot(m.playerId)).slice(-20);
+      const otherBots = this.state.messages.filter((m) => m.playerId !== playerId && this.director.isBot(m.playerId)).slice(-20);
       if (recentOwn.some((m) => normalize(m.content) === norm) || otherBots.some((m) => normalize(m.content) === norm)) {
-        this.logAIEvent(player.username, 'post_drop', 'exact_duplicate', content.slice(0, 160));
+        this.director.logEvent(player.username, 'post_drop', 'exact_duplicate', content.slice(0, 160));
         return false;
       }
     }
 
     const message: GameMessage = {
-      id: `msg-${Date.now()}-${Math.random()}`,
+      id: this.newId('msg'),
       playerId,
       playerName: player.username,
       content,
-      timestamp: Date.now(),
+      timestamp: this.now(),
       phase: this.state.phase,
       round: this.state.currentRound,
     };
-
     this.state.messages.push(message);
-
-    // Si c'est une IA, on ajoute à son historique
-    if (player.type === 'ai') {
-      player.messageHistory.push(message);
-    }
-
     this.emitState();
 
-    // When a real human (not inspector, not AI) sends a message, trigger an
-    // opportunistic AI thinking check after a short delay so AIs can react
-    // to what was said — in addition to the regular timer-based polling.
-    const isRealHuman = player.type === 'human' && !this.inspectors.has(playerId);
-    if (isRealHuman) {
-      this.reactToDirectAddress(message);
-      const reactionDelay = 5000 + Math.floor(Math.random() * 10000); // 5–15s
-      setTimeout(() => {
-        if (this.aborted || this.state.phase !== 'discussion') return;
-        this.runAIThinkingTick();
-      }, reactionDelay);
-    }
+    const kind = this.kinds.get(playerId);
+    if (kind !== 'ai') this.director.onPlayerMessage(message, kind === 'human');
     return true;
   }
 
-  /**
-   * A human names an AI, or accuses the AI whose message they answer: that AI starts deciding within a second instead
-   * of waiting for the next tick. Silence after "lucas t'es un bot ?" is the loudest tell there is.
-   */
-  private reactToDirectAddress(message: GameMessage): void {
-    if (this.discussionRemaining() <= DISCUSSION_LOCK_MS) return;
-    const discussion = this.state.messages.filter((m) => m.phase === 'discussion' && m.round === this.state.currentRound && m.playerId !== 'system');
-    const previous = discussion.length >= 2 ? discussion[discussion.length - 2] : undefined;
-    for (const sp of this.speakers()) {
-      if (sp.kind !== 'ai') continue;
-      const player = this.state.players.find((p) => p.id === sp.id);
-      if (!player || player.isEliminated || this.aiPendingMessage.has(sp.id)) continue;
-      const verdict = addressedTo(message.content, player.username, { repliesToPlayer: previous?.playerId === sp.id });
-      if (!verdict.direct || Math.random() >= DIRECT_REPLY_PROB) continue;
-      this.aiPendingMessage.add(sp.id);
-      setTimeout(() => {
-        if (this.aborted || this.state.phase !== 'discussion') {
-          this.aiPendingMessage.delete(sp.id);
-          return;
-        }
-        void this.runOneDecision(sp, { from: message.playerName, content: message.content, accusation: verdict.accusation });
-      }, Math.floor(Math.random() * 1000));
-    }
-  }
-
   addAnswer(playerId: string, answer: string): void {
-    if (this.state.phase !== 'question') return;
+    if (this.aborted || this.state.phase !== 'question') return;
     const player = this.state.players.find((p) => p.id === playerId);
-    if (!player || player.isEliminated) return; // Bug fix: guard against eliminated players answering
+    if (!player || player.isEliminated) return;
     this.state.answers = this.state.answers.filter((a) => a.playerId !== playerId);
-    const questionAnswer: QuestionAnswer = {
-      playerId,
-      playerName: player.username,
-      answer,
-      timestamp: Date.now(),
-    };
-    this.state.answers.push(questionAnswer);
+    this.state.answers.push({ playerId, playerName: player.username, answer, timestamp: this.now() });
     this.emitState();
 
-    // Si tous les joueurs actifs ont répondu, passer immédiatement à la discussion
-    const activePlayers = this.state.players.filter((p) => !p.isEliminated);
-    const answeredIds = new Set(this.state.answers.map((a) => a.playerId));
-    const allAnswered = activePlayers.every((p) => answeredIds.has(p.id));
-    if (allAnswered && this.questionPhaseTimeout) {
-      clearTimeout(this.questionPhaseTimeout);
-      this.questionPhaseTimeout = null;
-      this.startDiscussion();
+    // Everyone answered: discussion starts now. A bot that skips keeps the phase open like a silent human would,
+    // otherwise an early close with one missing answer would point at a bot.
+    const answered = new Set(this.state.answers.map((a) => a.playerId));
+    if (this.state.players.filter((p) => !p.isEliminated).every((p) => answered.has(p.id))) {
+      this.schedulePhase(0, () => this.startDiscussion());
     }
   }
 
   addVote(voterId: string, targetId: string): void {
-    if (this.state.phase !== 'voting') return;
-    if (voterId === targetId) return;
-    if (this.state.votes.some((v) => v.voterId === voterId)) return;
-
+    if (this.aborted || this.state.phase !== 'voting') return;
+    if (voterId === targetId || this.state.votes.some((v) => v.voterId === voterId)) return;
     const target = this.state.players.find((p) => p.id === targetId && !p.isEliminated);
-    if (!target) return;
-    if (targetId === this.state.protectedPlayerId) return;
-
+    if (!target || targetId === this.state.protectedPlayerId) return;
     const voter = this.state.players.find((p) => p.id === voterId);
-    const voterName = voter?.username ?? 'Someone';
-    const lang = this.state.language === 'en' ? 'en' : 'fr';
-    const votedText = lang === 'fr' ? `${voterName} a voté.` : `${voterName} has voted.`;
+    if (!voter || voter.isEliminated) return;
 
     this.state.votes.push({ voterId, targetId });
-    this.addSystemMessage(votedText);
+    this.addSystemMessage(this.state.language === 'en' ? `${voter.username} has voted.` : `${voter.username} a voté.`);
     this.emitState();
     this.tryEndVotingEarly();
   }
 
   private tryEndVotingEarly(): void {
     if (this.state.phase !== 'voting') return;
-    const activePlayers = this.state.players.filter((p) => !p.isEliminated);
-    const votedIds = new Set(this.state.votes.map((v) => v.voterId));
-    const allVoted = activePlayers.length > 0 && activePlayers.every((p) => votedIds.has(p.id));
-    if (allVoted && this.votePhaseTimeout) {
-      clearTimeout(this.votePhaseTimeout);
-      this.votePhaseTimeout = null;
-      setImmediate(() => this.processVotes());
-    }
+    const active = this.state.players.filter((p) => !p.isEliminated);
+    const voted = new Set(this.state.votes.map((v) => v.voterId));
+    if (active.length > 0 && active.every((p) => voted.has(p.id))) this.schedulePhase(0, () => this.processVotes());
   }
 
   private addSystemMessage(content: string): void {
     this.state.messages.push({
-      id: `sys-${Date.now()}-${Math.random()}`,
+      id: this.newId('sys'),
       playerId: 'system',
       playerName: '',
       content,
-      timestamp: Date.now(),
+      timestamp: this.now(),
       phase: this.state.phase,
       round: this.state.currentRound,
     });
@@ -1169,26 +658,28 @@ export class GameRoom {
     const player = this.state.players.find((p) => p.id === playerId);
     if (!player || player.type !== 'human' || player.isEliminated) return;
     const message = this.state.messages.find((m) => m.id === messageId);
-    if (!message || message.playerId === playerId) return; // can't flag own messages
-    saveMessageFlag(this.state.roomId, messageId, player.username, message.round, reason);
+    if (!message || message.playerId === playerId) return;
+    void this.deps.persistence.saveMessageFlag(this.state.roomId, messageId, player.username, message.round, reason);
   }
 
   // ====== UTILS ======
 
+  private nameOf(id: string): string {
+    return this.state.players.find((p) => p.id === id)?.username ?? id;
+  }
+
   private getRandomQuestion(): string {
-    const lang = this.state.language === 'en' ? 'en' : 'fr';
-    const questions = getQuestionsForLanguage(lang);
-    return questions[Math.floor(Math.random() * questions.length)];
+    const questions = getQuestionsForLanguage(this.state.language === 'en' ? 'en' : 'fr');
+    return questions[Math.floor(this.deps.rng() * questions.length)];
   }
 
   private emitState(): void {
-    // Envoyer l'état à tous les clients de la room
     this.io.to(this.state.roomId).emit('gameState', this.sanitizeState());
   }
 
-  private sanitizeState(): any {
-    // Ne pas révéler qui est IA aux clients
-    const out: any = {
+  /** Never reveals who is an AI to the clients. */
+  private sanitizeState(): Record<string, unknown> {
+    const out: Record<string, unknown> = {
       ...this.state,
       players: this.state.players.map((p) => ({
         id: p.id,
@@ -1206,14 +697,15 @@ export class GameRoom {
       out.votes = this.state.votes;
       out.eliminatedAiCount = this.state.players.filter((p) => p.isEliminated && p.type === 'ai').length;
     }
-    if (this.state.phase === 'gameover') {
-      out.gameOverReason = this.state.gameOverReason ?? null;
-    }
-    if (this.state.phase === 'voting' || this.state.phase === 'discussion') {
-      out.votes = this.state.votes;
-    }
+    if (this.state.phase === 'gameover') out.gameOverReason = this.state.gameOverReason ?? null;
+    if (this.state.phase === 'voting' || this.state.phase === 'discussion') out.votes = this.state.votes;
     out.language = this.state.language ?? 'fr';
     return out;
+  }
+
+  /** Timers still pending for this room (phases and bots); 0 after game over or abort. */
+  pendingTimers(): number {
+    return this.phaseTimers.size + this.director.pendingTimers();
   }
 
   getState(): GameRoomState {
