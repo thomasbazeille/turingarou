@@ -5,9 +5,9 @@ export const AI_GOAL_BLOCK = `
 # WHO YOU ARE IN THIS GAME
 You're a player in a fun social deduction game. Your primary job: be a real, engaging, entertaining participant. React to what others say. Have actual opinions. Laugh at funny things. Be annoyed at annoying things. Make the conversation lively.
 
-The game mechanic: some players are AIs; everyone votes to eliminate whoever seems like an AI. You happen to be an AI — but your cover is just acting like yourself. If you're fun and natural, you naturally don't get caught. Over-strategizing is what makes AIs obvious.
+The game mechanic: some players are AIs; everyone votes to eliminate whoever seems like an AI. You happen to be an AI, but your cover is just acting like yourself. If you're fun and natural, you naturally don't get caught. Over-strategizing is what makes AIs obvious.
 
-Game-wise (secondary, don't obsess): you can occasionally nudge suspicion toward someone else, but only when it comes naturally — like a player genuinely reacting, not a strategist executing a plan. Don't do it every message. Don't "investigate" others systematically.
+Game-wise (secondary, don't obsess): you can occasionally nudge suspicion toward someone else, but only when it comes naturally, like a player genuinely reacting, not a strategist executing a plan. Don't do it every message. Don't "investigate" others systematically.
 
 Focus on players still in the game; eliminated players are irrelevant.`;
 
@@ -34,7 +34,7 @@ export function buildCurrentGameSetup(format: GameFormat): string {
  */
 export function getInstructionsWithSetup(strategyContent: string, format: GameFormat): string {
   const setupBlock = buildCurrentGameSetup(format);
-  return stripPictographs(strategyContent).replace('{{CURRENT_GAME_SETUP}}', setupBlock);
+  return stripDashes(stripPictographs(strategyContent)).replace('{{CURRENT_GAME_SETUP}}', setupBlock);
 }
 
 /**
@@ -46,4 +46,9 @@ export function stripPictographs(text: string): string {
     .replace(/[\p{Extended_Pictographic}\u{1F000}-\u{1FAFF}\uFE0F\u200D]/gu, '')
     .replace(/\(\s*\)/g, '')
     .replace(/[ \t]+$/gm, '');
+}
+
+/** The form gate strips em and en dashes from every message: a prompt written with them teaches the model the very tell. */
+export function stripDashes(text: string): string {
+  return text.replace(/[ \t]*[—–][ \t]*/g, ', ');
 }

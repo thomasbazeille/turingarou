@@ -109,7 +109,7 @@ export function buildGameContext(view: BotView, self: { id: string; name: string
   const mine = ownAnswers(view.history, self.id);
   if (mine.length > 0) {
     context += `## Your own answers in previous rounds (stay consistent with them, don't repeat them):\n`;
-    for (const a of mine) context += `Round ${a.round} — "${a.question}" → ${a.answer}\n`;
+    for (const a of mine) context += `Round ${a.round}, question "${a.question}": ${a.answer}\n`;
     context += `\n`;
   }
 

@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { Bot } from '../src/game/Bot.js';
 import { BotDirector, DirectorRoom } from '../src/game/BotDirector.js';
 import { buildGameContext, stableBucket, visibleMessages, BotView } from '../src/game/botContext.js';
+import { answerPrompt, decisionPrompt, systemPrompt, votePrompt, PromptIdentity } from '../src/game/botPrompts.js';
+import { getInspectorPromptContent, getRandomAIPlayerStrategy } from '../src/game/StrategyLoader.js';
 import { Clock } from '../src/game/clock.js';
 import { ChatProvider, ChatRequest, ChatResult } from '../src/llm/chatClient.js';
 import type { GameFormat, GameMessage, GameRoomState } from '../src/types/game.types.js';
@@ -260,9 +262,37 @@ await test('context carries own previous answers and the previous-round summary'
     history: [{ round: 1, question: 'q1', answers: [{ playerId: 'b1', playerName: 'lucas', answer: 'la mer', timestamp: 0 }], votes: [{ voter: 'emma', target: 'hugo' }], eliminated: { name: 'hugo', isAI: false } }],
   };
   const ctx = buildGameContext(view, { id: 'b1', name: 'lucas', role: 'ai' });
-  assert.ok(ctx.includes('Round 1 — "q1" → la mer'));
+  assert.ok(ctx.includes('Round 1, question "q1": la mer'));
   assert.ok(ctx.includes('Eliminated: hugo (human)'));
   assert.ok(ctx.includes('emma → hugo'));
+});
+
+// ---- prompts: models copy quoted sample lines verbatim, and dashes teach the tell the gate strips ----
+const quiet = console.log;
+console.log = () => {};
+const strategies = [await getInspectorPromptContent()];
+for (let i = 0; i < 30; i++) strategies.push((await getRandomAIPlayerStrategy()).content);
+console.log = quiet;
+
+function allPrompts(strategy: string): string[] {
+  const out: string[] = [];
+  for (const role of ['ai', 'inspector'] as const) {
+    for (const language of ['fr', 'en'] as const) {
+      const f = { ...format, language };
+      const id: PromptIdentity = { name: 'lucas', role, strategy, personality: 'You are lucas, a person.', caseProfile: 'lower' };
+      out.push(systemPrompt(id, f, true), systemPrompt(id, f, false), answerPrompt(id, 'q', [{ round: 1, question: 'q0', answer: 'a0' }], f), votePrompt(id, 'ctx', ['emma', 'hugo']));
+      for (const cue of [{}, { quiet: true }, { direct: { from: 'emma', content: 'x', accusation: true, at: 0 } }]) out.push(decisionPrompt(id, cue, ['l1'], 3));
+    }
+  }
+  return out;
+}
+
+await test('no em or en dash in any assembled prompt, strategy files included', () => {
+  for (const strategy of new Set(strategies)) for (const p of allPrompts(strategy)) assert.ok(!/[—–]/.test(p), p.match(/.{0,40}[—–].{0,40}/)?.[0]);
+});
+
+await test('no quoted sample line in the prompt text we write', () => {
+  for (const p of allPrompts('{{CURRENT_GAME_SETUP}}')) assert.ok(!/\("[^"]+"\)/.test(p), p.match(/.{0,30}\("[^"]+"\).{0,10}/)?.[0]);
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

@@ -47,7 +47,7 @@ function languageRule(format: GameFormat): string {
 function styleRule(caseProfile: CaseProfile): string {
   const caseRule =
     caseProfile === 'lower'
-      ? 'Never use capital letters (write in lowercase only, e.g. "i think" not "I think").'
+      ? 'Never use capital letters: everything in lowercase, the first word and the pronoun i included.'
       : caseProfile === 'sentence'
         ? 'Type casually: a capital letter at the start of a message is fine, the rest stays lowercase.'
         : 'Type casually, mostly lowercase.';
@@ -56,8 +56,8 @@ function styleRule(caseProfile: CaseProfile): string {
 
 function diversityRule(format: GameFormat): string {
   return format.language === 'fr'
-    ? `VARIÉTÉ DES RÉPONSES À LA QUESTION INITIALE : Ne réponds jamais deux fois de la même façon. Varie le registre : parfois ultra-court (2-4 mots), parfois une phrase complète, parfois ironique ("ah ouais super question"), parfois faussement philosophique, parfois juste une blague. L'ironie légère et le second degré sont les bienvenus. Ne donne jamais une réponse parfaite et bien structurée, c'est le meilleur moyen d'être détecté.`
-    : `INITIAL QUESTION ANSWER VARIETY: Never answer twice the same way. Mix registers: sometimes ultra-short (2-4 words), sometimes a full sentence, sometimes ironic ("oh wow great question"), sometimes mock-philosophical, sometimes just a joke. Light irony and second-degree are welcome. Never give a perfect well-structured answer, that's the fastest way to get detected.`;
+    ? `VARIÉTÉ DES RÉPONSES À LA QUESTION INITIALE : Ne réponds jamais deux fois de la même façon. Varie le registre : parfois ultra-court (2-4 mots), parfois une phrase complète, parfois ironique, parfois faussement philosophique, parfois juste une blague. L'ironie légère et le second degré sont les bienvenus. Ne donne jamais une réponse parfaite et bien structurée, c'est le meilleur moyen d'être détecté.`
+    : `INITIAL QUESTION ANSWER VARIETY: Never answer twice the same way. Mix registers: sometimes ultra-short (2-4 words), sometimes a full sentence, sometimes ironic, sometimes mock-philosophical, sometimes just a joke. Light irony and second-degree are welcome. Never give a perfect well-structured answer, that's the fastest way to get detected.`;
 }
 
 /** Writing-style reference from a real human player's past messages (imitate, never copy). */
@@ -108,7 +108,7 @@ export function decisionPrompt(id: PromptIdentity, cue: DecisionCue, ownLast: st
 
 ${lastLine}
 
-A real player answers that, quickly and with a real reaction: amused, annoyed, counter-attacking, or turning it back on them. One short line. No long justification, no "i assure you". Set shouldRespond to true.`;
+A real player answers that, quickly and with a real reaction: amused, annoyed, counter-attacking, or turning it back on them. One short line. No long justification, no solemn reassurance. Set shouldRespond to true.`;
   }
   if (cue.quiet) {
     return `The chat has been quiet for a while and someone has to break the silence.
@@ -131,7 +131,7 @@ ${lastLine}${since}
 
 Ask yourself: is there something genuinely worth reacting to? A funny thing, a weird answer, something that bugs you, something you want to push back on? If yes, respond. If nothing stands out, stay silent (shouldRespond: false).
 
-Don't respond just to seem active. Don't respond with pure strategy ("I think X is suspicious"). Respond because something in the conversation pulled a reaction from you.`;
+Don't respond just to seem active. Don't respond with pure strategy, like naming a suspect out of nowhere. Respond because something in the conversation pulled a reaction from you.`;
 }
 
 export function answerPrompt(id: PromptIdentity, question: string, previous: OwnAnswer[], format: GameFormat): string {
