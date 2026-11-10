@@ -771,8 +771,11 @@ export function checkMessage(raw: string, ctx: GateContext): GateVerdict {
 
   const rep = repair(input, ctx);
   const { text, notes } = rep;
-  if (!/\p{L}/u.test(text)) {
-    return reject('empty', notes.includes('stage_direction') ? 'only a stage direction' : 'nothing left after sanitizing (no letter)', rep);
+  // A bare number ("7" to a counting trap) or a lone "??" is about the most human answer there is; only text with
+  // nothing left to read is empty.
+  const readable = /[\p{L}\p{N}]/u.test(text) || /^[?!.]{1,4}$/.test(text.trim());
+  if (!readable) {
+    return reject('empty', notes.includes('stage_direction') ? 'only a stage direction' : 'nothing left after sanitizing (nothing to read)', rep);
   }
   const lexicon = aiLexiconHits(text);
   if (lexicon.length >= 2) return reject('assistant_formula', `reads like generated prose (${lexicon.join(', ')})`, rep);

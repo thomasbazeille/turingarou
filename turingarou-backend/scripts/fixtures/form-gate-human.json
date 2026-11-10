@@ -140,5 +140,10 @@
   {"id": "h-fr-message", "text": "t'as eu mon message ?"},
   {"id": "h-en-at-work", "text": "I'm at work lol"},
   {"id": "h-en-maybe-sam", "text": "I don't know, maybe sam?"},
-  {"id": "h-fr-tres-long", "text": "attends attends je résume, julien a voté marie, marie a voté julien et lucas a voté personne donc c'est forcément un des trois non ?"}
+  {"id": "h-fr-tres-long", "text": "attends attends je résume, julien a voté marie, marie a voté julien et lucas a voté personne donc c'est forcément un des trois non ?"},
+  {"id": "h-num-7", "text": "7"},
+  {"id": "h-num-42", "text": "42"},
+  {"id": "h-num-2026", "text": "2026"},
+  {"id": "h-punct-qq", "text": "??"},
+  {"id": "h-punct-dots", "text": "..."}
 ]
