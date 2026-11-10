@@ -18,6 +18,7 @@ import {
   saveMessageFlag,
   GameLogData,
   HumanPersona,
+  PersonaQuery,
   RoundLog,
   MessageLog,
   PlayerLog,
@@ -44,7 +45,7 @@ export interface GameRoomDeps {
     saveGameLog(data: GameLogData): Promise<void>;
     updateHumanProfiles(data: GameLogData): Promise<void>;
     saveMessageFlag(gameId: string, messageId: string, flaggedBy: string, round: number, reason?: string): Promise<void>;
-    getRandomHumanProfile(): Promise<HumanPersona | null>;
+    getRandomHumanProfile(opts?: PersonaQuery): Promise<HumanPersona | null>;
   };
   log: (line: string) => void;
 }
@@ -302,10 +303,8 @@ export class GameRoom {
       this.kinds.set(player.id, 'ai');
 
       const strategy = await this.deps.strategies.aiPlayer(personality.name);
-      let persona = await this.deps.persistence.getRandomHumanProfile();
-      for (let attempts = 0; persona && usedPersonaNames.has(persona.username) && attempts < 5; attempts++) {
-        persona = await this.deps.persistence.getRandomHumanProfile();
-      }
+      // Style reference: a real player of the game's language, never the same one for two AIs.
+      const persona = await this.deps.persistence.getRandomHumanProfile({ language: this.state.language ?? 'fr', exclude: [...usedPersonaNames] });
       if (persona) usedPersonaNames.add(persona.username);
 
       const provider = this.pickProvider();
@@ -530,10 +529,10 @@ export class GameRoom {
         }
         const entry: PlayerLog = { id: p.id, name: p.username, type: kindOf(p.id), eliminated: p.isEliminated };
         if (eliminatedRound !== undefined) entry.eliminatedRound = eliminatedRound;
-        if (p.type === 'ai') {
-          const strategy = this.director.bots().find((b) => b.id === p.id)?.spec.strategyName;
-          if (strategy) entry.strategy = strategy;
-        }
+        // "strategy@Provider" in the existing column: per-provider elimination rates without a schema change
+        // (read back by src/history/reader.ts readStrategy).
+        const bot = this.director.bots().find((b) => b.id === p.id);
+        if (bot) entry.strategy = `${bot.spec.strategyName ?? kindOf(p.id)}@${bot.providerName}`;
         return entry;
       });
 

@@ -818,6 +818,9 @@ async function runGame(sc: Scenario): Promise<GameResult> {
         const live = s.players.find((x) => x.id === p.id);
         const kind = live?.type === 'ai' ? 'ai' : live && live.type === 'human' && live.socketId === '' ? 'inspector' : 'human';
         if (p.type !== kind) offend('persisted_kind', `${p.name} persisted as ${p.type}, is ${kind}`);
+        // Bots carry "strategy@Provider" so elimination rates can be read per model (src/history/reader.ts).
+        if (kind !== 'human' && !/^[^@]+@[^@]+$/.test(p.strategy ?? '')) offend('persisted_kind', `${p.name} strategy "${p.strategy ?? ''}" has no @provider`);
+        if (kind === 'human' && p.strategy) offend('persisted_kind', `human ${p.name} persisted with strategy "${p.strategy}"`);
       }
       for (const msg of log.messages) {
         const pid = nameToId.get(msg.player);
