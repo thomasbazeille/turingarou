@@ -34,6 +34,7 @@ const T = {
     n: (x: number) => String(Math.round(x * 10) / 10).replace('.', ','),
     pct: (x: number) => `${Math.round(x * 100)} %`,
     title: (n: number | string) => `# Ce que les vraies parties ont montré (${n} parties en français)`,
+    synthetic: ' — DONNÉES SYNTHÉTIQUES (fixtures), ne pas utiliser',
     tells: '## Tells observés à éviter',
     moves: '## Répliques qui ont survécu à une accusation',
     targets: '## Cibles de style (humains)',
@@ -65,6 +66,7 @@ const T = {
     n: (x: number) => String(Math.round(x * 10) / 10),
     pct: (x: number) => `${Math.round(x * 100)}%`,
     title: (n: number | string) => `# What real games showed (${n} games in English)`,
+    synthetic: ' — SYNTHETIC DATA (fixtures), do not use',
     tells: '## Observed tells to avoid',
     moves: '## Replies that survived an accusation',
     targets: '## Style targets (humans)',
@@ -171,7 +173,7 @@ export function renderBriefing(a: HistoryAnalysis, lang: Language, thresholds: B
   const block = (title: string, lines: string[], detail: string) => [title, ...(lines.length ? lines : [t.none(detail)])].join('\n');
   return [
     header,
-    t.title(games),
+    t.title(games) + (a.corpus.synthetic > 0 ? t.synthetic : ''),
     '',
     block(t.tells, tellLines(s, t, thresholds), tellsN),
     '',
