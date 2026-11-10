@@ -111,6 +111,14 @@ export class Bot {
     const discussion = view.messages.filter((m) => m.playerId !== 'system');
     const mine = discussion.filter((m) => m.playerId === this.id);
     const last = mine[mine.length - 1];
+    // view.messages is the live list: the gate compares the draft with what is in the chat when it runs.
+    const speech = () => {
+      const lines = view.messages.filter((m) => m.playerId !== 'system');
+      return {
+        ownRecent: lines.filter((m) => m.playerId === this.id).slice(-5).map((m) => m.content),
+        otherAIRecent: lines.filter((m) => m.playerId !== this.id && view.botIds.has(m.playerId)).slice(-20).map((m) => m.content),
+      };
+    };
     const messages: LLMMessage[] = [
       { role: 'system', content: systemPrompt(this.identity, view.format, true) },
       { role: 'user', content: this.context(view) },
@@ -128,13 +136,7 @@ export class Bot {
       ...this.common(alive),
       role: this.callRole('decision'),
       messages,
-      speech: {
-        ownRecent: mine.slice(-5).map((m) => m.content),
-        otherAIRecent: discussion
-          .filter((m) => m.playerId !== this.id && view.botIds.has(m.playerId))
-          .slice(-20)
-          .map((m) => m.content),
-      },
+      speech,
       temperatureScale: TEMPERATURE_SCALE.decision,
     });
   }

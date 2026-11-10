@@ -175,7 +175,8 @@ export class GameRoom {
   }
 
   async addHumanPlayer(socketId: string, username: string, language?: 'fr' | 'en'): Promise<boolean> {
-    if (!this.isJoinable() || this.state.players.length >= this.state.maxPlayers) return false;
+    // Human slots full (an inspector may hold the last one while its prompt loads): a room past them never starts.
+    if (!this.isJoinable() || this.state.players.length >= this.state.maxPlayers - this.state.aiCount) return false;
     if (language && !this.state.players.length) this.state.language = language;
     const color = this.freeColor();
     if (!color) return false;

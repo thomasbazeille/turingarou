@@ -72,6 +72,8 @@ export interface AIEventLog {
 
 interface Job {
   direct: DirectAddress | null;
+  /** What the line reacts to: the direct message, else the last line of another player when the bot started deciding. */
+  triggerAt: number;
   /** thinking = waiting for the model; scheduled = text ready, waiting for its posting time. */
   stage: 'thinking' | 'scheduled';
   timer: TimerHandle | null;
@@ -100,6 +102,8 @@ export class BotDirector {
   private recentBotPosts: number[] = [];
   private reactionTick: TimerHandle | null = null;
   private llmEvents: (LLMCallEvent & { round: number; phase: string })[] = [];
+  /** Trigger-to-chat delay of every posted bot line (analysis C, T12), summarised in the telemetry line. */
+  private postDelays: { direct: boolean; ms: number }[] = [];
   private events: AIEventLog[] = [];
 
   constructor(private readonly room: DirectorRoom, private readonly deps: DirectorDeps) {
@@ -259,7 +263,7 @@ export class BotDirector {
         this.logEvent(slot.bot.name, 'superseded', slot.job.stage);
       }
       const direct: DirectAddress = { from: message.playerName, content: message.content, accusation: verdict.accusation, at: message.timestamp };
-      const job: Job = { direct, stage: 'thinking', timer: null };
+      const job: Job = { direct, triggerAt: direct.at, stage: 'thinking', timer: null };
       slot.job = job;
       job.timer = this.timers.after(Math.floor(this.deps.rng() * 1000), () => {
         if (!this.isLive(epoch, 'discussion') || slot.job !== job) return;
@@ -300,7 +304,9 @@ export class BotDirector {
   }
 
   private launch(slot: Slot, epoch: number, cue: DecisionCue): void {
-    const job: Job = { direct: null, stage: 'thinking', timer: null };
+    const others = this.discussionMessages().filter((m) => m.playerId !== slot.bot.id);
+    const triggerAt = others.length > 0 ? others[others.length - 1].timestamp : this.discussionStartedAt;
+    const job: Job = { direct: null, triggerAt, stage: 'thinking', timer: null };
     slot.job = job;
     void this.runDecision(slot, job, epoch, cue);
   }
@@ -344,14 +350,13 @@ export class BotDirector {
   private cannedReply(slot: Slot, direct: DirectAddress): string | null {
     const lang = this.format?.language === 'en' ? 'en' : 'fr';
     const pool = this.shuffle([...CANNED[lang][direct.accusation ? 'accusation' : 'named']]);
-    const own = this.room
-      .state()
-      .messages.filter((m) => m.playerId === slot.bot.id)
-      .slice(-5)
-      .map((m) => m.content);
+    const lines = this.room.state().messages;
+    const own = lines.filter((m) => m.playerId === slot.bot.id).slice(-5).map((m) => m.content);
+    // Other bots draw from the same list: an exact repeat of theirs would be dropped by the room's last net.
+    const others = lines.filter((m) => m.playerId !== slot.bot.id && this.isBot(m.playerId)).slice(-20).map((m) => m.content);
     const p = slot.bot.spec.profile;
     for (const candidate of pool) {
-      const v = checkMessage(candidate, { channel: 'discussion', caseProfile: p.caseProfile, dropFinalPeriodProb: p.dropFinalPeriodProb, ownRecent: own, otherAIRecent: [], rng: this.deps.rng });
+      const v = checkMessage(candidate, { channel: 'discussion', caseProfile: p.caseProfile, dropFinalPeriodProb: p.dropFinalPeriodProb, ownRecent: own, otherAIRecent: others, rng: this.deps.rng });
       if (v.ok) return v.text;
     }
     return null;
@@ -402,6 +407,7 @@ export class BotDirector {
       const posted = this.room.postMessage(slot.bot.id, text);
       this.release(slot, job);
       if (!posted) return;
+      this.postDelays.push({ direct: job.direct !== null, ms: now - job.triggerAt });
       this.lastBotPostAt = now;
       this.recentBotPosts = [...this.recentBotPosts.filter((t) => now - t < 10000), now];
       const short = text.length < 50;
@@ -525,7 +531,7 @@ export class BotDirector {
   // ====== TELEMETRY ======
 
   /** LLM health per provider and bot events by kind, for the one-line game telemetry. */
-  telemetry(): { providers: Record<string, string>; llm: Record<string, unknown>; events: Record<string, number> } {
+  telemetry(): { providers: Record<string, string>; llm: Record<string, unknown>; events: Record<string, number>; postDelayMs: Record<string, unknown> } {
     const pct = (xs: number[], q: number) => {
       if (xs.length === 0) return null;
       const sorted = [...xs].sort((a, b) => a - b);
@@ -556,6 +562,10 @@ export class BotDirector {
     }
     const providers: Record<string, string> = {};
     for (const slot of this.slots.values()) providers[slot.bot.name] = slot.bot.providerName;
-    return { providers, llm, events };
+    const delays = (direct: boolean) => {
+      const xs = this.postDelays.filter((d) => d.direct === direct).map((d) => Math.round(d.ms));
+      return { n: xs.length, p50: pct(xs, 0.5), p90: pct(xs, 0.9) };
+    };
+    return { providers, llm, events, postDelayMs: { direct: delays(true), regular: delays(false) } };
   }
 }

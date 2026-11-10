@@ -10,6 +10,8 @@ cd turingarou-backend
 npm run dev        # tsx watch, port 3001
 npm run build      # compile TypeScript
 npm start          # run compiled build
+npm run test:unit  # form gate, timing, direct address, bot core
+npm run test:sim   # full games in virtual time with fake models and humans, invariants report
 ```
 
 ### Analyze game logs (requires ANTHROPIC_API_KEY + prod DB URL, see below)
@@ -62,7 +64,9 @@ turingarou-online.html  (HTML + Socket.io client)
     ↕ socket events
 src/server.ts           (Express + Socket.io, room management)
     ↕ game logic
-src/game/GameRoom.ts    (phase state machine, timers, AI orchestration)
+src/game/GameRoom.ts    (phase state machine, sockets, persistence)
+    ↕ phase hooks / posts, answers, votes
+src/game/BotDirector.ts (every bot behaviour: answers, chat timing, direct replies, votes)
     ↕ LLM calls
 src/llm/                (Deepseek / Mistral / Anthropic adapters)
 ```
@@ -72,9 +76,9 @@ src/llm/                (Deepseek / Mistral / Anthropic adapters)
 
 ### Key files
 - `turingarou-backend/src/game/GameRoom.ts` — core game logic and phase state machine
-- `turingarou-backend/src/game/AIPlayer.ts` — AI player behavior, context building
+- `turingarou-backend/src/game/BotDirector.ts` — bot orchestration on an injectable clock (ticks, silence watchdog, direct replies, posting gaps, votes)
+- `turingarou-backend/src/game/Bot.ts` — one bot class for AIs and inspectors (prompts in `botPrompts.ts`, context in `botContext.ts`)
 - `turingarou-backend/src/game/AIPlayerInstructions.ts` — system prompt scaffolding, AI_GOAL_BLOCK
-- `turingarou-backend/src/game/InspectorController.ts` — AI detective player
 - `turingarou-backend/src/game/GameLogger.ts` — Postgres persistence (schema created at boot) and human profiles
 - `turingarou-backend/src/server.ts` — Socket.io server, room management, serves the frontend at `/`
 - `turingarou-backend/src/llm/` — LLM provider adapters

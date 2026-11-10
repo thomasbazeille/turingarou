@@ -66,7 +66,7 @@ interface SpeakParams {
 
 /** A discussion decision: strict JSON, form gate on the message, one regeneration, never posts raw model output. */
 export async function decideWithGate(
-  p: SpeakParams & { messages: LLMMessage[]; speech: SpeechContext; temperatureScale: number }
+  p: SpeakParams & { messages: LLMMessage[]; speech: SpeechContext | (() => SpeechContext); temperatureScale: number }
 ): Promise<DecisionOutcome> {
   const emit = (e: Omit<AISpeechEvent, 'player' | 'at'>) => p.eventSink?.({ player: p.player, at: Date.now(), ...e });
   const stale = () => p.alive !== undefined && !p.alive();
@@ -100,8 +100,15 @@ export async function decideWithGate(
   if ('failed' in first) return failure(first.failed ?? 'llm');
   if (!first.decision.shouldRespond) return { kind: 'silent' };
 
-  const gateCtx = { channel: 'discussion' as const, caseProfile: p.profile.caseProfile, dropFinalPeriodProb: p.profile.dropFinalPeriodProb, rng: p.rng, ...p.speech };
-  const v1 = checkMessage(first.decision.message, gateCtx);
+  // Read when the gate runs: during a chain of retries other bots may have posted the very line this one drafts.
+  const gateCtx = () => ({
+    channel: 'discussion' as const,
+    caseProfile: p.profile.caseProfile,
+    dropFinalPeriodProb: p.profile.dropFinalPeriodProb,
+    rng: p.rng,
+    ...(typeof p.speech === 'function' ? p.speech() : p.speech),
+  });
+  const v1 = checkMessage(first.decision.message, gateCtx());
   if (v1.ok) return { kind: 'message', message: v1.text, regenerated: false, notes: v1.notes };
 
   emit({ kind: 'gate_regen', reason: v1.reason, detail: first.decision.message.slice(0, 160) });
@@ -111,7 +118,7 @@ export async function decideWithGate(
   ]);
   if ('failed' in second) return failure(second.failed ?? 'llm');
   if (!second.decision.shouldRespond) return { kind: 'silent' };
-  const v2 = checkMessage(second.decision.message, gateCtx);
+  const v2 = checkMessage(second.decision.message, gateCtx());
   if (v2.ok) return { kind: 'message', message: v2.text, regenerated: true, notes: v2.notes };
   emit({ kind: 'gate_drop', reason: v2.reason, detail: second.decision.message.slice(0, 160) });
   return { kind: 'dropped', reason: v2.reason, detail: v2.detail };

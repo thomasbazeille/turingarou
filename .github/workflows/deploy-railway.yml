@@ -38,8 +38,10 @@ jobs:
       - run: npm ci
       - name: Build
         run: npm run build
-      - name: Unit tests (form gate, timing, direct address)
+      - name: Unit tests (form gate, timing, direct address, bot core)
         run: npm run test:unit
+      - name: Simulated games (virtual time, fake models and humans)
+        run: npm run test:sim
       - name: Smoke test (server + test client)
         # Le serveur refuse de démarrer sans clé LLM ; une fausse suffit, rejoindre
         # une salle n'appelle aucun modèle. Pas de DATABASE_URL : persistance coupée.
