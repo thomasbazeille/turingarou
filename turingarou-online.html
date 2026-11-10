@@ -108,6 +108,12 @@
     .send-btn:hover:not(:disabled) { background: rgba(255,255,255,0.2); }
     .send-btn:disabled { opacity: 0.35; cursor: not-allowed; }
     .char-counter { font-size: 9px; color: rgba(255,255,255,0.3); text-align: right; }
+    .voice-btn { background: none; border: 1px solid rgba(255,255,255,0.15); border-radius: 5px; color: rgba(255,255,255,0.45); font-size: 13px; padding: 4px 8px; cursor: pointer; line-height: 1; }
+    .voice-btn.active { color: #06b6d4; border-color: #06b6d4; }
+    .ptt-btn { align-self: flex-end; min-width: 44px; background: rgba(255,255,255,0.08); border: 1px solid; border-radius: 5px; padding: 8px 10px; font-size: 13px; font-weight: bold; cursor: pointer; white-space: nowrap; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+    .ptt-btn.rec { background: #ef4444; border-color: #ef4444 !important; color: #fff !important; }
+    .ptt-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    .voice-status { font-size: 10px; color: #f59e0b; text-align: right; }
     /* Vote UI (inside local-input-cell during voting phase) */
     .vote-label { color: #ef4444; font-size: 10px; font-weight: 700; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 1px; }
     .vote-select { width: 100%; background: #18181b; border: 1px solid rgba(239,68,68,0.5); color: #fff; padding: 7px; border-radius: 5px; margin-bottom: 6px; cursor: pointer; font-size: 11px; }
@@ -497,6 +503,7 @@
           <div class="eliminated-circles" id="eliminated-circles"></div>
           <div class="bot-counter" id="bot-counter">🤖</div>
           <button class="chat-toggle-btn" id="chat-toggle-btn" onclick="toggleSingleChat()" title="Passer en chat unique">☰</button>
+          <button class="voice-btn" id="voice-btn" onclick="Voice.toggle()" style="display:none;">🔇</button>
         </div>
       </div>
       <!-- Messages -->
@@ -739,6 +746,282 @@ socket.on('gameState', (state) => {
   updateGameFromServer(state);
 });
 
+// === VOICE (optional, shown only when the server exposes it) ===
+// Every line, human or AI, is spoken by the server in its author's assigned voice; push-to-talk lines are
+// transcribed server-side and posted like typed ones. Nothing here marks a line as spoken or typed.
+const Voice = (() => {
+  const MAX_LAG_MS = 12000;   // a line not started within 12 s of its arrival is skipped
+  const MAX_QUEUE = 6;
+  const PREFETCH = 3;
+  const FETCH_TIMEOUT_MS = 8000;
+  let cfg = { tts: false, stt: false, maxClipSec: 15, maxClipBytes: 600 * 1024 };
+  let listening = false;
+  let primed = false;
+  const seen = new Set();
+  const queue = [];
+  let pumping = false;
+  let finishCurrent = null;
+  let audioUrl = null;
+  const player = new Audio();
+  let rec = null;
+  let statusTimer = null;
+
+  const vt = (fr, en) => (G.lang === 'fr' ? fr : en);
+  const authHeaders = (extra) => Object.assign({ 'X-Voice-Room': roomId, 'X-Voice-Socket': socket.id || '' }, extra || {});
+
+  fetch(BACKEND_URL + '/api/voice/config')
+    .then((r) => (r.ok ? r.json() : null))
+    .then((c) => { if (c) cfg = c; refreshButton(); })
+    .catch(() => {});
+
+  function refreshButton() {
+    const b = document.getElementById('voice-btn');
+    if (!b) return;
+    b.style.display = cfg.tts ? '' : 'none';
+    b.textContent = listening ? '🔊' : '🔇';
+    b.classList.toggle('active', listening);
+    b.title = listening ? vt('Couper les voix', 'Mute voices') : vt('Écouter les voix', 'Listen to voices');
+  }
+
+  // iOS only lets an element play programmatically once it has played inside a user gesture.
+  function unlock() {
+    const n = 400, buf = new Uint8Array(44 + n);
+    const dv = new DataView(buf.buffer);
+    const str = (o, s) => { for (let i = 0; i < s.length; i++) buf[o + i] = s.charCodeAt(i); };
+    str(0, 'RIFF'); dv.setUint32(4, 36 + n, true); str(8, 'WAVEfmt '); dv.setUint32(16, 16, true);
+    dv.setUint16(20, 1, true); dv.setUint16(22, 1, true); dv.setUint32(24, 8000, true); dv.setUint32(28, 8000, true);
+    dv.setUint16(32, 1, true); dv.setUint16(34, 8, true); str(36, 'data'); dv.setUint32(40, n, true);
+    buf.fill(128, 44);
+    play(new Blob([buf], { type: 'audio/wav' }));
+  }
+
+  function toggle() {
+    listening = !listening;
+    if (listening) unlock(); else stopPlayback();
+    refreshButton();
+  }
+
+  function stopPlayback() {
+    queue.length = 0;
+    player.pause();
+    if (finishCurrent) finishCurrent();
+  }
+
+  function fetchAudio(id) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
+    return fetch(BACKEND_URL + '/api/voice/tts', {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ messageId: id }),
+      signal: ctl.signal,
+    })
+      .then((r) => (r.ok ? r.blob() : null))
+      .catch(() => null)
+      .finally(() => clearTimeout(timer));
+  }
+
+  function play(blob) {
+    if (finishCurrent) finishCurrent();
+    return new Promise((resolve) => {
+      if (audioUrl) URL.revokeObjectURL(audioUrl);
+      audioUrl = URL.createObjectURL(blob);
+      let done = false;
+      const guard = setTimeout(() => finish(), 30000);
+      function finish() {
+        if (done) return;
+        done = true;
+        clearTimeout(guard);
+        player.onended = player.onerror = null;
+        finishCurrent = null;
+        resolve();
+      }
+      finishCurrent = finish;
+      player.onended = finish;
+      player.onerror = finish;
+      player.src = audioUrl;
+      const p = player.play();
+      if (p && p.catch) p.catch((err) => {
+        if (err && err.name === 'NotAllowedError') {
+          listening = false;
+          queue.length = 0;
+          refreshButton();
+          status(vt('Son bloqué : touche 🔇 pour réactiver', 'Sound blocked: tap 🔇 to re-enable'));
+        }
+        finish();
+      });
+    });
+  }
+
+  async function pump() {
+    if (pumping) return;
+    pumping = true;
+    while (listening && queue.length) {
+      const item = queue[0];
+      queue.slice(0, PREFETCH).forEach((q) => { if (!q.audio) q.audio = fetchAudio(q.id); });
+      const blob = await item.audio;
+      if (queue[0] === item) queue.shift();
+      if (!blob || !listening || Date.now() - item.at > MAX_LAG_MS) continue;
+      await play(blob);
+    }
+    pumping = false;
+  }
+
+  function onState(state, prevPhase) {
+    if (state.phase === 'waiting' && prevPhase && prevPhase !== 'waiting') {
+      stopPlayback();
+      seen.clear();
+      primed = false;
+    }
+    if (state.phase !== 'discussion' && rec) stopRec();
+    const msgs = state.messages || [];
+    if (!primed) {
+      msgs.forEach((m) => seen.add(m.id));
+      primed = true;
+      return;
+    }
+    for (const m of msgs) {
+      if (seen.has(m.id)) continue;
+      seen.add(m.id);
+      if (!listening || !cfg.tts || m.playerId === 'system') continue;
+      queue.push({ id: m.id, at: Date.now(), audio: null });
+      while (queue.length > MAX_QUEUE) queue.shift();
+    }
+    pump();
+  }
+
+  // --- push-to-talk ---
+
+  function canSpeak() {
+    return !!(cfg.tts && cfg.stt && navigator.mediaDevices && navigator.mediaDevices.getUserMedia && typeof MediaRecorder !== 'undefined');
+  }
+
+  function pttHtml(col) {
+    if (!canSpeak()) return '';
+    return '<button type="button" class="ptt-btn" id="ptt-btn" style="border-color:' + col + ';color:' + col + ';" title="'
+      + vt('Maintiens pour parler', 'Hold to talk') + '">🎤</button>';
+  }
+
+  function setPtt(state, label) {
+    const b = document.getElementById('ptt-btn');
+    if (!b) return;
+    b.classList.toggle('rec', state === 'rec');
+    b.disabled = state === 'busy';
+    b.textContent = state === 'rec' ? '● ' + label : state === 'busy' || state === 'wait' ? '…' : '🎤';
+  }
+
+  function status(msg) {
+    const el = document.getElementById('voice-status');
+    if (!el) return;
+    el.textContent = msg;
+    clearTimeout(statusTimer);
+    statusTimer = setTimeout(() => { el.textContent = ''; }, 4000);
+  }
+
+  function bindPtt() {
+    const b = document.getElementById('ptt-btn');
+    if (!b || b.dataset.bound) return;
+    b.dataset.bound = '1';
+    b.onpointerdown = (e) => {
+      e.preventDefault();
+      if (b.setPointerCapture) { try { b.setPointerCapture(e.pointerId); } catch (_) {} }
+      startRec();
+    };
+    b.onpointerup = b.onpointercancel = (e) => { e.preventDefault(); stopRec(); };
+    b.oncontextmenu = (e) => e.preventDefault();
+    b.onkeydown = (e) => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); startRec(); } };
+    b.onkeyup = (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); stopRec(); } };
+  }
+
+  async function startRec() {
+    if (rec || G.s !== 'discussion') return;
+    const r = (rec = { released: false, chunks: [] });
+    setPtt('wait');
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+    } catch (_) {
+      rec = null;
+      setPtt('idle');
+      status(vt('Micro refusé ou indisponible', 'Microphone denied or unavailable'));
+      return;
+    }
+    if (r.released) {
+      stream.getTracks().forEach((t) => t.stop());
+      rec = null;
+      setPtt('idle');
+      status(vt('Maintiens le bouton pour parler', 'Hold the button to talk'));
+      return;
+    }
+    const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
+    const mimeType = types.find((t) => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t));
+    try {
+      r.recorder = new MediaRecorder(stream, mimeType ? { mimeType, audioBitsPerSecond: 32000 } : { audioBitsPerSecond: 32000 });
+    } catch (_) {
+      stream.getTracks().forEach((t) => t.stop());
+      rec = null;
+      setPtt('idle');
+      status(vt('Enregistrement non supporté', 'Recording not supported'));
+      return;
+    }
+    r.stream = stream;
+    r.startedAt = Date.now();
+    r.recorder.ondataavailable = (ev) => { if (ev.data && ev.data.size) r.chunks.push(ev.data); };
+    r.recorder.onstop = () => finishRec(r);
+    r.recorder.start();
+    player.volume = 0.15;
+    setPtt('rec', cfg.maxClipSec);
+    r.tick = setInterval(() => {
+      const left = cfg.maxClipSec - Math.floor((Date.now() - r.startedAt) / 1000);
+      setPtt('rec', Math.max(0, left));
+      if (left <= 0) stopRec();
+    }, 250);
+  }
+
+  function stopRec() {
+    const r = rec;
+    if (!r) return;
+    r.released = true;
+    if (r.recorder && r.recorder.state === 'recording') r.recorder.stop();
+  }
+
+  async function finishRec(r) {
+    clearInterval(r.tick);
+    r.stream.getTracks().forEach((t) => t.stop());
+    player.volume = 1;
+    const type = (r.recorder.mimeType || (r.chunks[0] && r.chunks[0].type) || 'audio/webm').split(';')[0];
+    const blob = new Blob(r.chunks, { type });
+    if (Date.now() - r.startedAt < 500 || blob.size < 500) {
+      rec = null;
+      setPtt('idle');
+      status(vt('Maintiens le bouton pour parler', 'Hold the button to talk'));
+      return;
+    }
+    setPtt('busy');
+    try {
+      const res = await fetch(BACKEND_URL + '/api/voice/stt', { method: 'POST', headers: authHeaders({ 'Content-Type': type }), body: blob });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg = {
+          409: vt('Trop tard : la discussion est finie', 'Too late: the discussion is over'),
+          413: vt('Trop long (' + cfg.maxClipSec + ' s max)', 'Too long (' + cfg.maxClipSec + ' s max)'),
+          422: vt('Rien entendu', 'Nothing heard'),
+          429: vt('Doucement…', 'Slow down…'),
+        }[res.status];
+        status(msg || vt('Transcription impossible', 'Transcription failed'));
+      } else if (body.truncated) {
+        status(vt('Message coupé (trop long)', 'Message cut (too long)'));
+      }
+    } catch (_) {
+      status(vt('Envoi impossible', 'Upload failed'));
+    }
+    rec = null;
+    setPtt('idle');
+  }
+
+  return { toggle, onState, canSpeak, pttHtml, bindPtt };
+})();
+
 function updateGameFromServer(state) {
   var prevPhase = G.s;
   G.s = state.phase;
@@ -789,6 +1072,7 @@ function updateGameFromServer(state) {
     });
   }
   G.answersByRound = state.answersByRound || {};
+  Voice.onState(state, prevPhase);
   
   // Mettre à jour les éliminés
   G.e = state.players
@@ -1162,9 +1446,11 @@ cell.innerHTML=
   +' style="border-color:'+borderCol+';box-shadow:0 0 8px '+borderCol+'33;"'
   +' onkeydown="if(event.key===\'Enter\'&&!event.shiftKey){event.preventDefault();sendMessage();}"'
   +'></textarea>'
+  +Voice.pttHtml(borderCol)
   +'<button class="send-btn" id="send-btn" onclick="sendMessage()" style="border-color:'+borderCol+';color:'+borderCol+';">SEND</button>'
   +'</div>'
-  +'<div class="char-counter" id="char-counter">0/'+mc+'</div>';
+  +'<div class="char-counter" id="char-counter">0/'+mc+'</div>'
+  +(Voice.canSpeak()?'<div class="voice-status" id="voice-status"></div>':'');
 }
 }
 row.appendChild(cell);
@@ -1179,6 +1465,7 @@ if(ta){
 const vs=document.getElementById('vote-select');
 const vb=document.getElementById('vote-btn');
 if(vs&&vb){ vs.onchange=function(){ vb.disabled=!this.value; }; }
+Voice.bindPtt();
 }
 
 function renderQuestionScreen(){
