@@ -10,6 +10,7 @@ import { initDB, isDBEnabled } from './game/GameLogger.js';
 import fs from 'fs';
 import { ChatProvider } from './llm/chatClient.js';
 import { buildProviderPool, describePool } from './llm/providerRegistry.js';
+import { registerVoiceRoutes } from './voice/routes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -222,6 +223,8 @@ app.get('/health', (req, res) => {
     db: isDBEnabled() ? 'postgres' : 'none',
   });
 });
+
+registerVoiceRoutes(app, gameRooms);
 
 app.get('/rooms', (req, res) => {
   const rooms = Array.from(gameRooms.values()).map((room) => ({

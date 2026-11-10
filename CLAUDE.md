@@ -89,6 +89,7 @@ src/llm/                (Deepseek / Mistral / Anthropic adapters)
 - `DEEPSEEK_API_KEY`, `MISTRAL_API_KEY`, `ANTHROPIC_API_KEY` — LLM providers (all configured ones are used; each AI picks at random per game)
 - `AI_COUNT` — number of AI players per game (default: 3)
 - `DATABASE_URL` — Postgres connection string. Set by Railway in prod (`${{Postgres.DATABASE_URL}}`); optional locally — without it the game runs and nothing is persisted
+- `VOICE_ENABLED=1` + `CARTESIA_API_KEY` + `DEEPGRAM_API_KEY` — optional voice mode (`src/voice/`): every chat line spoken in its author's assigned voice, push-to-talk transcribed into a normal chat line. Off when unset. Other vendors: `VOICE_TTS_PROVIDER` (`cartesia`|`elevenlabs`|`openai`), `VOICE_STT_PROVIDER` (`deepgram`|`openai`). Live check: `npx tsx scripts/probe-voice.ts`
 
 ### Deployment
 Railway project `turingarou`, service `turingarou` + `Postgres`. Config in `railway.json` (repo root). Railway is NOT connected to GitHub: `.github/workflows/deploy-railway.yml` runs the checks (build + server boot + test client) then `railway up`. **CI red ⇒ nothing ships**, and `/health` keeps answering 200 on the previous version — check the Actions run, not just `/health`. GitHub Pages still serves a copy of the frontend that points at the Railway backend.
