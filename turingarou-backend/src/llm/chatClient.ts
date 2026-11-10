@@ -18,6 +18,8 @@ export interface ChatResult {
   latencyMs: number;
   provider: string;
   model: string;
+  /** Token counts reported by the vendor, when it reports them. */
+  usage?: { inputTokens: number; outputTokens: number; reasoningTokens?: number };
 }
 
 export class ProviderError extends Error {

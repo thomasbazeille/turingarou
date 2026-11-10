@@ -9,8 +9,7 @@ import { GameRoom } from './game/GameRoom.js';
 import { initDB, isDBEnabled } from './game/GameLogger.js';
 import fs from 'fs';
 import { ChatProvider } from './llm/chatClient.js';
-import { OpenAICompatProvider } from './llm/OpenAICompatProvider.js';
-import { AnthropicChatProvider } from './llm/AnthropicChatProvider.js';
+import { buildProviderPool, describePool } from './llm/providerRegistry.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -30,46 +29,20 @@ app.use(express.json());
 
 // ====== LLM PROVIDER SETUP ======
 
-// Build pool: all providers whose API key is set.
-// Each AI in a game will pick independently at random — within a game you can get mixed providers.
-// A provider failing mid-call falls back to another one of this pool (llmCall.ts).
-const llmProviders: ChatProvider[] = [];
-
-if (process.env.DEEPSEEK_API_KEY) {
-  llmProviders.push(
-    new OpenAICompatProvider({
-      vendor: 'Deepseek',
-      baseUrl: 'https://api.deepseek.com/v1',
-      apiKey: process.env.DEEPSEEK_API_KEY,
-      model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
-      defaultTemperature: 1.3,
-      supportsJson: true,
-    })
-  );
-}
-if (process.env.MISTRAL_API_KEY) {
-  llmProviders.push(
-    new OpenAICompatProvider({
-      vendor: 'Mistral',
-      baseUrl: 'https://api.mistral.ai/v1',
-      apiKey: process.env.MISTRAL_API_KEY,
-      model: process.env.MISTRAL_MODEL || 'mistral-small-latest',
-      defaultTemperature: 1.0,
-      maxTemperature: 1.0,
-      supportsJson: true,
-    })
-  );
-}
-if (process.env.ANTHROPIC_API_KEY) {
-  llmProviders.push(new AnthropicChatProvider(process.env.ANTHROPIC_API_KEY, process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5'));
-}
+// LLM_POOL="id[:weight],…" picks providers from src/llm/providerRegistry.ts; without it, every default provider
+// whose key is set (Deepseek, Mistral, Anthropic). Each AI draws one provider per game (weighted), and a call that
+// fails falls back to another provider of this pool (llmCall.ts).
+const llmPool = buildProviderPool(process.env);
+llmPool.warnings.forEach((w) => console.warn(`[llm] ${w}`));
+const llmProviders: ChatProvider[] = llmPool.providers;
+const llmProviderNames = llmPool.members.map((m) => m.provider.name);
 
 if (llmProviders.length === 0) {
-  console.error('No LLM API key configured. Set DEEPSEEK_API_KEY and/or MISTRAL_API_KEY.');
+  console.error('No LLM provider available. Set LLM_POOL and the matching keys, or DEEPSEEK_API_KEY / MISTRAL_API_KEY / ANTHROPIC_API_KEY.');
   process.exit(1);
 }
 
-console.log(`Using LLM provider(s): ${llmProviders.map((p) => p.name).join(', ')}`);
+console.log(`LLM pool: ${describePool(llmPool)}`);
 
 // Commit served, written by the deploy workflow; "dev" locally.
 const VERSION = (() => {
@@ -243,7 +216,7 @@ app.get('/health', (req, res) => {
     status: 'ok',
     version: VERSION,
     rooms: gameRooms.size,
-    llmProviders: llmProviders.map((p) => p.name),
+    llmProviders: llmProviderNames,
     aiCount: parseInt(process.env.AI_COUNT || '3'),
     maxPlayers: 8,
     db: isDBEnabled() ? 'postgres' : 'none',
@@ -273,7 +246,7 @@ httpServer.listen(PORT, () => {
 🎮 Turingarou Backend Server Started
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📡 Port: ${PORT}
-🤖 LLM: ${llmProviders.map((p) => p.name).join(' + ')}
+🤖 LLM: ${llmProviderNames.join(' + ')}
 🎯 AI Count: ${process.env.AI_COUNT || 2}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   `);

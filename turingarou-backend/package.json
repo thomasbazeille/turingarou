@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "test:unit": "tsx scripts/test-direct-address.ts && tsx scripts/test-form-gate.ts && tsx scripts/test-human-timing.ts",
+    "test:unit": "tsx scripts/test-direct-address.ts && tsx scripts/test-form-gate.ts && tsx scripts/test-human-timing.ts && tsx scripts/test-provider-registry.ts",
     "build": "tsc",
     "start": "node dist/server.js",
     "analyze": "tsx scripts/analyze-games.ts"
