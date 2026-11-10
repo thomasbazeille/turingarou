@@ -20,6 +20,7 @@ export interface ProviderSpec {
   maxTokensParam?: 'max_tokens' | 'max_completion_tokens';
   reasoningHeadroom?: number;
   disableThinking?: boolean;
+  omitTemperature?: boolean;
   /** USD per million tokens, for cost estimates only. */
   price: { input: number; output: number };
   notes: string;
@@ -92,8 +93,9 @@ export const PROVIDER_CATALOG: ProviderSpec[] = [
     maxTemperature: 1.0,
     supportsJson: false,
     disableThinking: true,
+    omitTemperature: true,
     price: { input: 1, output: 5 },
-    notes: 'Thinks by default: without thinking disabled a 220-token budget returns an empty reply. Price unverified (budgeted like 4.5).',
+    notes: 'Thinks by default (a 220-token budget then returns an empty reply) and rejects any temperature but its default: both handled. Price unverified (budgeted like 4.5).',
   },
   {
     id: 'cerebras-qwen',
@@ -238,8 +240,11 @@ export function createProvider(spec: ProviderSpec, env: Env): ChatProvider | nul
   if (!apiKey) return null;
   const model = (spec.modelEnv && env[spec.modelEnv]) || spec.model;
   if (spec.api === 'anthropic') {
+    // Haiku 5.x behaves differently from 4.5 (see anthropic-haiku-5-5), also when chosen through ANTHROPIC_MODEL.
+    const haiku5 = /haiku-5/.test(model);
     return new AnthropicChatProvider(apiKey, model, {
-      disableThinking: spec.disableThinking ?? /haiku-5/.test(model),
+      disableThinking: spec.disableThinking ?? haiku5,
+      omitTemperature: spec.omitTemperature ?? haiku5,
       workspaceId: env.ANTHROPIC_WORKSPACE_ID || undefined,
     });
   }

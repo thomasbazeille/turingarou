@@ -4,6 +4,8 @@ import { ChatProvider, ChatRequest, ChatResult, ProviderError, isRetryableStatus
 export interface AnthropicOptions {
   /** Haiku 5.5 thinks by default and spends the whole small budget on it (empty reply): send thinking disabled. */
   disableThinking?: boolean;
+  /** Haiku 5.5 rejects any temperature but its default ("`temperature` is deprecated for this model"). */
+  omitTemperature?: boolean;
   /** Organisation keys need an anthropic-workspace-id header. */
   workspaceId?: string;
 }
@@ -45,7 +47,7 @@ export class AnthropicChatProvider implements ChatProvider {
         {
           model: this.model,
           max_tokens: req.maxTokens ?? 300,
-          temperature: resolveTemperature(req, 1.0, 1),
+          ...(this.options.omitTemperature ? {} : { temperature: resolveTemperature(req, 1.0, 1) }),
           // The system prompt is stable for a given AI during a game: cache it.
           system: system ? [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }] : undefined,
           messages: turns,
