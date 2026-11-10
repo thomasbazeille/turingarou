@@ -158,6 +158,18 @@ export class GameRoom {
     return `${prefix}-${this.now()}-${this.deps.rng()}`;
   }
 
+  /**
+   * Player ids reach every browser, so they must say nothing about the player: same shape for humans, AIs and
+   * inspectors, no prefix, no creation time (the AIs are all created in the same millisecond at game start).
+   */
+  private newPlayerId(): string {
+    const hex = () => Math.floor(this.deps.rng() * 0x100000000).toString(16).padStart(8, '0');
+    for (;;) {
+      const id = `p-${hex()}${hex()}`;
+      if (!this.state.players.some((p) => p.id === id)) return id;
+    }
+  }
+
   private pickProvider(): ChatProvider {
     return this.llmProviders[Math.floor(this.deps.rng() * this.llmProviders.length)];
   }
@@ -183,7 +195,7 @@ export class GameRoom {
 
     const player: HumanPlayer = {
       type: 'human',
-      id: this.newId('player'),
+      id: this.newPlayerId(),
       socketId,
       username,
       color: color.hex,
@@ -209,7 +221,7 @@ export class GameRoom {
     const humanNames = this.state.players.filter((p) => p.type === 'human').map((p) => p.username);
     const player: HumanPlayer = {
       type: 'human',
-      id: this.newId('inspector'),
+      id: this.newPlayerId(),
       socketId: '',
       username: this.deps.names.pick(humanNames),
       color: color.hex,
@@ -278,7 +290,7 @@ export class GameRoom {
       if (!color) return;
       const player: AIPlayerData = {
         type: 'ai',
-        id: this.newId('ai'),
+        id: this.newPlayerId(),
         username: personality.name,
         color: color.hex,
         colorName: color.name,

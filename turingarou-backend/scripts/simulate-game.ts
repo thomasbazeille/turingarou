@@ -552,6 +552,13 @@ async function runGame(sc: Scenario): Promise<GameResult> {
           emitsAfterEnd++;
           return true;
         }
+        // What every browser receives must not say who is an AI.
+        for (const pl of (payload as { players?: Record<string, unknown>[] }).players ?? []) {
+          if (!/^p-[0-9a-f]{16}$/.test(String(pl.id))) offend('revealing_id', `player id "${String(pl.id)}" is not opaque`);
+          for (const k of ['type', 'personality', 'socketId', 'messageHistory']) {
+            if (k in pl) offend('revealing_id', `player ${String(pl.username)} exposes "${k}"`);
+          }
+        }
         const p = payload as { phase: string; currentRound: number; votes?: { voterId: string; targetId: string }[]; eliminatedPlayerId?: string | null };
         const last = phases[phases.length - 1];
         if (!last || last.phase !== p.phase || last.round !== p.currentRound) {
@@ -891,6 +898,7 @@ function report(results: GameResult[], elapsed: number, games: number): void {
     { name: 'unhandled rejection / uncaught / unexpected error', value: `${sum('unhandled_rejection')} / ${sum('uncaught')} / ${sum('unexpected_errors') + sum('bot_errors')}`, ok: sum('unhandled_rejection') + sum('uncaught') + sum('unexpected_errors') + sum('bot_errors') === 0, keys: ['unhandled_rejection', 'uncaught', 'unexpected_errors', 'bot_errors'] },
     { name: 'telemetry line per game', value: `${games - sum('telemetry')}/${games}; trigger→post p50 ${medianOf('direct')} s direct, ${medianOf('regular')} s regular`, ok: sum('telemetry') === 0, keys: ['telemetry'] },
     { name: 'timers / emits / calls after end', value: `${sum('room_timers_left')} / ${sum('emits_after_end')} / ${sum('call_started_after_end')}, clock drained ${games - sum('clock_not_drained')}/${games}`, ok: sum('room_timers_left') + sum('emits_after_end') + sum('clock_not_drained') === 0, keys: ['room_timers_left', 'emits_after_end', 'clock_not_drained'] },
+    { name: 'player ids and fields sent to clients reveal nothing', value: `${sum('revealing_id')} leaks`, ok: sum('revealing_id') === 0, keys: ['revealing_id'] },
     { name: 'persisted player kinds', value: `${sum('persisted_kind') + sum('not_persisted')} wrong`, ok: sum('persisted_kind') + sum('not_persisted') === 0, keys: ['persisted_kind', 'not_persisted'] },
   ];
 
