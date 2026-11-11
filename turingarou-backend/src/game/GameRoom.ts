@@ -39,7 +39,7 @@ import {
   VOTE_DEADLINE_MS,
 } from './BotDirector.js';
 import { RoundRecord } from './botContext.js';
-import { buildTranscript, flagResults, PlayerReview, scoreVotes, Transcript } from './gameReview.js';
+import { buildTranscript, flagResults, PlayerReview, scoreVotes, shareText, Transcript } from './gameReview.js';
 import { Clock, systemClock, TimerHandle, Timers } from './clock.js';
 
 /** The part of Socket.io a room uses: broadcast to its own channel. */
@@ -1092,9 +1092,11 @@ export class GameRoom {
   reviewOf(playerId: string): PlayerReview | null {
     if (this.state.phase !== 'gameover' || !this.sessions.has(playerId)) return null;
     const isAI = (id: string) => this.revealOf(id).isAI;
+    const score = scoreVotes(playerId, this.voteHistory, isAI);
     return {
       gameKey: `${this.state.roomId}-${this.startedAt}`,
-      score: scoreVotes(playerId, this.voteHistory, isAI),
+      score,
+      share: shareText(score, this.state.language ?? 'fr'),
       flags: flagResults(this.flagsBy.get(playerId) ?? [], this.state.messages, isAI),
     };
   }

@@ -188,6 +188,8 @@
     .score-tile.wrong .score-n { color: #f59e0b; }
     .score-l { color: #cbd5e1; font-size: 12px; }
     .score-total { color: #94a3b8; font-size: 11px; text-align: center; margin-bottom: 12px; }
+    .share-btn { display: block; margin: 0 auto 14px; padding: 9px 18px; background: rgba(34,211,238,0.12); color: #22d3ee; border: 1px solid rgba(34,211,238,0.5); border-radius: 7px; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .share-btn:hover { background: rgba(34,211,238,0.22); }
     .review-flag { font-size: 12px; color: #e2e8f0; padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
     .review-flag .ai { color: #ef4444; }
     .review-flag .human { color: #22c55e; }
@@ -198,7 +200,7 @@
     .replay-round { color: #22d3ee; font-family: monospace; margin: 12px 0 2px; }
     .replay-q { color: #cbd5e1; font-style: italic; margin-bottom: 4px; }
     .replay-line { padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
-    .replay-line.answer { color: #cbd5e1; }
+    .replay-line.answer { color: #cbd5e1; padding-left: 8px; border-left: 2px solid rgba(34,211,238,0.35); }
     .replay-who { margin-right: 6px; font-weight: 600; }
     .replay-tag { font-size: 10px; margin-right: 6px; }
     .replay-tag.ai { color: #ef4444; }
@@ -1094,7 +1096,7 @@ socket.on('myAnswer', (a) => {
 
 // At the game over each player gets their own review (what they flagged); nobody else sees it.
 socket.on('myReview', (r) => {
-  G.review = r && Array.isArray(r.flags) && r.score ? r : null;
+  G.review = r && Array.isArray(r.flags) && r.score && typeof r.share === 'string' ? r : null;
   if (G.s === 'gameover') renderReview();
 });
 
@@ -3387,6 +3389,34 @@ function renderReveal(state){
   });
 }
 
+/** The game's address to share: this page without its query (a room code) nor hash; the live site when opened as a file. */
+function shareLink(){
+  return location.protocol === 'file:' ? 'https://turingarou-production.up.railway.app/' : location.origin + location.pathname;
+}
+
+/** Copies the server's spoiler-free result (no name, no model) and the game's link. */
+function copyShare(){
+  if (!G.review) return;
+  const fr = G.lang === 'fr';
+  const text = G.review.share + '\n' + shareLink();
+  const done = function(){ showConnToast(fr ? 'Résultat copié' : 'Result copied'); };
+  const fallback = function(){
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
+    if (ok) done(); else window.prompt(fr ? 'Copie ce texte :' : 'Copy this text:', text);
+  };
+  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(done, fallback);
+  else fallback();
+}
+
 const TALLY_KEY = 'turingarou.tally.v1';
 
 /** Running totals kept in this browser only (no account): each game counted once, by the server's gameKey. */
@@ -3434,6 +3464,12 @@ function renderReview(){
     total.textContent = (fr ? 'Au total : ' : 'All time: ') + t.aiFound + ' ' + foundLabel(t.aiFound) + ' · ' + t.falseAccusations + ' ' + wrongLabel(t.falseAccusations) + ' · ' + t.played + (fr ? ' parties' : ' games');
     el.appendChild(total);
   }
+  const share = document.createElement('button');
+  share.type = 'button';
+  share.className = 'share-btn';
+  share.textContent = fr ? 'Copier mon résultat' : 'Copy my result';
+  share.onclick = copyShare;
+  el.appendChild(share);
   if (r.flags.length) {
     const head = document.createElement('div');
     head.className = 'end-screen-history-title';

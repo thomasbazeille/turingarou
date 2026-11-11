@@ -83,6 +83,8 @@ export interface PlayerReview {
   /** Same for every player of the game, different from any other game: the browser counts a game once. */
   gameKey: string;
   score: Score;
+  /** shareText of the score, in the game's language; the browser adds the page link. */
+  share: string;
   flags: FlagResult[];
 }
 
@@ -107,4 +109,21 @@ export function flagResults(messageIds: string[], messages: GameMessage[], isAI:
     const m = messages.find((x) => x.id === id && x.playerId !== 'system');
     return m ? [{ messageId: m.id, round: m.round, authorId: m.playerId, authorName: m.playerName, text: m.content, isAI: isAI(m.playerId) }] : [];
   });
+}
+
+const SHARE_MARK: Record<RoundVote['outcome'], string> = { ai: '🎯', human: '❌', abstain: '⬜' };
+
+/**
+ * The result a player can paste anywhere, Wordle-style: the score, then one line per round they voted in (an AI
+ * found, a human accused, no vote; voted out). Never a name, a model or a room: nothing that spoils a future game.
+ * The page link is added by the browser, which knows the address it was served from.
+ */
+export function shareText(score: Score, lang: 'fr' | 'en'): string {
+  const fr = lang === 'fr';
+  const found = fr ? `${score.aiFound} IA ${score.aiFound > 1 ? 'trouvées' : 'trouvée'}` : `${score.aiFound} ${score.aiFound === 1 ? 'AI' : 'AIs'} found`;
+  const wrong = fr
+    ? `${score.falseAccusations} ${score.falseAccusations > 1 ? 'fausses accusations' : 'fausse accusation'}`
+    : `${score.falseAccusations} false ${score.falseAccusations === 1 ? 'accusation' : 'accusations'}`;
+  const lines = score.rounds.map((r) => `${fr ? 'M' : 'R'}${r.round} ${SHARE_MARK[r.outcome]}${r.out ? ' 💀' : ''}`);
+  return [`Turingarou · ${found} · ${wrong}`, ...lines].join('\n');
 }

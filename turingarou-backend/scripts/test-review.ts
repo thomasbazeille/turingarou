@@ -1,13 +1,15 @@
 /**
  * The game over review: the transcript of the whole game with every author revealed, sent with the game over
  * only and again to a player back with their session token; each human's own review (their score: AIs found and
- * false accusations, and the lines they flagged and who wrote them), sent to that human's socket only.
+ * false accusations, a spoiler-free text to share, and the lines they flagged and who wrote them), sent to that
+ * human's socket only.
  *
  *   npx tsx scripts/test-review.ts
  */
 import assert from 'node:assert/strict';
 import { DISCUSSION_PHASE_MS, ENDROUND_MS, GameRoom, QUESTION_PHASE_MS, RoomEmitter } from '../src/game/GameRoom.js';
-import { buildTranscript, flagResults, scoreVotes } from '../src/game/gameReview.js';
+import { buildTranscript, flagResults, scoreVotes, shareText } from '../src/game/gameReview.js';
+import { modelLabel } from '../src/llm/providerRegistry.js';
 import type { ChatProvider } from '../src/llm/chatClient.js';
 import { makeSeededRng } from '../src/game/humanTiming.js';
 
@@ -269,6 +271,39 @@ await check("each human's score at the game over follows their own votes, agains
     assert.equal(score.falseAccusations, expected.filter((r) => r.outcome === 'human').length);
   }
   assert.ok(game.room.reviewOf(game.humanIds[0])!.score.aiFound > 0, 'the scenario found no AI');
+});
+
+// ====== SHARE ======
+
+await check('share text: the score, one line per round with its mark, in the game language', () => {
+  const score = {
+    aiFound: 2,
+    falseAccusations: 1,
+    rounds: [
+      { round: 1, outcome: 'ai' as const, out: false },
+      { round: 2, outcome: 'human' as const, out: false },
+      { round: 3, outcome: 'abstain' as const, out: false },
+      { round: 4, outcome: 'ai' as const, out: true },
+    ],
+  };
+  assert.equal(shareText(score, 'fr'), 'Turingarou · 2 IA trouvées · 1 fausse accusation\nM1 🎯\nM2 ❌\nM3 ⬜\nM4 🎯 💀');
+  assert.equal(shareText(score, 'en'), 'Turingarou · 2 AIs found · 1 false accusation\nR1 🎯\nR2 ❌\nR3 ⬜\nR4 🎯 💀');
+  assert.equal(shareText({ aiFound: 1, falseAccusations: 0, rounds: [] }, 'fr'), 'Turingarou · 1 IA trouvée · 0 fausse accusation');
+  assert.equal(shareText({ aiFound: 0, falseAccusations: 2, rounds: [] }, 'en'), 'Turingarou · 0 AIs found · 2 false accusations');
+});
+
+await check('share text of every player of a full game: no name, no model, no room, one line per round played', () => {
+  const t = game.gameover.transcript;
+  const models = ['Anthropic/claude-haiku-4-5', 'Deepseek/deepseek-chat', 'Mistral/mistral-small-latest', 'Fake/quiet'].map(modelLabel);
+  for (const id of game.humanIds) {
+    const review = game.room.reviewOf(id)!;
+    const text = review.share;
+    for (const p of t.players) assert.ok(!new RegExp(`\\b${p.name}\\b`, 'i').test(text), `${p.name} named in "${text}"`);
+    for (const m of [...models, ...t.players.map((p: { model?: string }) => p.model).filter(Boolean)]) assert.ok(!text.includes(m), `model ${m} in "${text}"`);
+    assert.ok(!text.includes('T1') && !text.includes(review.gameKey), `room in "${text}"`);
+    assert.equal(text.split('\n').length, 1 + review.score.rounds.length, `not one line per round played: "${text}"`);
+    assert.equal(text, shareText(review.score, 'fr'));
+  }
 });
 
 await check('a player back with their token after the game over gets the same transcript', () => {

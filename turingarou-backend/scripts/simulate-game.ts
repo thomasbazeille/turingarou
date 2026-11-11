@@ -1515,6 +1515,10 @@ async function runGame(sc: Scenario): Promise<GameResult> {
       inc('score_ai_found', review.score.aiFound);
       inc('score_false_accusations', review.score.falseAccusations);
       if (JSON.stringify(review.score) !== JSON.stringify({ aiFound, falseAccusations, rounds })) bad.push(`score ${JSON.stringify(review.score)}, votes say ${aiFound} AIs found, ${falseAccusations} false over ${rounds.length} rounds`);
+      // The text to share spoils nothing: no name of the game, no model, no room; one line per round played.
+      inc('shares_checked');
+      const spoilers = [...s.players.map((p) => p.username), ...PROFILES.map((pr) => modelLabel(pr.name)), s.roomId].filter((w) => new RegExp(`(^|[^\\p{L}])${w}($|[^\\p{L}])`, 'iu').test(review.share));
+      if (spoilers.length > 0 || review.share.split('\n').length !== 1 + rounds.length) bad.push(`share text "${review.share}" carries [${spoilers.join(',')}]`);
       for (const f of review.flags) {
         inc('flags_checked');
         const line = s.messages.find((x) => x.id === f.messageId);
@@ -1867,9 +1871,9 @@ function report(results: GameResult[], elapsed: number, games: number, probe: Fl
       keys: ['transcript'],
     },
     {
-      name: "each human's review (score, flags) on their own socket only, after the end",
-      value: `${sum('reviews_ok')}/${sum('reviews')} reviews right; scores ${sum('scores_checked')} (AIs found ${sum('score_ai_found')}, false accusations ${sum('score_false_accusations')}); ${sum('flags_checked')} flags`,
-      ok: sum('review') === 0 && sum('reviews') > 0 && sum('flags_checked') > 0 && sum('score_ai_found') > 0 && sum('score_false_accusations') > 0,
+      name: "each human's review (score, share, flags) on their own socket only, after the end",
+      value: `${sum('reviews_ok')}/${sum('reviews')} reviews right; scores ${sum('scores_checked')} (AIs found ${sum('score_ai_found')}, false accusations ${sum('score_false_accusations')}); share texts without spoiler ${sum('shares_checked')}; ${sum('flags_checked')} flags`,
+      ok: sum('review') === 0 && sum('reviews') > 0 && sum('flags_checked') > 0 && sum('score_ai_found') > 0 && sum('score_false_accusations') > 0 && sum('shares_checked') === sum('reviews'),
       keys: ['review'],
     },
     {
