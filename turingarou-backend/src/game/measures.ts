@@ -14,7 +14,14 @@ export interface StyleConsent {
 /** How a human line reached the room: typed in the chat, or spoken in push-to-talk and transcribed. */
 export interface LineInput {
   via: 'typed' | 'voice';
+  /** Typed lines: something was pasted (or dropped) into the chat field for this line. */
+  pasted?: boolean;
+  /** Typed lines: from the first keystroke or paste to the send, as the client measured it; null when unknown. */
+  typingMs?: number | null;
 }
+
+/** Longest typing time kept: past 10 minutes the field sat idle and the duration says nothing about typing. */
+export const TYPING_MS_MAX = 10 * 60_000;
 
 /** Why a human voted for someone, picked after the vote is sent. Optional, seen by nobody. */
 export const VOTE_REASONS = ['too_fast', 'too_perfect', 'dodges', 'odd_tone', 'gut'] as const;
@@ -54,4 +61,27 @@ export function parseFeedback(payload: unknown): GameFeedback | null {
   const clue = typeof p.clue === 'string' ? p.clue.trim() : '';
   if (clue.length > CLUE_MAX_CHARS) return null;
   return { rating, clue: clue || null };
+}
+
+/** A typed line's signals as its client reported them: pasted only if exactly true, a duration within 0..TYPING_MS_MAX. */
+export function parseTyping(payload: unknown): LineInput {
+  const p = (payload && typeof payload === 'object' ? payload : {}) as { pasted?: unknown; typingMs?: unknown };
+  const ms = p.typingMs;
+  return {
+    via: 'typed',
+    pasted: p.pasted === true,
+    typingMs: typeof ms === 'number' && Number.isFinite(ms) && ms >= 0 && ms <= TYPING_MS_MAX ? Math.round(ms) : null,
+  };
+}
+
+/** Characters of a posted line, by code point: an emoji counts once, not as two UTF-16 halves. */
+export function charCount(content: string): number {
+  return [...String(content)].length;
+}
+
+/** Typing time per character of the line posted, in ms to one decimal; null when the time is unknown or the line empty. */
+export function msPerChar(typingMs: number | null | undefined, content: string): number | null {
+  const chars = charCount(content);
+  if (typingMs == null || chars === 0) return null;
+  return Math.round((typingMs / chars) * 10) / 10;
 }

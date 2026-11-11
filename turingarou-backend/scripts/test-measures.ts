@@ -4,7 +4,18 @@
  */
 
 import { strict as assert } from 'node:assert';
-import { CLUE_MAX_CHARS, NO_CONSENT, parseConsent, parseFeedback, parseVoteReason, VOTE_REASONS } from '../src/game/measures.js';
+import {
+  charCount,
+  CLUE_MAX_CHARS,
+  msPerChar,
+  NO_CONSENT,
+  parseConsent,
+  parseFeedback,
+  parseTyping,
+  parseVoteReason,
+  TYPING_MS_MAX,
+  VOTE_REASONS,
+} from '../src/game/measures.js';
 import { styleReferencePlayers, updateHumanProfiles, writeHumanProfiles, type GameLogData, type Queryable } from '../src/game/GameLogger.js';
 
 const failures: string[] = [];
@@ -88,6 +99,26 @@ async function main(): Promise<void> {
     assert.equal(parseFeedback({ rating: 3, clue: 'a'.repeat(CLUE_MAX_CHARS + 1) }), null);
     assert.deepEqual(parseFeedback({ rating: 3, clue: ` ${'a'.repeat(CLUE_MAX_CHARS)} ` }), { rating: 3, clue: 'a'.repeat(CLUE_MAX_CHARS) }, 'spaces around do not count');
     assert.equal(parseFeedback({ rating: 3, clue: 42 }), null, 'a clue that is not text');
+  });
+
+  await test('typing time per character: duration over the characters of the line posted, one decimal', () => {
+    assert.equal(msPerChar(2400, 'salut ça va'), 218.2);
+    assert.equal(msPerChar(1200, 'abcdef'), 200);
+    assert.equal(msPerChar(0, 'collé'), 0, 'a paste sent at once');
+    assert.equal(charCount('ok 👍'), 4, 'an emoji counts once');
+    assert.equal(msPerChar(1000, 'ok 👍'), 250);
+    assert.equal(msPerChar(null, 'abc'), null);
+    assert.equal(msPerChar(undefined, 'abc'), null);
+    assert.equal(msPerChar(500, ''), null);
+  });
+
+  await test('parseTyping: pasted only if exactly true, a duration only within 0 to 10 min, rounded', () => {
+    assert.deepEqual(parseTyping({ pasted: true, typingMs: 1234.6 }), { via: 'typed', pasted: true, typingMs: 1235 });
+    assert.deepEqual(parseTyping({ pasted: false, typingMs: 0 }), { via: 'typed', pasted: false, typingMs: 0 });
+    assert.equal(parseTyping({ typingMs: TYPING_MS_MAX }).typingMs, TYPING_MS_MAX);
+    for (const ms of [-1, TYPING_MS_MAX + 1, NaN, Infinity, '900', null, undefined, {}]) assert.equal(parseTyping({ typingMs: ms }).typingMs, null, `typingMs ${String(ms)}`);
+    for (const v of ['true', 1, {}, null]) assert.equal(parseTyping({ pasted: v }).pasted, false, `pasted ${JSON.stringify(v)}`);
+    for (const p of [null, undefined, 'x', 7]) assert.deepEqual(parseTyping(p), { via: 'typed', pasted: false, typingMs: null });
   });
 
   await test('consent filter: only the human who ticked the box becomes a style reference', () => {

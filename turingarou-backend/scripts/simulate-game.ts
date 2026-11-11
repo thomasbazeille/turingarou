@@ -31,8 +31,8 @@ import { modelLabel } from '../src/llm/providerRegistry.js';
 import { makeSeededRng } from '../src/game/humanTiming.js';
 import { isTextureQuestion } from '../src/game/QuestionBank.js';
 import { getInspectorPromptContent, getRandomAIPlayerStrategy } from '../src/game/StrategyLoader.js';
-import type { GameLogData } from '../src/game/GameLogger.js';
-import { parseConsent, parseFeedback, VOTE_REASONS, type LineInput, type VoteReason } from '../src/game/measures.js';
+import type { GameLogData, LineInputLog } from '../src/game/GameLogger.js';
+import { msPerChar, parseConsent, parseFeedback, parseTyping, VOTE_REASONS, type LineInput, type VoteReason } from '../src/game/measures.js';
 import type { GameMessage, GameRoomState, QuestionAnswer, Vote } from '../src/types/game.types.js';
 
 type Lang = 'fr' | 'en';
@@ -543,13 +543,13 @@ const PUBLIC_TOP_KEYS = new Set([
 /** Fields of a chat message; the same for every author, a reply quote included. */
 const MESSAGE_KEYS = new Set(['id', 'playerId', 'playerName', 'content', 'timestamp', 'phase', 'round', 'replyToId']);
 /**
- * What the room collects from humans (home-screen consent, typed or spoken lines, vote reasons, game-over notes) must
+ * What the room collects from humans (home-screen consent, spoken lines, paste and typing time, vote reasons, notes) must
  * reach no client, ever: not in any event to any socket, before or after the game over, and giving it emits nothing.
  * Fake humans send values carrying this sentinel or a reason code, and the keys the room keeps them under must never
  * appear in a payload either.
  */
 const COLLECTED_SENTINEL = 'l6sentinel';
-const COLLECTED_KEYS = new Set(['consent', 'styleExamples', 'notice', 'styleConsent', 'via', 'pttClips', 'reason', 'reasons', 'rating', 'clue', 'feedback']);
+const COLLECTED_KEYS = new Set(['consent', 'styleExamples', 'notice', 'styleConsent', 'via', 'pttClips', 'reason', 'reasons', 'rating', 'clue', 'feedback', 'input', 'pasted', 'typingMs', 'msPerChar', 'lineInputs']);
 const COLLECTED_VALUES = [COLLECTED_SENTINEL, ...VOTE_REASONS.map((r) => `"${r}"`)];
 /** Every key of every object in a payload, at any depth. */
 function keysOf(x: unknown, out = new Set<string>()): Set<string> {
@@ -628,12 +628,14 @@ async function runGame(sc: Scenario): Promise<GameResult> {
   const votesAgainstGone: { round: number; voterId: string; targetId: string }[] = [];
   /** What each fake human answered on the home screen, by seat. */
   const sentConsent = new Map<string, boolean>();
-  /** Push-to-talk lines each fake human got posted, by seat; every fifth line of the table is spoken. */
+  /** Push-to-talk lines each fake human got posted, by seat; every fifth line of the table is spoken when voice is on. */
   const sentVoice = new Map<string, number>();
   let humanLineSeq = 0;
   const voice = { tts: sc.seed % 2 === 0, stt: sc.seed % 2 === 0 };
   const sentReasons: { round: number; voter: string; reason: VoteReason }[] = [];
   let reasonSeq = 0;
+  /** Typed and spoken lines as posted: every seventh typed line pasted, every eleventh with a duration the room drops. */
+  const sentInputs: LineInputLog[] = [];
   const sentFeedback: { name: string; rating: number; clue: string | null }[] = [];
   const savedFeedback: { gameId: string; name: string; rating: number; clue: string | null }[] = [];
   const publicEntry = (pl: Record<string, unknown>) => JSON.stringify(PUBLIC_PLAYER_KEYS.filter((k) => k !== 'isEliminated').map((k) => pl[k]));
@@ -713,7 +715,9 @@ async function runGame(sc: Scenario): Promise<GameResult> {
     }
     const invalid = simRng() < HUMAN_INVALID_REPLY_PROB ? `msg-unknown-${clock.now()}` : null;
     const remainingAtSend = remaining();
-    const input: LineInput = { via: voice.stt && ++humanLineSeq % 5 === 0 ? 'voice' : 'typed' };
+    const seq = ++humanLineSeq;
+    const input: LineInput =
+      voice.stt && seq % 5 === 0 ? { via: 'voice' } : parseTyping({ pasted: seq % 7 === 0, typingMs: seq % 11 === 0 ? -40 : 900 + (seq % 40) * 173 });
     const posted = room.addMessage(seat, text, invalid ?? quote?.id, input);
     if (posted && input.via === 'voice') {
       sentVoice.set(seat, (sentVoice.get(seat) ?? 0) + 1);
@@ -721,6 +725,9 @@ async function runGame(sc: Scenario): Promise<GameResult> {
     }
     if (posted) {
       const mine = state().messages[state().messages.length - 1];
+      const typingMs = input.via === 'typed' ? input.typingMs ?? null : null;
+      sentInputs.push({ round: mine.round, player: mine.playerName, timestamp: mine.timestamp, via: input.via, pasted: input.pasted === true, typingMs, chars: [...text].length, msPerChar: msPerChar(typingMs, text) });
+      inc(input.pasted ? 'collected_sent:pasted' : 'collected_sent:line');
       if (invalid) invalidReplies.push(mine.id);
       else if (mine.replyToId !== quote?.id) offend('reply_wrong', `${h.name} quoted ${quote?.id ?? 'nothing'}, the room kept ${mine.replyToId ?? 'nothing'}`);
     }
@@ -1500,6 +1507,11 @@ async function runGame(sc: Scenario): Promise<GameResult> {
       const keptReasons = log.rounds.flatMap((r) => (r.reasons ?? []).map((x) => ({ round: r.round, voter: x.voter, reason: x.reason })));
       inc('persisted_reasons', keptReasons.length);
       if (sorted(keptReasons) !== sorted(sentReasons)) offend('collected_persist', `vote reasons persisted ${keptReasons.length}, given ${sentReasons.length}`);
+      const keptInputs = log.lineInputs ?? [];
+      inc('persisted_inputs', keptInputs.length);
+      inc('persisted_pasted', keptInputs.filter((x) => x.pasted).length);
+      inc('persisted_typing_dropped', keptInputs.filter((x) => x.via === 'typed' && x.typingMs === null).length);
+      if (sorted(keptInputs) !== sorted(sentInputs)) offend('collected_persist', `line inputs persisted ${keptInputs.length}, posted ${sentInputs.length}: ${JSON.stringify(keptInputs.find((x) => !sentInputs.some((y) => JSON.stringify(y) === JSON.stringify(x))) ?? null)}`);
       inc('persisted_feedback', savedFeedback.length);
       if (sorted(savedFeedback) !== sorted(sentFeedback.map((f) => ({ gameId: state().roomId, ...f })))) offend('collected_persist', `notes written ${JSON.stringify(savedFeedback)}, sent ${JSON.stringify(sentFeedback)}`);
       if (JSON.stringify(log.voice) !== JSON.stringify(voice)) offend('collected_persist', `voice ${JSON.stringify(log.voice)} persisted, the room had ${JSON.stringify(voice)}`);
@@ -1882,14 +1894,14 @@ function report(results: GameResult[], elapsed: number, games: number, probe: Fl
     },
     {
       name: 'data collected from humans never sent to a client',
-      value: `${sum('collected_leak')} leaks over ${sum('collected_scanned')} payloads (every event, every socket, game over included); sent: consents ${sum('collected_sent:consent')}, spoken lines ${sum('collected_sent:voice')}, vote reasons ${sum('collected_sent:reason')}, game-over notes ${sum('collected_sent:feedback')}`,
-      ok: sum('collected_leak') === 0 && sum('collected_scanned') > 0 && ['consent', 'voice', 'reason', 'feedback'].every((k) => sum(`collected_sent:${k}`) > 0),
+      value: `${sum('collected_leak')} leaks over ${sum('collected_scanned')} payloads (every event, every socket, game over included); sent: consents ${sum('collected_sent:consent')}, spoken lines ${sum('collected_sent:voice')}, vote reasons ${sum('collected_sent:reason')}, game-over notes ${sum('collected_sent:feedback')}, lines with how they were entered ${sum('collected_sent:line') + sum('collected_sent:pasted')} (pasted ${sum('collected_sent:pasted')})`,
+      ok: sum('collected_leak') === 0 && sum('collected_scanned') > 0 && ['consent', 'voice', 'reason', 'feedback', 'line', 'pasted'].every((k) => sum(`collected_sent:${k}`) > 0),
       keys: ['collected_leak'],
     },
     {
       name: 'data collected from humans persisted as sent',
-      value: `${sum('collected_persist')} wrong; consents ${sum('persisted_consents')}, push-to-talk clips ${sum('persisted_ptt_clips')}, vote reasons ${sum('persisted_reasons')}, notes ${sum('persisted_feedback')}; refused out of their moment ${sum('collected_refusal_checks')} checks`,
-      ok: sum('collected_persist') === 0 && ['persisted_consents', 'persisted_ptt_clips', 'persisted_reasons', 'persisted_feedback', 'collected_refusal_checks'].every((k) => sum(k) > 0),
+      value: `${sum('collected_persist')} wrong; consents ${sum('persisted_consents')}, push-to-talk clips ${sum('persisted_ptt_clips')}, vote reasons ${sum('persisted_reasons')}, notes ${sum('persisted_feedback')}, line inputs ${sum('persisted_inputs')} (pasted ${sum('persisted_pasted')}, out-of-range time dropped ${sum('persisted_typing_dropped')}); refused out of their moment ${sum('collected_refusal_checks')} checks`,
+      ok: sum('collected_persist') === 0 && ['persisted_consents', 'persisted_ptt_clips', 'persisted_reasons', 'persisted_feedback', 'persisted_inputs', 'persisted_pasted', 'persisted_typing_dropped', 'collected_refusal_checks'].every((k) => sum(k) > 0),
       keys: ['collected_persist'],
     },
     {

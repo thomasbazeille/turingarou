@@ -21,6 +21,7 @@ import {
   saveMessageFlag,
   saveGameFeedback,
   GameLogData,
+  LineInputLog,
   HumanPersona,
   PersonaQuery,
   RoundLog,
@@ -28,7 +29,7 @@ import {
   PlayerLog,
 } from './GameLogger.js';
 import { drawStyleProfile } from './aiSpeech.js';
-import { GameFeedback, LineInput, NO_CONSENT, StyleConsent, VoteReason } from './measures.js';
+import { charCount, GameFeedback, LineInput, msPerChar, NO_CONSENT, StyleConsent, VoteReason } from './measures.js';
 import { checkMessage } from './formGate.js';
 import { Bot } from './Bot.js';
 import { CastMember, drawCast, templatesFor } from './botCast.js';
@@ -203,6 +204,8 @@ export class GameRoom {
   private voteReasons = new Map<string, { round: number; voter: string; reason: VoteReason }>();
   /** Game-over notes accepted per human, by player id. */
   private feedbackSends = new Map<string, number>();
+  /** How each human line was entered (voice, paste, typing time), in posting order. Persisted only, never sent. */
+  private lineInputs: LineInputLog[] = [];
   private vacant = false;
   /** Kind of every player who ever joined, departed humans included (their messages stay in the log). */
   private kinds = new Map<string, PlayerKind>();
@@ -875,6 +878,7 @@ export class GameRoom {
         rounds,
         messages,
         voice: { ...this.deps.voice },
+        lineInputs: [...this.lineInputs],
       };
       void this.deps.persistence.saveGameLog(data);
       void this.deps.persistence.updateHumanProfiles(data);
@@ -937,7 +941,20 @@ export class GameRoom {
       this.ux[kind].lines++;
       if (quoted) this.ux[kind].replies++;
     }
-    if (kind === 'human' && input?.via === 'voice') this.pttClips.set(playerId, (this.pttClips.get(playerId) ?? 0) + 1);
+    if (kind === 'human' && input) {
+      if (input.via === 'voice') this.pttClips.set(playerId, (this.pttClips.get(playerId) ?? 0) + 1);
+      const typingMs = input.via === 'typed' ? input.typingMs ?? null : null;
+      this.lineInputs.push({
+        round: message.round,
+        player: message.playerName,
+        timestamp: message.timestamp,
+        via: input.via,
+        pasted: input.via === 'typed' && input.pasted === true,
+        typingMs,
+        chars: charCount(content),
+        msPerChar: msPerChar(typingMs, content),
+      });
+    }
     if (kind !== 'ai') this.director.onPlayerMessage(message, kind === 'human');
     return true;
   }

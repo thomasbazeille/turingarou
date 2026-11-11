@@ -17,6 +17,7 @@
  *   player_voice    — voix active ou non dans la partie, et clips push-to-talk de chaque humain (A/B texte/voix)
  *   vote_reasons    — raison facultative qu'un humain donne à son vote, après l'avoir envoyé
  *   game_feedback   — note de 1 à 5 et indice libre d'un humain en fin de partie
+ *   message_inputs  — comment chaque ligne humaine a été saisie : voix ou clavier, collage, temps de frappe
  */
 
 import pg from 'pg';
@@ -66,6 +67,18 @@ export interface MessageLog {
   timestamp: number;
 }
 
+/** How a human line was entered; joins messages on (game_id, round, player_name, ts). */
+export interface LineInputLog {
+  round: number;
+  player: string;
+  timestamp: number;
+  via: 'typed' | 'voice';
+  pasted: boolean;
+  typingMs: number | null;
+  chars: number;
+  msPerChar: number | null;
+}
+
 export interface GameLogData {
   gameId: string;
   date: string;
@@ -76,6 +89,8 @@ export interface GameLogData {
   messages: MessageLog[];
   /** Voice of the game: every line spoken (tts), push-to-talk offered (stt). */
   voice?: { tts: boolean; stt: boolean };
+  /** Every human line posted, in order. */
+  lineInputs?: LineInputLog[];
 }
 
 // ─── DB pool ──────────────────────────────────────────────────────────────────
@@ -259,6 +274,19 @@ export async function initDB(): Promise<void> {
       ts          BIGINT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS message_inputs (
+      id          SERIAL PRIMARY KEY,
+      game_id     TEXT NOT NULL REFERENCES games(game_id),
+      round       INTEGER NOT NULL,
+      player_name TEXT NOT NULL,
+      ts          BIGINT NOT NULL,
+      via         TEXT NOT NULL,
+      pasted      INTEGER NOT NULL,
+      typing_ms   INTEGER,
+      chars       INTEGER NOT NULL,
+      ms_per_char REAL
+    );
+
     CREATE UNIQUE INDEX IF NOT EXISTS idx_game_players_unique
       ON game_players(game_id, player_name);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_round_questions_unique
@@ -285,6 +313,8 @@ export async function initDB(): Promise<void> {
       ON vote_reasons(game_id, round, voter);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_game_feedback_unique
       ON game_feedback(game_id, player_name);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_message_inputs_unique
+      ON message_inputs(game_id, round, player_name, ts);
 
     CREATE INDEX IF NOT EXISTS idx_messages_game_id      ON messages(game_id);
     CREATE INDEX IF NOT EXISTS idx_round_answers_game_id ON round_answers(game_id);
@@ -460,6 +490,15 @@ export async function saveGameLog(data: GameLogData): Promise<void> {
            VALUES ($1, $2, $3, $4, $5, $6)
            ON CONFLICT DO NOTHING`,
           [data.gameId, m.round, m.player, m.type, m.content, m.timestamp]
+        );
+      }
+
+      for (const i of data.lineInputs ?? []) {
+        await db.query(
+          `INSERT INTO message_inputs (game_id, round, player_name, ts, via, pasted, typing_ms, chars, ms_per_char)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           ON CONFLICT DO NOTHING`,
+          [data.gameId, i.round, i.player, i.timestamp, i.via, i.pasted ? 1 : 0, i.typingMs, i.chars, i.msPerChar]
         );
       }
     });

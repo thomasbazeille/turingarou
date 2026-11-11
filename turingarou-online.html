@@ -2028,6 +2028,9 @@ const ta=document.getElementById('message-textarea');
 const cc=document.getElementById('char-counter');
 if(ta){
   if(savedText) ta.value=savedText;
+  ta.addEventListener('input', noteTyping);
+  ta.addEventListener('paste', notePaste);
+  ta.addEventListener('drop', notePaste);
   if(cc){ cc.textContent=ta.value.length+'/'+mc; ta.oninput=()=>{ cc.textContent=ta.value.length+'/'+mc; }; }
 }
 renderReplyBar();
@@ -2528,6 +2531,17 @@ G.h[id]=true;
 renderGameScreen();
 }
 
+// Paste and typing time of the line being written: sent with it for analysis only, never shown, no effect on the game.
+let typing = { start: 0, pasted: false };
+function noteTyping(e){
+  if (!e.target.value) typing = { start: 0, pasted: false };
+  else if (!typing.start) typing.start = performance.now();
+}
+function notePaste(){
+  typing.pasted = true;
+  if (!typing.start) typing.start = performance.now();
+}
+
 function sendMessage(){
   const ta = document.getElementById('message-textarea');
   const tx = ta.value.trim();
@@ -2544,7 +2558,9 @@ function sendMessage(){
   
   // Envoyer au serveur
   console.log('💬 Sending message:', tx);
-  socket.emit('sendMessage', G.replyTo ? { message: tx, replyToId: G.replyTo } : { message: tx });
+  const input = { pasted: typing.pasted, typingMs: typing.start ? Math.round(performance.now() - typing.start) : null };
+  socket.emit('sendMessage', G.replyTo ? { message: tx, replyToId: G.replyTo, input: input } : { message: tx, input: input });
+  typing = { start: 0, pasted: false };
   G.replyTo = null;
   renderReplyBar();
   

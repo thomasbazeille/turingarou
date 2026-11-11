@@ -13,7 +13,7 @@ import fs from 'fs';
 import { ChatProvider } from './llm/chatClient.js';
 import { buildProviderPool, describePool } from './llm/providerRegistry.js';
 import { registerVoiceRoutes } from './voice/routes.js';
-import { NO_CONSENT, parseConsent, parseFeedback, parseVoteReason, StyleConsent } from './game/measures.js';
+import { NO_CONSENT, parseConsent, parseFeedback, parseTyping, parseVoteReason, StyleConsent } from './game/measures.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -214,13 +214,13 @@ io.on('connection', (socket) => {
     currentRoom = null;
   });
 
-  // Envoyer un message
-  socket.on('sendMessage', ({ message, replyToId }: { message: string; replyToId?: unknown }) => {
+  // Envoyer un message ; collage et temps de frappe (input) sont gardés pour l'analyse, jamais renvoyés ni sanctionnés
+  socket.on('sendMessage', ({ message, replyToId, input }: { message: string; replyToId?: unknown; input?: unknown }) => {
     const playerId = me();
     if (!currentRoom || !playerId) return;
 
     console.log(`Message from ${playerId}: ${message}`);
-    currentRoom.addMessage(playerId, message, replyToId);
+    currentRoom.addMessage(playerId, message, replyToId, parseTyping(input));
   });
 
   // Répondre à la question
