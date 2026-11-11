@@ -195,6 +195,7 @@ io.on('connection', (socket) => {
     socket.emit('gameState', room.publicState(socket.id));
     socket.emit('myVote', room.voteOf(seat.playerId));
     socket.emit('myAnswer', room.answerOf(seat.playerId));
+    socket.emit('myReview', room.reviewOf(seat.playerId));
     console.log(`${seat.playerId} resumed in ${roomId}`);
   });
 

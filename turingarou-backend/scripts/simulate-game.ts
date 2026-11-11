@@ -32,7 +32,7 @@ import { makeSeededRng } from '../src/game/humanTiming.js';
 import { isTextureQuestion } from '../src/game/QuestionBank.js';
 import { getInspectorPromptContent, getRandomAIPlayerStrategy } from '../src/game/StrategyLoader.js';
 import type { GameLogData } from '../src/game/GameLogger.js';
-import type { Transcript } from '../src/game/gameReview.js';
+import type { PlayerReview, Transcript } from '../src/game/gameReview.js';
 import type { GameMessage, GameRoomState, QuestionAnswer, Vote } from '../src/types/game.types.js';
 
 type Lang = 'fr' | 'en';
@@ -554,6 +554,8 @@ async function runGame(sc: Scenario): Promise<GameResult> {
   const id = `${sc.lang}-s${sc.seed}-${sc.tempo}${sc.humans !== 5 && !sc.inspector ? `-h${sc.humans}` : ''}${sc.inspector ? '-insp' : ''}${sc.drops ? `-${sc.drops}` : ''}${sc.rematchOf ? '-rematch' : ''}${sc.aiScale ? `-ai${sc.aiScale(sc.humans)}` : ''}${sc.skill ? `-skill${sc.skill}` : ''}`;
   const roomRng = makeSeededRng(sc.seed * 1000 + (sc.lang === 'en' ? 1 : 0));
   const simRng = makeSeededRng(sc.seed * 7919 + (sc.lang === 'en' ? 17 : 3));
+  // Flags draw from their own stream: flagging changes no other draw of the game.
+  const flagRng = makeSeededRng(sc.seed * 104729 + (sc.lang === 'en' ? 7 : 1));
   const clock = new VirtualClock(1_800_000_000_000);
   const pick = <T,>(xs: T[]): T => xs[Math.floor(simRng() * xs.length)];
   const m: Counters = {};
@@ -606,6 +608,9 @@ async function runGame(sc: Scenario): Promise<GameResult> {
   const drops: { h: FakeHuman; at: number; eliminated: boolean }[] = [];
   const resumes: { h: FakeHuman; at: number; round: number }[] = [];
   const votesAgainstGone: { round: number; voterId: string; targetId: string }[] = [];
+  /** Lines each fake human flagged and the room had to keep, in order; and every review the room sent anywhere. */
+  const flagsOf = new Map<string, string[]>();
+  const reviews: { target: string; payload: unknown; afterEnd: boolean }[] = [];
   const publicEntry = (pl: Record<string, unknown>) => JSON.stringify(PUBLIC_PLAYER_KEYS.filter((k) => k !== 'isEliminated').map((k) => pl[k]));
   /** Calls the room and says whether a state went out to the browsers meanwhile. */
   const emitsDuring = (fn: () => void): number => {
@@ -795,6 +800,16 @@ async function runGame(sc: Scenario): Promise<GameResult> {
         if (sc.drops === 'one-back') clock.setTimeout(() => comeBack(h), 50000);
       }
     } else if (phase === 'voting') {
+      // Some humans flag lines of the round: others' lines are kept once each, their own never.
+      for (const h of present) {
+        const lines = state().messages.filter((x) => x.round === round && x.playerId !== 'system');
+        for (const line of lines) {
+          if (flagRng() >= 0.12) continue;
+          room.flagMessage(h.id, line.id);
+          const own = flagsOf.get(h.id) ?? [];
+          if (line.playerId !== h.id && !own.includes(line.id)) flagsOf.set(h.id, [...own, line.id]);
+        }
+      }
       // A seat whose grace ran out can still be voted against.
       const gone = humans.find((h) => !h.connected && isActive(h.id) && (goneSince(h) ?? Infinity) + RECONNECT_GRACE_MS <= clock.now());
       present.forEach((h, idx) => {
@@ -842,6 +857,10 @@ async function runGame(sc: Scenario): Promise<GameResult> {
   const io: RoomEmitter = {
     to: (target: string) => ({
       emit: (event: string, payload: unknown) => {
+        if (event === 'myReview') {
+          reviews.push({ target, payload: JSON.parse(JSON.stringify(payload ?? null)), afterEnd: finished });
+          return true;
+        }
         if (event !== 'gameState') return true;
         if (target !== `sim-${id}`) {
           if (!finished) checkLobbyPayload(target, JSON.parse(JSON.stringify(payload)));
@@ -1470,6 +1489,34 @@ async function runGame(sc: Scenario): Promise<GameResult> {
       offend('end_coherent', `game over "${s.gameOverReason}" with ${ais} AIs, ${realHumans} humans, ${active.length} players at r${s.currentRound}`);
     }
   }
+  // Each human's own review: on their own socket only, after the game over, with their flags and the truth about
+  // each author. Every human connected at the end gets exactly one; an aborted game sends none.
+  for (const r of reviews) {
+    inc('reviews');
+    const h = humans.find((x) => x.socketId === r.target && room.playerIdBySocket(r.target) === x.id);
+    const review = r.payload as PlayerReview | null;
+    const bad: string[] = [];
+    if (!h) bad.push(`sent to ${r.target}, not a human's socket`);
+    if (!r.afterEnd || aborted) bad.push('sent before the game over');
+    if (!review) bad.push('empty');
+    else {
+      const expected = h ? flagsOf.get(h.id) ?? [] : [];
+      if (JSON.stringify(review.flags.map((f) => f.messageId)) !== JSON.stringify(expected)) bad.push(`flags [${review.flags.map((f) => f.messageId).join(',')}], flagged [${expected.join(',')}]`);
+      for (const f of review.flags) {
+        inc('flags_checked');
+        const line = s.messages.find((x) => x.id === f.messageId);
+        if (!line || f.authorId !== line.playerId || f.authorName !== line.playerName || f.isAI !== botIds.has(line.playerId)) bad.push(`flag ${f.messageId} says ${f.authorName} isAI=${f.isAI}`);
+      }
+    }
+    if (bad.length > 0) offend('review', `${h?.name ?? r.target}: ${bad.join(', ')}`);
+    else inc('reviews_ok');
+  }
+  if (!aborted && s.phase === 'gameover') {
+    for (const h of humans.filter((x) => x.connected)) {
+      const n = reviews.filter((r) => r.target === h.socketId).length;
+      if (n !== 1) offend('review', `${h.name} connected at the end got ${n} reviews`);
+    }
+  }
   const handoff: Previous | null =
     !aborted && s.phase === 'gameover'
       ? {
@@ -1805,6 +1852,12 @@ function report(results: GameResult[], elapsed: number, games: number, probe: Fl
       value: `${sum('transcripts_ok')}/${sum('transcripts')} games complete, the same on resume`,
       ok: sum('transcript') === 0 && sum('transcripts') > 0,
       keys: ['transcript'],
+    },
+    {
+      name: "each human's review (flags) on their own socket only, after the end",
+      value: `${sum('reviews_ok')}/${sum('reviews')} reviews right, ${sum('flags_checked')} flags checked`,
+      ok: sum('review') === 0 && sum('reviews') > 0 && sum('flags_checked') > 0,
+      keys: ['review'],
     },
     {
       name: 'dropped human looks like an AI (same entry, no emit, vote target)',

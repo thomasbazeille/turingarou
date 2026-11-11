@@ -39,7 +39,7 @@ import {
   VOTE_DEADLINE_MS,
 } from './BotDirector.js';
 import { RoundRecord } from './botContext.js';
-import { buildTranscript, Transcript } from './gameReview.js';
+import { buildTranscript, flagResults, PlayerReview, Transcript } from './gameReview.js';
 import { Clock, systemClock, TimerHandle, Timers } from './clock.js';
 
 /** The part of Socket.io a room uses: broadcast to its own channel. */
@@ -196,6 +196,9 @@ export class GameRoom {
   private eliminationsByRound = new Map<number, { name: string; isAI: boolean }>();
   private questionsByRound = new Map<number, string>();
   private eliminationOrder: string[] = [];
+  /** Lines each human flagged, by player id: never shown to anyone before the game over, then only to its author. */
+  private flagsBy = new Map<string, string[]>();
+  private startedAt = 0;
   /**
    * Votes of the finished round as every browser sees them: one entry per player who could vote, in seat order (never
    * in casting order), a missing vote shown as an abstention. Bots always vote by the deadline, so a missing vote or
@@ -648,6 +651,7 @@ export class GameRoom {
 
   private startGame(): void {
     this.starting = false;
+    this.startedAt = this.now();
     this.eliminationOrder = [];
     this.beginQuestion(1);
   }
@@ -776,6 +780,7 @@ export class GameRoom {
     for (const session of this.sessions.values()) session.timer = null;
     this.director.dispose();
     this.emitState();
+    this.emitReviews();
     this.persistGameLog();
     this.logTelemetry(this.state.gameOverReason);
   }
@@ -1019,7 +1024,10 @@ export class GameRoom {
     const player = this.state.players.find((p) => p.id === playerId);
     if (!player || player.type !== 'human' || player.isEliminated) return;
     const message = this.state.messages.find((m) => m.id === messageId);
-    if (!message || message.playerId === playerId) return;
+    if (!message || message.playerId === playerId || message.playerId === 'system') return;
+    const own = this.flagsBy.get(playerId) ?? [];
+    if (own.includes(messageId)) return;
+    this.flagsBy.set(playerId, [...own, messageId]);
     void this.deps.persistence.saveMessageFlag(this.state.roomId, messageId, player.username, message.round, reason);
   }
 
@@ -1078,6 +1086,23 @@ export class GameRoom {
   private revealOf(id: string): { isAI: boolean; model?: string } {
     const bot = this.director.bots().find((b) => b.id === id);
     return bot ? { isAI: true, model: modelLabel(bot.providerName) } : { isAI: false };
+  }
+
+  /** What this human gets at the game over, for their client only; null before it, and for any other seat. */
+  reviewOf(playerId: string): PlayerReview | null {
+    if (this.state.phase !== 'gameover' || !this.sessions.has(playerId)) return null;
+    return {
+      gameKey: `${this.state.roomId}-${this.startedAt}`,
+      flags: flagResults(this.flagsBy.get(playerId) ?? [], this.state.messages, (id) => this.revealOf(id).isAI),
+    };
+  }
+
+  /** Each connected human gets their own review on their own socket; one away gets it when they resume. */
+  private emitReviews(): void {
+    for (const p of this.state.players) {
+      if (p.type !== 'human' || !p.socketId || !this.sessions.get(p.id)?.connected) continue;
+      this.io.to(p.socketId).emit('myReview', this.reviewOf(p.id));
+    }
   }
 
   /** Every round of a finished game with each author revealed, for the replay (game over only). */

@@ -1,12 +1,13 @@
 /**
  * The game over review: the transcript of the whole game with every author revealed, sent with the game over
- * only and again to a player back with their session token.
+ * only and again to a player back with their session token; each human's own review (the lines they flagged and
+ * who wrote them), sent to that human's socket only.
  *
  *   npx tsx scripts/test-review.ts
  */
 import assert from 'node:assert/strict';
 import { DISCUSSION_PHASE_MS, ENDROUND_MS, GameRoom, QUESTION_PHASE_MS, RoomEmitter } from '../src/game/GameRoom.js';
-import { buildTranscript } from '../src/game/gameReview.js';
+import { buildTranscript, flagResults } from '../src/game/gameReview.js';
 import type { ChatProvider } from '../src/llm/chatClient.js';
 import { makeSeededRng } from '../src/game/humanTiming.js';
 
@@ -63,8 +64,9 @@ interface Emit {
 }
 
 /**
- * A full game of 5 humans and 3 AIs: each round every seat but one answers, two humans talk (one quotes the other),
- * then everyone votes out an AI that is not protected (a human when none is left to vote).
+ * A full game of 5 humans and 3 AIs: each round every seat but one answers, two humans and an AI talk (each quoting
+ * the line before), the first human flags lines in round 1, then everyone votes out an AI that is not protected (a
+ * human when none is left to vote).
  */
 async function finished(roomId: string) {
   const clock = new ManualClock();
@@ -91,6 +93,8 @@ async function finished(roomId: string) {
   const posted: { round: number; playerId: string; text: string; replyToId?: string }[] = [];
   const answered: { round: number; playerId: string; text: string }[] = [];
   const votes: { round: number; voterId: string; targetId: string }[] = [];
+  const flagged: string[] = [];
+  let reviewBeforeEnd: unknown = undefined;
   while (st().phase === 'question') {
     const round = st().currentRound;
     const active = st().players.filter((p) => !p.isEliminated).map((p) => p.id);
@@ -99,11 +103,21 @@ async function finished(roomId: string) {
       answered.push({ round, playerId: id, text: `r${round} answer of ${id}` });
     }
     clock.advance(QUESTION_PHASE_MS);
-    const talkers = humanIds.filter((id) => active.includes(id)).slice(0, 2);
+    const talkers = [...humanIds.filter((id) => active.includes(id)).slice(0, 2), ...aiIds.filter((id) => active.includes(id)).slice(0, 1)];
     for (const id of talkers) {
       const replyToId = posted.length && posted.at(-1)!.round === round ? st().messages.at(-1)!.id : undefined;
-      room.addMessage(id, `r${round} line of ${id}`, replyToId);
+      assert.ok(room.addMessage(id, `r${round} line of ${id}`, replyToId), `line of ${id} refused`);
       posted.push({ round, playerId: id, text: `r${round} line of ${id}`, ...(replyToId ? { replyToId } : {}) });
+    }
+    if (round === 1) {
+      const lineOf = (id: string) => st().messages.find((m) => m.round === 1 && m.playerId === id)!.id;
+      const [first, second, ai] = talkers;
+      room.flagMessage(first, lineOf(ai));
+      room.flagMessage(first, lineOf(second));
+      room.flagMessage(first, lineOf(ai));
+      room.flagMessage(first, lineOf(first));
+      flagged.push(lineOf(ai), lineOf(second));
+      reviewBeforeEnd = room.reviewOf(first);
     }
     clock.advance(DISCUSSION_PHASE_MS);
     assert.equal(st().phase, 'voting');
@@ -120,7 +134,7 @@ async function finished(roomId: string) {
   }
   assert.equal(st().phase, 'gameover', `the game did not end (phase ${st().phase})`);
   const roomStates = emits.filter((e) => e.event === 'gameState' && e.target === roomId).map((e) => e.payload);
-  return { room, clock, emits, roomStates, sockets, humanIds, aiIds, posted, answered, votes, gameover: roomStates.at(-1) };
+  return { room, clock, emits, roomStates, sockets, humanIds, aiIds, posted, answered, votes, flagged, reviewBeforeEnd, gameover: roomStates.at(-1) };
 }
 
 // ====== TRANSCRIPT ======
@@ -176,12 +190,51 @@ await check('no transcript in any state before the game over', () => {
   assert.equal(early.length, 0, `transcript sent in ${early.map((s) => s.phase).join(', ')}`);
 });
 
+// ====== FLAGS ======
+
+await check('flags: in the order flagged, each with its author and whether it was an AI; unknown and system ids out', () => {
+  const messages = [
+    { id: 'm1', playerId: 'p-a', playerName: 'ana', content: 'salut', timestamp: 1, phase: 'discussion' as const, round: 1 },
+    { id: 's1', playerId: 'system', playerName: '', content: 'info', timestamp: 2, phase: 'discussion' as const, round: 1 },
+    { id: 'm2', playerId: 'p-b', playerName: 'ben', content: 'yo', timestamp: 3, phase: 'discussion' as const, round: 2 },
+  ];
+  assert.deepEqual(flagResults(['m2', 'nope', 's1', 'm1'], messages, (id) => id === 'p-b'), [
+    { messageId: 'm2', round: 2, authorId: 'p-b', authorName: 'ben', text: 'yo', isAI: true },
+    { messageId: 'm1', round: 1, authorId: 'p-a', authorName: 'ana', text: 'salut', isAI: false },
+  ]);
+});
+
+await check("each human gets their own review on their own socket at the game over, nobody else's, never the room", () => {
+  const reviews = game.emits.filter((e) => e.event === 'myReview');
+  assert.equal(reviews.filter((e) => e.target === 'T1').length, 0, 'a review was broadcast to the room');
+  assert.deepEqual(reviews.map((e) => e.target).sort(), [...game.sockets].sort(), 'not one review per human socket');
+  for (const e of reviews) {
+    const seat = game.room.playerIdBySocket(e.target)!;
+    assert.deepEqual(e.payload, game.room.reviewOf(seat), `socket ${e.target} got another review than its seat's`);
+  }
+  const gameoverAt = game.emits.findIndex((e) => e.event === 'gameState' && e.payload.phase === 'gameover');
+  assert.ok(game.emits.findIndex((e) => e.event === 'myReview') > gameoverAt, 'a review went out before the game over');
+  assert.equal(game.reviewBeforeEnd, null, 'reviewOf answered before the game over');
+  assert.equal(game.room.reviewOf(game.aiIds[0]), null, 'an AI seat has a review');
+});
+
+await check("the flagger sees their flags with the truth (an AI's line, a human's), duplicates and their own line out; the others none", () => {
+  const first = game.room.reviewOf(game.humanIds[0])!;
+  assert.deepEqual(first.flags.map((f) => f.messageId), game.flagged);
+  assert.deepEqual(first.flags.map((f) => f.isAI), [true, false]);
+  assert.deepEqual(first.flags.map((f) => f.authorId), [game.aiIds[0], game.humanIds[1]]);
+  for (const id of game.humanIds.slice(1)) assert.deepEqual(game.room.reviewOf(id)!.flags, [], `${id} sees flags that are not theirs`);
+  assert.ok(!game.roomStates.some((s) => JSON.stringify(s).includes('"flags"')), 'flags in a state sent to the room');
+});
+
 await check('a player back with their token after the game over gets the same transcript', () => {
   const token = game.room.sessionToken(game.humanIds[2])!;
   game.room.disconnect(game.sockets[2]);
   const seat = game.room.resume('T1-back', token);
   assert.equal(seat?.playerId, game.humanIds[2]);
   assert.deepEqual(game.room.publicState('T1-back').transcript, game.gameover.transcript);
+  const sent = game.emits.find((e) => e.event === 'myReview' && e.target === game.sockets[2])!.payload;
+  assert.deepEqual(game.room.reviewOf(game.humanIds[2]), sent, 'the review sent on resume differs from the one sent at the game over');
 });
 
 console.log(failures ? `\n${failures} échec(s)` : '\nTout est vert');

@@ -51,3 +51,28 @@ export function buildTranscript(input: TranscriptInput): Transcript {
   }
   return { players: input.players.map((p) => ({ ...p })), rounds };
 }
+
+/** A line a player flagged during the game, and who wrote it. */
+export interface FlagResult {
+  messageId: string;
+  round: number;
+  authorId: string;
+  authorName: string;
+  text: string;
+  isAI: boolean;
+}
+
+/** What one player gets at the game over, and nobody else. */
+export interface PlayerReview {
+  /** Same for every player of the game, different from any other game: the browser counts a game once. */
+  gameKey: string;
+  flags: FlagResult[];
+}
+
+/** The lines a player flagged, in the order flagged, each with the truth about its author. */
+export function flagResults(messageIds: string[], messages: GameMessage[], isAI: (playerId: string) => boolean): FlagResult[] {
+  return messageIds.flatMap((id) => {
+    const m = messages.find((x) => x.id === id && x.playerId !== 'system');
+    return m ? [{ messageId: m.id, round: m.round, authorId: m.playerId, authorName: m.playerName, text: m.content, isAI: isAI(m.playerId) }] : [];
+  });
+}

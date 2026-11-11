@@ -179,6 +179,12 @@
     .reveal-round-num { color: #22d3ee; font-family: monospace; margin-right: 4px; }
     .reveal-round-out { color: #94a3b8; }
     @keyframes revealIn { from { opacity: 0; transform: translateY(7px) scale(0.96); } to { opacity: 1; transform: none; } }
+    .review { max-width: 760px; width: calc(100% - 30px); margin: 14px auto 6px; text-align: left; }
+    .review:empty { display: none; }
+    .review-flag { font-size: 12px; color: #e2e8f0; padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .review-flag .ai { color: #ef4444; }
+    .review-flag .human { color: #22c55e; }
+    .review-quote { color: #94a3b8; }
     .replay { max-width: 760px; width: calc(100% - 30px); margin: 18px auto 20px; padding: 10px 12px; background: rgba(0,0,0,0.4); border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); text-align: left; }
     .replay summary { color: #94a3b8; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; cursor: pointer; }
     .replay-body { margin-top: 10px; max-height: 420px; overflow-y: auto; font-size: 12px; line-height: 1.5; color: #e2e8f0; }
@@ -755,6 +761,7 @@
         <div class="reveal-grid" id="gameover-reveal"></div>
         <div class="reveal-votes" id="gameover-votes"></div>
       </div>
+      <div class="review" id="gameover-review"></div>
       <div class="next-round-container" style="gap:12px;flex-wrap:wrap;">
         <button class="next-round-btn" id="rematch-btn" onclick="requestRematch()" style="width:250px;">
           <div class="next-round-text" id="rematch-text">Rejouer avec ce groupe</div>
@@ -779,7 +786,7 @@
 const COLORS=[{n:'Red',h:'#ef4444'},{n:'Orange',h:'#f97316'},{n:'Gold',h:'#eab308'},{n:'Silver',h:'#94a3b8'},{n:'Purple',h:'#a855f7'},{n:'Turquoise',h:'#06b6d4'},{n:'Pink',h:'#ec4899'},{n:'Lime',h:'#84cc16'},{n:'Indigo',h:'#6366f1'}];
 const T=8,A=3;  // 8 joueurs total (5 humains + 3 IA)
 const HUMAN_NEEDED=5;
-let G={s:'waiting',r:1,mr:7,t:100,qt:15,p:[],m:[],e:[],eliminationOrder:[],l:null,im:null,a:{},v:{},h:{},vh:{},sh:false,sa:null,ui:false,eliminatedAiCount:0,lang:'fr',currentQuestion:null,questions:{},questionEndTime:null,singleChat:false,flagged:new Set(),colOrder:null,myVote:null,myAnswer:null,voteSel:null,voteCount:0,replyTo:null,endSeq:null,endRoundEndTime:null};
+let G={s:'waiting',r:1,mr:7,t:100,qt:15,p:[],m:[],e:[],eliminationOrder:[],l:null,im:null,a:{},v:{},h:{},vh:{},sh:false,sa:null,ui:false,eliminatedAiCount:0,lang:'fr',currentQuestion:null,questions:{},questionEndTime:null,singleChat:false,flagged:new Set(),colOrder:null,myVote:null,myAnswer:null,review:null,voteSel:null,voteCount:0,replyTo:null,endSeq:null,endRoundEndTime:null};
 
 // === SOCKET.IO SETUP ===
 // Configuration automatique selon environnement
@@ -1076,6 +1083,12 @@ socket.on('gameState', (state) => {
 socket.on('myAnswer', (a) => {
   G.myAnswer = a && typeof a.round === 'number' ? a : null;
   if (G.s === 'question') syncAnswerForm();
+});
+
+// At the game over each player gets their own review (what they flagged); nobody else sees it.
+socket.on('myReview', (r) => {
+  G.review = r && Array.isArray(r.flags) ? r : null;
+  if (G.s === 'gameover') renderReview();
 });
 
 // The server sends each player their own vote only; the others' stay hidden until the round end.
@@ -1453,6 +1466,7 @@ function updateGameFromServer(state) {
     : pid === playerId && !!myVoteThisRound();
   // During the question only this player's own answer is known (myAnswer); nobody else's, nor whether they answered.
   if (state.phase !== 'question') G.myAnswer = null;
+  if (state.phase !== 'gameover') G.review = null;
   const hasAnsweredFor = (pid) => pid === playerId && !!myAnswerThisRound();
   // Mettre à jour les joueurs
   G.p = state.players.map((p, i) => ({
@@ -1621,6 +1635,7 @@ function updateGameFromServer(state) {
       showScreen('gameover');
       renderGameOver(state.gameOverReason || 'draw');
       renderReveal(state);
+      renderReview();
       renderReplay(state.transcript);
       break;
   }
@@ -2937,6 +2952,7 @@ function goHome(){
   G.flagged = new Set();
   G.myVote = null;
   G.myAnswer = null;
+  G.review = null;
   G.voteSel = null;
   G.replyTo = null;
   if (G.endSeq) { G.endSeq.timers.forEach(clearTimeout); G.endSeq = null; }
@@ -3362,6 +3378,33 @@ function renderReveal(state){
     line.innerHTML = '<span class="reveal-round-num">' + (fr ? 'M' : 'R') + r.round + '</span>' + votes + ' <span class="reveal-round-out">⇒ ' + out + '</span>';
     votesEl.appendChild(line);
   });
+}
+
+/** This player's own game over review, sent to them alone: the lines they flagged and who really wrote them. */
+function renderReview(){
+  const fr = G.lang === 'fr';
+  const el = document.getElementById('gameover-review');
+  if (!el) return;
+  el.innerHTML = '';
+  const r = G.review;
+  if (!r) return;
+  if (r.flags.length) {
+    const head = document.createElement('div');
+    head.className = 'end-screen-history-title';
+    head.textContent = fr ? 'Tes signalements' : 'Your flags';
+    el.appendChild(head);
+    r.flags.forEach(function(f){
+      const line = document.createElement('div');
+      line.className = 'review-flag';
+      const excerpt = f.text.length > 60 ? f.text.slice(0, 57) + '…' : f.text;
+      const truth = f.isAI
+        ? '<span class="ai">' + (fr ? "c'était une IA 🤖" : 'it was an AI 🤖') + '</span>'
+        : '<span class="human">' + (fr ? "c'était un humain 🧑" : 'it was a human 🧑') + '</span>';
+      const quote = fr ? '« ' + escHtml(excerpt) + ' »' : '“' + escHtml(excerpt) + '”';
+      line.innerHTML = (fr ? 'Tu avais signalé ' : 'You flagged ') + '<b>' + escHtml(f.authorName) + '</b> <span class="review-quote">' + quote + '</span>' + (fr ? ' : ' : ': ') + truth;
+      el.appendChild(line);
+    });
+  }
 }
 
 /** The whole game again, every author marked human or AI with its model: the server's transcript, sent at game over only. */
