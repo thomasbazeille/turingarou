@@ -401,6 +401,62 @@
     .sc-name { font-size: 10px; font-weight: 700; margin-bottom: 2px; text-transform: uppercase; letter-spacing: 0.5px; }
     .sc-text { font-size: 13px; color: #e2e8f0; line-height: 1.4; word-wrap: break-word; }
     .sc-text.sc-answer { font-style: italic; color: #cbd5e1; }
+
+    /* ---- Reply to a message ---- */
+    .reply-btn { position: absolute; bottom: 1px; right: 3px; background: none; border: none; cursor: pointer; font-size: 11px; color: #fff; opacity: 0; transition: opacity 0.15s; padding: 0 2px; line-height: 1; }
+    .message-bubble:hover .reply-btn, .sc-msg:hover .reply-btn { opacity: 0.75; }
+    .message-bubble, .sc-msg { -webkit-touch-callout: none; }
+    @media (hover: none) {
+      .reply-btn { opacity: 0.55; font-size: 13px; padding: 2px 4px; }
+      .message-bubble.can-reply { padding-bottom: 14px; }
+    }
+    .reply-quote { font-size: 10px; line-height: 1.25; font-style: italic; color: rgba(255,255,255,0.88); background: rgba(0,0,0,0.22); border-left: 2px solid #94a3b8; border-radius: 2px; padding: 1px 4px; margin-bottom: 3px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+    .reply-quote-name { font-weight: 700; font-style: normal; margin-right: 3px; }
+    .sc-body .reply-quote { color: #cbd5e1; background: rgba(255,255,255,0.05); font-size: 11px; }
+    .reply-target { outline: 2px solid rgba(255,255,255,0.85); outline-offset: 1px; }
+    .reply-bar { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #cbd5e1; background: rgba(255,255,255,0.06); border-left: 3px solid #94a3b8; border-radius: 4px; padding: 3px 4px 3px 7px; margin-bottom: 4px; }
+    .reply-bar-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .reply-bar-close { background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 15px; min-width: 36px; min-height: 30px; }
+
+    /* ---- Vote in two steps: pick, then confirm ---- */
+    .local-input-row.vote-mode .local-input-cell:not(.active) { display: none; }
+    .local-input-row.vote-mode .local-input-cell.active { flex: 1; }
+    .vote-grid { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+    .vote-choice { flex: 1 1 120px; min-height: 44px; display: flex; align-items: center; gap: 7px; background: #18181b; color: #e2e8f0; border: 1px solid rgba(255,255,255,0.15); border-radius: 7px; padding: 8px 10px; font-size: 13px; cursor: pointer; text-align: left; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .vote-choice.selected { border-color: #ef4444; background: rgba(239,68,68,0.18); box-shadow: inset 0 0 0 2px rgba(239,68,68,0.55); color: #fff; }
+    .vote-choice.abstain { color: #94a3b8; font-style: italic; justify-content: center; }
+    .vote-choice.abstain.selected { border-color: #94a3b8; background: rgba(148,163,184,0.15); box-shadow: inset 0 0 0 2px rgba(148,163,184,0.55); color: #e2e8f0; }
+    .vote-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+    .vote-actions { display: flex; gap: 6px; }
+    .vote-actions .vote-btn { flex: 1; min-height: 48px; font-size: 13px; }
+    .vote-cancel { background: none; border: 1px solid rgba(255,255,255,0.22); color: #cbd5e1; border-radius: 5px; padding: 0 14px; min-height: 48px; cursor: pointer; font-size: 12px; }
+    .vote-count { color: #94a3b8; font-size: 11px; text-align: center; margin-top: 5px; }
+    .vote-done { color: #22c55e; font-size: 14px; font-weight: 600; padding: 8px 0 2px; text-align: center; }
+    @media (max-width: 600px) { .vote-choice { flex-basis: 40%; font-size: 15px; } }
+
+    /* ---- Staged elimination: vote count, then the name, then human or AI ---- */
+    .vote-tally { width: min(360px, 86vw); margin: 0 auto 14px; display: flex; flex-direction: column; gap: 5px; }
+    .tally-row { display: grid; grid-template-columns: minmax(70px, 120px) 1fr 24px; align-items: center; gap: 8px; font-size: 13px; color: #e2e8f0; }
+    .tally-name { display: flex; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .tally-bar { height: 10px; background: rgba(255,255,255,0.08); border-radius: 5px; overflow: hidden; }
+    .tally-fill { height: 100%; width: 0; background: #ef4444; border-radius: 5px; transition: width 0.25s ease-out; }
+    .tally-row.abstain .tally-name { color: #94a3b8; font-style: italic; }
+    .tally-row.abstain .tally-fill { background: #64748b; }
+    .tally-count { font-family: monospace; font-weight: bold; text-align: right; }
+    .eliminated-type { font-size: 13px; font-weight: 900; letter-spacing: 2px; text-align: center; margin-bottom: 9px; min-height: 18px; }
+    .stage-hidden { visibility: hidden; }
+    .stage-in { animation: fadeIn 0.45s ease-out; }
+    @media (max-width: 600px) {
+      #end-round-screen .stats-bar { padding: 50px 20px 4px; }
+      #end-round-screen .elimination-content { padding: 6px 20px; }
+      #end-round-screen .disconnected-title { margin-bottom: 10px; }
+      #end-round-screen .end-screen-history-wrap { max-height: 120px; margin-top: 8px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .tally-fill { transition: none; }
+      .stage-in { animation: none; }
+      #endround-peek { animation: none; opacity: 0; }
+    }
   </style>
 </head>
 <body>
@@ -564,16 +620,18 @@
     </div>
     <div class="elimination-content">
       <div>
-        <div class="disconnected-title">DISCONNECTED</div>
+        <div class="disconnected-title" id="endround-title">DISCONNECTED</div>
+        <div class="vote-tally" id="vote-tally" aria-live="polite"></div>
         <div class="eliminated-avatar" id="eliminated-avatar-display">P</div>
         <div class="eliminated-name" id="eliminated-name-display">Player</div>
+        <div class="eliminated-type" id="eliminated-type-display"></div>
         <div class="voted-by-text" id="voted-out-subtitle">Voted out by majority</div>
         <div class="voted-by-text" id="voted-by-list">Voted by: Player1, Player2</div>
       </div>
     </div>
     <div class="immunity-badge" id="immunity-badge" style="display: none;">
       <div>
-        <div class="immunity-label">Immunity</div>
+        <div class="immunity-label" id="immunity-label">Immunity</div>
         <div style="display: flex; align-items: center; gap: 7px; margin-top: 3px;">
           <div class="immune-avatar" id="immune-avatar-display">P</div>
           <div style="color: #fbbf24; font-weight: 600; font-size: 13px;" id="immune-name-display">Player</div>
@@ -691,7 +749,7 @@
 const COLORS=[{n:'Red',h:'#ef4444'},{n:'Orange',h:'#f97316'},{n:'Gold',h:'#eab308'},{n:'Silver',h:'#94a3b8'},{n:'Purple',h:'#a855f7'},{n:'Turquoise',h:'#06b6d4'},{n:'Pink',h:'#ec4899'},{n:'Lime',h:'#84cc16'},{n:'Indigo',h:'#6366f1'}];
 const T=8,A=3;  // 8 joueurs total (5 humains + 3 IA)
 const HUMAN_NEEDED=5;
-let G={s:'waiting',r:1,mr:7,t:100,qt:15,p:[],m:[],e:[],eliminationOrder:[],l:null,im:null,a:{},v:{},h:{},vh:{},sh:false,sa:null,ui:false,eliminatedAiCount:0,lang:'fr',currentQuestion:null,questions:{},questionEndTime:null,singleChat:false,flagged:new Set(),colOrder:null};
+let G={s:'waiting',r:1,mr:7,t:100,qt:15,p:[],m:[],e:[],eliminationOrder:[],l:null,im:null,a:{},v:{},h:{},vh:{},sh:false,sa:null,ui:false,eliminatedAiCount:0,lang:'fr',currentQuestion:null,questions:{},questionEndTime:null,singleChat:false,flagged:new Set(),colOrder:null,myVote:null,voteSel:null,voteCount:0,replyTo:null,endSeq:null,endRoundEndTime:null};
 
 // === SOCKET.IO SETUP ===
 // Configuration automatique selon environnement
@@ -828,6 +886,12 @@ socket.on('joinError', ({ message }) => {
 socket.on('gameState', (state) => {
   console.log('📊 Game state update:', state.phase);
   updateGameFromServer(state);
+});
+
+// The server sends each player their own vote only; the others' stay hidden until the round end.
+socket.on('myVote', (v) => {
+  G.myVote = v && typeof v.round === 'number' ? v : null;
+  if (G.s === 'voting') renderGameScreen();
 });
 
 // === VOICE (optional, shown only when the server exposes it) ===
@@ -1147,8 +1211,11 @@ const Voice = (() => {
     }
     setPtt('busy');
     try {
-      const res = await fetch(BACKEND_URL + '/api/voice/stt', { method: 'POST', headers: authHeaders({ 'Content-Type': type }), body: blob });
+      // A spoken line can answer a message like a typed one: the quoted id rides along, the server checks it.
+      const replyTo = G.replyTo;
+      const res = await fetch(BACKEND_URL + '/api/voice/stt' + (replyTo ? '?replyTo=' + encodeURIComponent(replyTo) : ''), { method: 'POST', headers: authHeaders({ 'Content-Type': type }), body: blob });
       const body = await res.json().catch(() => ({}));
+      if (res.ok && replyTo && G.replyTo === replyTo) { G.replyTo = null; renderReplyBar(); }
       if (!res.ok) {
         const msg = {
           409: vt('Trop tard : la discussion est finie', 'Too late: the discussion is over'),
@@ -1184,7 +1251,16 @@ function updateGameFromServer(state) {
   }
   if (state.questionEndTime) G.questionEndTime = state.questionEndTime;
   if (state.voteEndTime != null) G.voteEndTime = state.voteEndTime; else G.voteEndTime = null;
-  const hasVotedFor = (pid) => state.votes && state.votes.some(function(v){ return v.voterId === pid; });
+  G.endRoundEndTime = state.endRoundEndTime || null;
+  G.voteCount = state.voteCount || 0;
+  if (state.phase !== 'voting') G.voteSel = null;
+  if (state.phase === 'waiting' || state.phase === 'question') G.myVote = null;
+  if (state.phase !== 'discussion') G.replyTo = null;
+  const revealed = state.phase === 'endround' || state.phase === 'gameover';
+  // Before the round end only this player's own vote is known (myVote); everyone's is revealed at the round end.
+  const hasVotedFor = (pid) => revealed
+    ? !!(state.votes && state.votes.some(function(v){ return v.voterId === pid; }))
+    : pid === playerId && !!myVoteThisRound();
   const hasAnsweredFor = (pid) => state.answers && state.answers.some(function(a){ return a.playerId === pid; });
   // Mettre à jour les joueurs
   G.p = state.players.map((p, i) => ({
@@ -1210,7 +1286,8 @@ function updateGameFromServer(state) {
     color: state.players.find(p => p.id === msg.playerId)?.color || '#fff',
     text: msg.content,
     timestamp: msg.timestamp,
-    round: msg.round != null ? msg.round : state.currentRound
+    round: msg.round != null ? msg.round : state.currentRound,
+    replyToId: msg.replyToId || null
   }));
   
   // Toujours synchroniser les réponses avec le serveur (conserver les réponses humaines + IA)
@@ -1231,10 +1308,12 @@ function updateGameFromServer(state) {
   
   // Mettre à jour l'immunité (protectedPlayerId)
   G.im = state.protectedPlayerId;
-  // Votes (pour afficher "Voted by" en endround)
+  // Votes (pour afficher "Voted by" en endround) ; avant, seulement le sien ; targetId null = abstention
   G.v = {};
-  if (state.votes && state.votes.length) {
+  if (revealed && state.votes && state.votes.length) {
     state.votes.forEach(function(v) { G.v[v.voterId] = v.targetId; });
+  } else if (myVoteThisRound() && G.myVote.targetId) {
+    G.v[playerId] = G.myVote.targetId;
   }
   if (state.aiCount != null) G.aiCount = state.aiCount;
   if (state.phase === 'endround' && state.eliminatedAiCount != null) {
@@ -1317,7 +1396,7 @@ function updateGameFromServer(state) {
           if (!pvo) return;
           if (remaining <= 10 && remaining > 0) {
             pvo.style.display = 'flex';
-            if (pvt) pvt.textContent = 'VOTE IN ' + remaining;
+            if (pvt) pvt.textContent = (G.lang === 'fr' ? 'VOTE DANS ' : 'VOTE IN ') + remaining;
           } else {
             pvo.style.display = 'none';
           }
@@ -1341,8 +1420,11 @@ function updateGameFromServer(state) {
       var _vpo2 = document.getElementById('vote-phase-overlay');
       if (_vpo2) { _vpo2.style.display = 'none'; }
       showScreen('end-round');
+      if (prevPhase !== 'endround' || !G.endSeq || G.endSeq.round !== G.r) {
+        startEndStage(prevPhase === 'voting' && (G.endRoundEndTime || 0) - Date.now() >= END_STAGE_MIN_LEFT_MS);
+        startProgressBar(G.endRoundEndTime);
+      }
       renderEndOfRound(state.eliminatedPlayerId || null, state.protectedPlayerId || null);
-      startProgressBar(8000);
       break;
     case 'gameover':
       showScreen('gameover');
@@ -1557,6 +1639,7 @@ if(currentMode===mode){
   return;
 }
 row.dataset.mode=mode;
+row.classList.toggle('vote-mode',mode==='vote');
 
 // Sauvegarder le texte en cours si on passe d'un mode message à un autre message
 const prevTA=document.getElementById('message-textarea');
@@ -1573,23 +1656,16 @@ if(mode==='spectator'){
 cell.innerHTML='<div style="font-size:10px;color:#71717a;text-align:center;padding:6px;font-style:italic;">'
   +(G.lang==='fr'?'Éliminé — lecture seule':'Eliminated — read only')+'</div>';
 } else if(mode==='vote'){
-// Interface de vote — remplace le textarea
-const voteLabel=G.lang==='fr'?'⚡ VOTER :':'⚡ VOTE:';
-const confirmLabel=G.lang==='fr'?'CONFIRMER':'CONFIRM VOTE';
-cell.innerHTML=
-  '<div class="vote-label" id="vote-label">'+voteLabel+'</div>'
-  +'<div id="vote-inputs">'
-  +'<select class="vote-select" id="vote-select"><option value="">'+(G.lang==='fr'?'Choisir...':'Select...')+'</option></select>'
-  +'<button class="vote-btn" id="vote-btn" onclick="confirmVote()" disabled>'+confirmLabel+'</button>'
-  +'</div>'
-  +'<div id="vote-confirmed" style="display:none;color:#22c55e;font-size:12px;font-weight:600;padding:4px 0;"></div>';
+// Vote en deux temps (choisir puis confirmer), rempli par renderVotePanel
+cell.innerHTML='<div class="vote-panel" id="vote-panel"></div>';
 } else {
 // Mode message — textarea coloré avec la couleur du joueur
 const col=p.color||'#22d3ee';
 const borderCol=col;
 const bgCol=col.replace(/^#/,'');
 cell.innerHTML=
-  '<div style="display:flex;align-items:flex-end;gap:6px;">'
+  '<div class="reply-bar" id="reply-bar" style="display:none;"></div>'
+  +'<div style="display:flex;align-items:flex-end;gap:6px;">'
   +'<textarea class="message-textarea" id="message-textarea"'
   +' placeholder="'+(G.lang==='fr'?'Écris un message...':'Type a message...')+'"'
   +' rows="3"'
@@ -1597,7 +1673,7 @@ cell.innerHTML=
   +' onkeydown="if(event.key===\'Enter\'&&!event.shiftKey){event.preventDefault();sendMessage();}"'
   +'></textarea>'
   +Voice.pttHtml(borderCol)
-  +'<button class="send-btn" id="send-btn" onclick="sendMessage()" style="border-color:'+borderCol+';color:'+borderCol+';">SEND</button>'
+  +'<button class="send-btn" id="send-btn" onclick="sendMessage()" style="border-color:'+borderCol+';color:'+borderCol+';">'+(G.lang==='fr'?'ENVOYER':'SEND')+'</button>'
   +'</div>'
   +'<div class="char-counter" id="char-counter">0/'+mc+'</div>'
   +(Voice.canSpeak()?'<div class="voice-status" id="voice-status"></div>':'');
@@ -1612,9 +1688,7 @@ if(ta){
   if(savedText) ta.value=savedText;
   if(cc){ cc.textContent=ta.value.length+'/'+mc; ta.oninput=()=>{ cc.textContent=ta.value.length+'/'+mc; }; }
 }
-const vs=document.getElementById('vote-select');
-const vb=document.getElementById('vote-btn');
-if(vs&&vb){ vs.onchange=function(){ vb.disabled=!this.value; }; }
+renderReplyBar();
 Voice.bindPtt();
 }
 
@@ -1724,7 +1798,7 @@ h.innerHTML='';
 ordered.forEach(p=>{
 const im=p.id===G.im&&roundNum===G.r; // Immunité seulement pour le round actuel
 const va=Object.entries(G.v).filter(([vi,vf])=>vf===p.id).map(([vi])=>G.p.find(px=>px.id===vi)?.username||'?');
-const vt=va.length>0?'Voted by: '+va.join(', '):'No votes';
+const vt=va.length>0?(G.lang==='fr'?'Voté par : ':'Voted by: ')+va.join(', '):(G.lang==='fr'?'Aucun vote':'No votes');
 const vi=p.hasVoted&&roundNum===G.r?'<div style="position:absolute;top:-3px;right:-3px;width:18px;height:18px;background:#22c55e;border-radius:50%;border:2px solid #000;display:flex;align-items:center;justify-content:center;font-size:10px;z-index:10;">✓</div>':'';
 let ah='';
 if(im){
@@ -1778,7 +1852,7 @@ h.innerHTML='';
 orderedPlayers.forEach(p=>{
 const im=p.id===G.im;
 const va=Object.entries(G.v).filter(([vi,vf])=>vf===p.id).map(([vi])=>G.p.find(px=>px.id===vi)?.username||'?');
-const vt=va.length>0?'Voted by: '+va.join(', '):'No votes';
+const vt=va.length>0?(G.lang==='fr'?'Voté par : ':'Voted by: ')+va.join(', '):(G.lang==='fr'?'Aucun vote':'No votes');
 const vi=p.hasVoted?'<div style="position:absolute;top:-3px;right:-3px;width:18px;height:18px;background:#22c55e;border-radius:50%;border:2px solid #000;display:flex;align-items:center;justify-content:center;font-size:10px;z-index:10;">✓</div>':'';
 let ah='';
 if(im){
@@ -1794,42 +1868,8 @@ h.appendChild(c);
 renderMessages();
 const localElim2=G.l&&G.e.includes(G.l);
 const inputMode=localElim2?'spectator':(G.s==='voting'?'vote':'message');
-const prevVoteSelection=document.getElementById('vote-select')?.value||'';
 renderLocalInputRow(orderedPlayers,inputMode);
-// Peupler le vote-select si on est en mode vote
-const vs=document.getElementById('vote-select');
-const lp=G.p.find(p=>p.isLocal);
-if(vs&&lp){
-vs.innerHTML='<option value="">'+(G.lang==='fr'?'Choisir...':'Select...')+'</option>';
-const hasAlreadyVoted=lp.hasVoted;
-vs.disabled=hasAlreadyVoted;
-ap.forEach(p=>{
-if(!p.isLocal&&p.id!==G.im){
-const o=document.createElement('option');
-o.value=p.id;
-o.textContent=p.username;
-vs.appendChild(o);
-}
-});
-if(!hasAlreadyVoted&&prevVoteSelection)vs.value=prevVoteSelection;
-var voteInputs=document.getElementById('vote-inputs');
-var voteConfirmed=document.getElementById('vote-confirmed');
-if(hasAlreadyVoted){
-if(voteInputs)voteInputs.style.display='none';
-if(voteConfirmed){
-voteConfirmed.style.display='block';
-var myVoteTargetId=G.v[lp.id];
-var targetP=myVoteTargetId?G.p.find(function(p){return p.id===myVoteTargetId;}):null;
-var targetName=targetP?targetP.username:'?';
-voteConfirmed.textContent=(G.lang==='fr'?'✓ Voté pour ':'✓ Voted for ')+targetName;
-}
-}else{
-if(voteInputs)voteInputs.style.display='block';
-if(voteConfirmed)voteConfirmed.style.display='none';
-var vb=document.getElementById('vote-btn');
-if(vb){vb.disabled=!vs.value;vb.textContent=G.lang==='fr'?'CONFIRMER':'CONFIRM VOTE';}
-}
-}
+if(inputMode==='vote') renderVotePanel(ap);
 document.getElementById('round-text').textContent='R'+G.r+'/'+G.mr;
 // Spectator bar
 const localEliminated=G.l&&G.e.includes(G.l);
@@ -1993,9 +2033,12 @@ const b=document.createElement('div');
 b.className='message-bubble';
 b.style.background=m.color;
 b.style.top=y+'px';
+const bq=makeQuote(m);
+if(bq)b.appendChild(bq);
 const bTxt=document.createTextNode(m.text);
 b.appendChild(bTxt);
-if(m.playerId!==G.l&&m.playerId!=='system'){b.appendChild(makeStarBtn(m.id));b.appendChild(makeFlagBtn(m.id));}
+if(m.playerId!==G.l&&m.playerId!=='system'){b.appendChild(makeStarBtn(m.id));b.appendChild(makeFlagBtn(m.id));if(canReply()){b.classList.add('can-reply');b.appendChild(makeReplyBtn(m.id));bindLongPress(b,m.id);}}
+if(m.id===G.replyTo)b.classList.add('reply-target');
 c.appendChild(b);
 
 // Mesurer la hauteur réelle de la bulle (évite les superpositions)
@@ -2009,7 +2052,7 @@ const sep=document.createElement('div');
 sep.className='round-separator';
 const ep=rd<=G.eliminationOrder.length?G.p.find(p=>p.id===G.eliminationOrder[rd-1]):null;
 const robotClass=ep&&ep.isAI?' robot':'';
-sep.innerHTML='<div class="round-separator-line"><div class="round-separator-hr"></div><div class="round-separator-text">ROUND '+rd+' ENDED</div><div class="round-separator-hr"></div></div>'+(ep?'<div class="round-eliminated-info"><span>'+ep.username+(ep.isAI?' 🤖':'')+' eliminated</span><div class="round-eliminated-circle'+robotClass+'" style="background:'+ep.color+';box-shadow:0 0 5px '+ep.color+'60;"></div></div>':'');
+sep.innerHTML='<div class="round-separator-line"><div class="round-separator-hr"></div><div class="round-separator-text">'+(G.lang==='fr'?'MANCHE '+rd+' TERMINÉE':'ROUND '+rd+' ENDED')+'</div><div class="round-separator-hr"></div></div>'+(ep?'<div class="round-eliminated-info"><span>'+ep.username+(ep.isAI?' 🤖':'')+(G.lang==='fr'?' éliminé':' eliminated')+'</span><div class="round-eliminated-circle'+robotClass+'" style="background:'+ep.color+';box-shadow:0 0 5px '+ep.color+'60;"></div></div>':'');
 placeFullWidth(sep,50);
 }
 }
@@ -2054,7 +2097,7 @@ const ap=G.p.filter(p=>!G.e.includes(p.id));
 const mbr={};
 G.m.forEach(m=>{if(!mbr[m.round])mbr[m.round]=[];mbr[m.round].push(m);});
 
-function scRow(p,text,isAnswer,msgId){
+function scRow(p,text,isAnswer,msgId,msg){
 const row=document.createElement('div');
 row.className='sc-msg';
 const av=document.createElement('div');
@@ -2071,8 +2114,11 @@ const textDiv=document.createElement('div');
 textDiv.className='sc-text'+(isAnswer?' sc-answer':'');
 textDiv.textContent=text;
 body.appendChild(nameDiv);
+const sq=msg?makeQuote(msg):null;
+if(sq)body.appendChild(sq);
 body.appendChild(textDiv);
-if(msgId&&p.id!==G.l){body.appendChild(makeStarBtn(msgId));body.appendChild(makeFlagBtn(msgId));}
+if(msgId&&p.id!==G.l){body.appendChild(makeStarBtn(msgId));body.appendChild(makeFlagBtn(msgId));if(canReply()){body.appendChild(makeReplyBtn(msgId));bindLongPress(row,msgId);}}
+if(msgId&&msgId===G.replyTo)row.classList.add('reply-target');
 row.appendChild(av);
 row.appendChild(body);
 return row;
@@ -2112,7 +2158,7 @@ scl.appendChild(sys);
 return;
 }
 const p=G.p.find(pp=>pp.id===m.playerId);
-if(p)scl.appendChild(scRow(p,m.text,false,m.id));
+if(p)scl.appendChild(scRow(p,m.text,false,m.id,m));
 });
 
 if(rd<G.r){
@@ -2121,7 +2167,7 @@ sep.className='round-separator';
 sep.style.cssText='position:static;width:100%;';
 const ep=rd<=G.eliminationOrder.length?G.p.find(p=>p.id===G.eliminationOrder[rd-1]):null;
 const robotClass=ep&&ep.isAI?' robot':'';
-sep.innerHTML='<div class="round-separator-line"><div class="round-separator-hr"></div><div class="round-separator-text">ROUND '+rd+' ENDED</div><div class="round-separator-hr"></div></div>'+(ep?'<div class="round-eliminated-info"><span>'+ep.username+(ep.isAI?' 🤖':'')+' eliminated</span><div class="round-eliminated-circle'+robotClass+'" style="background:'+ep.color+';box-shadow:0 0 5px '+ep.color+'60;"></div></div>':'');
+sep.innerHTML='<div class="round-separator-line"><div class="round-separator-hr"></div><div class="round-separator-text">'+(G.lang==='fr'?'MANCHE '+rd+' TERMINÉE':'ROUND '+rd+' ENDED')+'</div><div class="round-separator-hr"></div></div>'+(ep?'<div class="round-eliminated-info"><span>'+ep.username+(ep.isAI?' 🤖':'')+(G.lang==='fr'?' éliminé':' eliminated')+'</span><div class="round-eliminated-circle'+robotClass+'" style="background:'+ep.color+';box-shadow:0 0 5px '+ep.color+'60;"></div></div>':'');
 scl.appendChild(sep);
 }
 }
@@ -2156,7 +2202,9 @@ function sendMessage(){
   
   // Envoyer au serveur
   console.log('💬 Sending message:', tx);
-  socket.emit('sendMessage', { message: tx });
+  socket.emit('sendMessage', G.replyTo ? { message: tx, replyToId: G.replyTo } : { message: tx });
+  G.replyTo = null;
+  renderReplyBar();
   
   // Vider le textarea
   ta.value = '';
@@ -2164,23 +2212,166 @@ function sendMessage(){
   if (cc) cc.textContent = '0/' + mc;
 }
 
+/** Second step of the vote: sends the choice picked in the vote panel (a player or the abstention). */
 function confirmVote(){
-  const s = document.getElementById('vote-select');
-  const vid = s.value;
-  if (!vid) return;
-  
-  console.log('🗳️  Voting for:', vid);
-  socket.emit('vote', { targetId: vid });
-  
+  const sel = G.voteSel;
+  if (!sel || G.s !== 'voting' || myVoteThisRound()) return;
+  const abstain = sel === 'abstain';
+  console.log('🗳️  Voting for:', abstain ? '(abstention)' : sel);
+  socket.emit('vote', abstain ? { abstain: true } : { targetId: sel });
+  // Shown at once; the server's myVote confirms it, or clears it if the vote was refused.
+  G.myVote = { round: G.r, targetId: abstain ? null : sel };
+  G.voteSel = null;
   var lp = G.p.find(function(p){ return p.isLocal; });
   if (lp) {
     lp.hasVoted = true;
-    G.v[lp.id] = vid;
-    if (!G.vh[lp.id]) G.vh[lp.id] = [];
-    var vp = G.p.find(function(p){ return p.id === vid; });
-    if (vp) G.vh[lp.id].push({r:G.r,vf:vp.username});
+    if (!abstain) {
+      G.v[lp.id] = sel;
+      if (!G.vh[lp.id]) G.vh[lp.id] = [];
+      var vp = G.p.find(function(p){ return p.id === sel; });
+      if (vp) G.vh[lp.id].push({r:G.r,vf:vp.username});
+    }
   }
   renderGameScreen();
+}
+
+function myVoteThisRound(){
+  return G.myVote && G.myVote.round === G.r ? G.myVote : null;
+}
+
+/**
+ * First step: pick a player or the abstention (tap again or Cancel to undo), then confirm. Only this player's own vote
+ * and an anonymous count are known before the round end. Rebuilt only when the choice changes, so a vote landing
+ * elsewhere never swallows a tap.
+ */
+function renderVotePanel(ap){
+  const panel = document.getElementById('vote-panel');
+  const lp = G.p.find(function(p){ return p.isLocal; });
+  if (!panel || !lp) return;
+  const fr = G.lang === 'fr';
+  const mine = myVoteThisRound();
+  const cands = ap.filter(function(p){ return !p.isLocal && p.id !== G.im; });
+  if (G.voteSel && G.voteSel !== 'abstain' && !cands.some(function(p){ return p.id === G.voteSel; })) G.voteSel = null;
+  const count = Math.max(G.voteCount || 0, mine ? 1 : 0);
+  const countTxt = fr ? count + ' sur ' + ap.length + ' ont voté' : count + ' of ' + ap.length + ' voted';
+  const key = [G.lang, G.r, mine ? 'v:' + mine.targetId : '', G.voteSel || '', cands.map(function(p){ return p.id; }).join(',')].join('|');
+  if (panel.dataset.key === key) {
+    const c = panel.querySelector('.vote-count');
+    if (c) c.textContent = countTxt;
+    return;
+  }
+  panel.dataset.key = key;
+  let h;
+  if (mine) {
+    const t = mine.targetId ? G.p.find(function(p){ return p.id === mine.targetId; }) : null;
+    h = '<div class="vote-done">' + (mine.targetId ? (fr ? '✓ Vote envoyé : ' : '✓ Vote sent: ') + escHtml(t ? t.username : '?') : (fr ? '✓ Abstention envoyée' : '✓ Abstention sent')) + '</div>';
+  } else {
+    const selP = G.voteSel && G.voteSel !== 'abstain' ? G.p.find(function(p){ return p.id === G.voteSel; }) : null;
+    const confirm = G.voteSel === 'abstain' ? (fr ? "CONFIRMER L'ABSTENTION" : 'CONFIRM ABSTENTION')
+      : selP ? (fr ? 'CONFIRMER : ' : 'CONFIRM: ') + escHtml(selP.username)
+      : (fr ? 'CONFIRMER' : 'CONFIRM');
+    h = '<div class="vote-label">' + (fr ? '⚡ Qui est une IA ? Choisis, puis confirme' : '⚡ Who is an AI? Pick, then confirm') + '</div><div class="vote-grid">';
+    cands.forEach(function(p){
+      const on = G.voteSel === p.id;
+      h += '<button type="button" class="vote-choice' + (on ? ' selected' : '') + '" data-id="' + escHtml(p.id) + '" aria-pressed="' + on + '">'
+        + '<span class="vote-dot" style="background:' + escHtml(p.color) + '"></span>' + escHtml(p.username) + '</button>';
+    });
+    h += '<button type="button" class="vote-choice abstain' + (G.voteSel === 'abstain' ? ' selected' : '') + '" data-id="abstain" aria-pressed="' + (G.voteSel === 'abstain') + '">'
+      + (fr ? "Je m'abstiens" : 'I abstain') + '</button></div>'
+      + '<div class="vote-actions"><button type="button" class="vote-btn" id="vote-btn"' + (G.voteSel ? '' : ' disabled') + '>' + confirm + '</button>'
+      + (G.voteSel ? '<button type="button" class="vote-cancel" id="vote-cancel">' + (fr ? 'Annuler' : 'Cancel') + '</button>' : '') + '</div>';
+  }
+  h += '<div class="vote-count">' + countTxt + '</div>';
+  panel.innerHTML = h;
+  panel.querySelectorAll('.vote-choice').forEach(function(b){
+    b.onclick = function(){ G.voteSel = G.voteSel === b.dataset.id ? null : b.dataset.id; renderVotePanel(ap); };
+  });
+  const vb = document.getElementById('vote-btn');
+  if (vb) vb.onclick = confirmVote;
+  const vc = document.getElementById('vote-cancel');
+  if (vc) vc.onclick = function(){ G.voteSel = null; renderVotePanel(ap); };
+}
+
+// ── Reply to a message: button (hover on desktop, always faint on touch) or long press ──
+function canReply(){
+  return G.s === 'discussion' && !!G.l && !G.e.includes(G.l);
+}
+
+function excerpt(text, n){
+  const t = String(text || '').replace(/\s+/g, ' ').trim();
+  return t.length > n ? t.slice(0, n - 1) + '…' : t;
+}
+
+function makeQuote(m){
+  if (!m || !m.replyToId) return null;
+  const q = G.m.find(function(x){ return x.id === m.replyToId; });
+  if (!q) return null;
+  const qp = G.p.find(function(p){ return p.id === q.playerId; });
+  const d = document.createElement('div');
+  d.className = 'reply-quote';
+  d.style.borderLeftColor = qp ? qp.color : '#94a3b8';
+  const n = document.createElement('span');
+  n.className = 'reply-quote-name';
+  n.textContent = qp ? qp.username : '?';
+  d.appendChild(n);
+  d.appendChild(document.createTextNode(excerpt(q.text, 48)));
+  return d;
+}
+
+function makeReplyBtn(msgId){
+  const rb = document.createElement('button');
+  rb.type = 'button';
+  rb.className = 'reply-btn';
+  rb.title = G.lang === 'fr' ? 'Répondre' : 'Reply';
+  rb.setAttribute('aria-label', rb.title);
+  rb.textContent = '↩';
+  rb.onclick = function(e){ e.stopPropagation(); setReply(msgId); };
+  return rb;
+}
+
+let longPressTimer = null;
+function bindLongPress(el, msgId){
+  let sx = 0, sy = 0, touch = false;
+  const cancel = function(){ if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; } };
+  el.addEventListener('pointerdown', function(e){
+    touch = e.pointerType !== 'mouse';
+    if (!touch) return;
+    sx = e.clientX; sy = e.clientY;
+    cancel();
+    longPressTimer = setTimeout(function(){ longPressTimer = null; setReply(msgId); if (navigator.vibrate) navigator.vibrate(12); }, 450);
+  });
+  el.addEventListener('pointermove', function(e){ if (longPressTimer && (Math.abs(e.clientX - sx) > 8 || Math.abs(e.clientY - sy) > 8)) cancel(); });
+  el.addEventListener('pointerup', cancel);
+  el.addEventListener('pointercancel', cancel);
+  el.addEventListener('contextmenu', function(e){ if (touch) e.preventDefault(); });
+}
+
+function setReply(msgId){
+  if (!canReply()) return;
+  G.replyTo = msgId;
+  renderReplyBar();
+  renderMessages();
+  const ta = document.getElementById('message-textarea');
+  if (ta) ta.focus();
+}
+
+function renderReplyBar(){
+  const bar = document.getElementById('reply-bar');
+  if (!bar) return;
+  const q = G.replyTo ? G.m.find(function(x){ return x.id === G.replyTo; }) : null;
+  if (!q || !canReply()) {
+    if (!q) G.replyTo = null;
+    bar.style.display = 'none';
+    bar.innerHTML = '';
+    return;
+  }
+  const qp = G.p.find(function(p){ return p.id === q.playerId; });
+  const fr = G.lang === 'fr';
+  bar.style.display = 'flex';
+  bar.style.borderLeftColor = qp ? qp.color : '#94a3b8';
+  bar.innerHTML = '<span class="reply-bar-text">↩ ' + (fr ? 'Réponse à ' : 'Replying to ') + '<b>' + escHtml(qp ? qp.username : '?') + '</b> « ' + escHtml(excerpt(q.text, 60)) + ' »</span>'
+    + '<button type="button" class="reply-bar-close" aria-label="' + (fr ? 'Annuler la réponse' : 'Cancel reply') + '">✕</button>';
+  bar.querySelector('.reply-bar-close').onclick = function(){ G.replyTo = null; renderReplyBar(); renderMessages(); };
 }
 
 function startTimer(){
@@ -2205,33 +2396,140 @@ function endRound(){
   console.log('⚠️ endRound() appelée localement - devrait être géré par le backend');
 }
 
+// ── Staged elimination: the vote count, then the name, then human or AI. Played once per round, and only for a client
+// that saw the vote close; anyone arriving later (resume, late tab) gets the final state at once. ──
+const END_STAGE_STEPS_MS = [1800, 3400];        // name, then human or AI; ~3.4 s of a 10 s round end (ENDROUND_MS)
+const END_STAGE_STEPS_REDUCED_MS = [900, 1800]; // prefers-reduced-motion: same order, no motion, shorter
+const END_STAGE_MIN_LEFT_MS = 5000;             // less left than this: no staging, the final state
+
+function reducedMotion(){
+  return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+}
+
+function startEndStage(staged){
+  if (G.endSeq) G.endSeq.timers.forEach(clearTimeout);
+  const seq = { round: G.r, stage: staged ? 0 : 2, staged: staged, reduce: reducedMotion(), timers: [], tallyKey: null };
+  G.endSeq = seq;
+  if (!staged) return;
+  (seq.reduce ? END_STAGE_STEPS_REDUCED_MS : END_STAGE_STEPS_MS).forEach(function(ms, i){
+    seq.timers.push(setTimeout(function(){
+      if (G.endSeq !== seq) return;
+      seq.stage = i + 1;
+      applyEndStage(true);
+    }, ms));
+  });
+}
+
+/** Shows what the current stage allows; the AI count waits for the type, since its change alone would tell it. */
+function applyEndStage(entering){
+  const seq = G.endSeq;
+  const stage = seq ? seq.stage : 2;
+  const anim = entering && seq && !seq.reduce;
+  const show = function(id, on){
+    const el = document.getElementById(id);
+    if (!el) return;
+    const wasHidden = el.classList.contains('stage-hidden');
+    el.classList.toggle('stage-hidden', !on);
+    if (on && wasHidden && anim) { el.classList.remove('stage-in'); void el.offsetWidth; el.classList.add('stage-in'); }
+  };
+  show('eliminated-avatar-display', stage >= 1);
+  show('eliminated-name-display', stage >= 1);
+  show('eliminated-type-display', stage >= 2);
+  show('voted-out-subtitle', stage >= 2);
+  show('voted-by-list', stage >= 2);
+  show('ai-unplugged-text', stage >= 2);
+}
+
+/** Votes against each player, most first (seat order on ties), then the abstentions; same for every client. */
+function renderVoteTally(){
+  const box = document.getElementById('vote-tally');
+  const seq = G.endSeq;
+  if (!box) return;
+  const fr = G.lang === 'fr';
+  const counts = {}, order = [];
+  let abst = 0, total = 0;
+  Object.keys(G.v).forEach(function(vid){
+    const t = G.v[vid];
+    total++;
+    if (!t) { abst++; return; }
+    if (!(t in counts)) { counts[t] = 0; order.push(t); }
+    counts[t]++;
+  });
+  const seat = G.p.map(function(p){ return p.id; });
+  order.sort(function(a, b){ return counts[b] - counts[a] || seat.indexOf(a) - seat.indexOf(b); });
+  const rows = order.map(function(id){ return { id: id, n: counts[id] }; });
+  if (abst) rows.push({ id: null, n: abst });
+  const key = G.lang + '|' + G.r + '|' + rows.map(function(r){ return r.id + ':' + r.n; }).join(',');
+  if (box.dataset.key === key) return;
+  box.dataset.key = key;
+  const countUp = !!(seq && seq.staged && !seq.reduce && seq.stage === 0 && seq.tallyKey === null);
+  if (seq) seq.tallyKey = key;
+  box.innerHTML = '';
+  rows.forEach(function(r){
+    const p = r.id ? G.p.find(function(x){ return x.id === r.id; }) : null;
+    const row = document.createElement('div');
+    row.className = 'tally-row' + (r.id ? '' : ' abstain');
+    const label = r.id ? (p ? p.username : '?') : (fr ? (r.n > 1 ? 'Abstentions' : 'Abstention') : (r.n > 1 ? 'Abstentions' : 'Abstention'));
+    row.innerHTML = '<div class="tally-name">' + (p ? '<span class="vote-dot" style="background:' + escHtml(p.color) + '"></span>' : '') + escHtml(label) + '</div>'
+      + '<div class="tally-bar"><div class="tally-fill"></div></div><div class="tally-count">' + (countUp ? 0 : r.n) + '</div>';
+    box.appendChild(row);
+    const fill = row.querySelector('.tally-fill');
+    const pct = total ? Math.round(100 * r.n / total) + '%' : '0%';
+    if (!countUp) { fill.style.width = pct; return; }
+    const num = row.querySelector('.tally-count');
+    let k = 0;
+    const tick = function(){
+      if (G.endSeq !== seq || box.dataset.key !== key) return;
+      k++;
+      num.textContent = k;
+      fill.style.width = Math.round(100 * k / total) + '%';
+      if (k < r.n) seq.timers.push(setTimeout(tick, 1200 / r.n));
+    };
+    seq.timers.push(setTimeout(tick, 150));
+  });
+  if (!rows.length) box.innerHTML = '<div class="voted-by-text">' + (fr ? 'Aucun vote' : 'No votes') + '</div>';
+}
+
 function renderEndOfRound(eid,iid){
+const fr=G.lang==='fr';
 const ep=eid?G.p.find(p=>p.id===eid):null;
 const ip=iid?G.p.find(p=>p.id===iid):null;
-document.getElementById('round-complete-text').textContent='ROUND '+G.r+' COMPLETED';
+document.getElementById('round-complete-text').textContent=fr?'MANCHE '+G.r+' TERMINÉE':'ROUND '+G.r+' COMPLETED';
 const aia=typeof G.eliminatedAiCount==='number'?G.eliminatedAiCount:G.e.length;
-document.getElementById('ai-unplugged-text').textContent=aia+'/'+(G.aiCount||A)+' AI UNPLUGGED';
+document.getElementById('ai-unplugged-text').textContent=fr?aia+'/'+(G.aiCount||A)+' IA DÉBRANCHÉE'+(aia>1?'S':''):aia+'/'+(G.aiCount||A)+' AI UNPLUGGED';
+document.getElementById('endround-title').textContent=fr?'DÉBRANCHÉ':'DISCONNECTED';
+renderVoteTally();
+const typeEl=document.getElementById('eliminated-type-display');
 if(ep){
 const ea=document.getElementById('eliminated-avatar-display');
 ea.textContent=ep.username.charAt(0);
 ea.style.background=ep.color;
 ea.style.boxShadow='0 0 45px '+ep.color+'cc';
 const isAI=G.eliminatedPlayerIsAI;
-const typeLabel=isAI===true?'🤖 WAS AN AI':'🧑 WAS HUMAN';
-const typeLabelFr=isAI===true?'🤖 C\'ÉTAIT UNE IA':'🧑 C\'ÉTAIT UN HUMAIN';
 const typeColor=isAI===true?'#ef4444':'#22c55e';
-document.getElementById('eliminated-name-display').innerHTML=ep.username+'<span style="display:block;font-size:13px;font-weight:900;color:'+typeColor+';letter-spacing:2px;margin-top:4px;text-shadow:0 0 10px '+typeColor+'80;">'+(G.lang==='fr'?typeLabelFr:typeLabel)+'</span>';
+document.getElementById('eliminated-name-display').textContent=ep.username;
+typeEl.textContent=isAI===true?(fr?'🤖 C\'ÉTAIT UNE IA':'🤖 WAS AN AI'):(fr?'🧑 C\'ÉTAIT UN HUMAIN':'🧑 WAS HUMAN');
+typeEl.style.color=typeColor;
+typeEl.style.textShadow='0 0 10px '+typeColor+'80';
 const sub=document.getElementById('voted-out-subtitle');
-if(sub)sub.textContent=G.lang==='fr'?'Éliminé par vote majoritaire':'Voted out by majority';
+if(sub)sub.textContent=fr?'Éliminé par vote majoritaire':'Voted out by majority';
 const vo=Object.entries(G.v).filter(([vid,vf])=>vf===eid).map(([vid])=>G.p.find(p=>p.id===vid)?.username).filter(Boolean);
-document.getElementById('voted-by-list').textContent=(G.lang==='fr'?'Voté par : ':'Voted by: ')+(vo.length?vo.join(', '):'None');
+document.getElementById('voted-by-list').textContent=(fr?'Voté par : ':'Voted by: ')+(vo.length?vo.join(', '):(fr?'personne':'None'));
 }else{
-document.getElementById('eliminated-avatar-display').textContent='?';
-document.getElementById('eliminated-name-display').textContent=G.lang==='fr'?'Personne (égalité)':'No one (tie)';
+const anyVote=Object.keys(G.v).some(function(k){return !!G.v[k];});
+const ea=document.getElementById('eliminated-avatar-display');
+ea.textContent='?';
+ea.style.background='';
+ea.style.boxShadow='';
+document.getElementById('eliminated-name-display').textContent=fr?'Personne':'No one';
+typeEl.textContent='';
 const sub=document.getElementById('voted-out-subtitle');
-if(sub)sub.textContent=G.lang==='fr'?'Égalité — aucune élimination':'Tie — no elimination';
-document.getElementById('voted-by-list').textContent=G.lang==='fr'?'Les votes sont à égalité':'Votes are tied';
+if(sub)sub.textContent=anyVote?(fr?'Égalité — aucune élimination':'Tie — no elimination'):(fr?'Aucun vote — aucune élimination':'No votes — no elimination');
+document.getElementById('voted-by-list').textContent=anyVote?(fr?'Les votes sont à égalité':'Votes are tied'):(fr?'Tout le monde s\'est abstenu':'Everyone abstained');
 }
+applyEndStage(false);
+document.getElementById('immunity-label').textContent=fr?'Immunité':'Immunity';
+document.getElementById('no-immunity').textContent=fr?'Pas d\'immunité cette manche':'No immunity this round';
 if(ip){
 const ib=document.getElementById('immunity-badge');
 ib.style.display='flex';
@@ -2246,7 +2544,7 @@ document.getElementById('immunity-badge').style.display='none';
 document.getElementById('no-immunity').style.display='block';
 }
 var endRoundReturnBtn = document.getElementById('end-round-return-btn');
-if (endRoundReturnBtn) endRoundReturnBtn.textContent = G.lang === 'fr' ? "Retour à l'accueil" : 'Return home';
+if (endRoundReturnBtn) endRoundReturnBtn.textContent = fr ? "Retour à l'accueil" : 'Return home';
 renderEndScreenHistory('end-round-history', 'end-round-history-title');
 }
 
@@ -2302,6 +2600,10 @@ function goHome(){
   G.eliminatedAiCount = 0;
   G.eliminatedPlayerIsAI = null;
   G.flagged = new Set();
+  G.myVote = null;
+  G.voteSel = null;
+  G.replyTo = null;
+  if (G.endSeq) { G.endSeq.timers.forEach(clearTimeout); G.endSeq = null; }
   // Reset single-chat mode
   G.singleChat = false;
   const scl=document.getElementById('single-chat-list');
@@ -2326,22 +2628,25 @@ function goHome(){
   if (!socket.connected) socket.connect();
 }
 
-function startProgressBar(durationMs){
+let progressTimer = null;
+/** Fills toward the server's round-end deadline; one interval at a time, so a re-render never stacks two. */
+function startProgressBar(endTime){
 const pb=document.getElementById('progress-bar');
 const nextTxt=document.getElementById('next-round-text');
+if(progressTimer){clearInterval(progressTimer);progressTimer=null;}
 if(!pb)return;
-let pr=0;
-const du=typeof durationMs==='number'?durationMs:8000;
-const iv=50,inc=(iv/du)*100;
-if(nextTxt) nextTxt.textContent='Next round in '+(du/1000)+'s...';
-const tm=setInterval(()=>{
-pr+=inc;
-pb.style.width=Math.min(pr,100)+'%';
-if(pr>=100){
-clearInterval(tm);
-if(nextTxt) nextTxt.textContent='Starting...';
-}
-},iv);
+const end=typeof endTime==='number'&&endTime>Date.now()?endTime:Date.now();
+const du=Math.max(1,end-Date.now());
+const paint=()=>{
+const left=Math.max(0,end-Date.now());
+pb.style.width=Math.min(100,100*(1-left/du))+'%';
+if(nextTxt) nextTxt.textContent=left>0
+  ?(G.lang==='fr'?'Suite dans '+Math.ceil(left/1000)+' s…':'Next round in '+Math.ceil(left/1000)+'s…')
+  :(G.lang==='fr'?'Ça repart…':'Starting...');
+if(left<=0&&progressTimer){clearInterval(progressTimer);progressTimer=null;}
+};
+paint();
+if(end>Date.now())progressTimer=setInterval(paint,100);
 }
 
 /* ── GEARS BACKGROUND ANIMATION ── */
@@ -2620,11 +2925,12 @@ const title=document.getElementById('gameover-title');
 const msg=document.getElementById('gameover-message');
 const detail=document.getElementById('gameover-detail');
 const gameoverHomeBtn = document.querySelector('#gameover-screen .next-round-text');
-if(title) title.textContent='GAME OVER';
+const goFr=G.lang==='fr';
+if(title) title.textContent=goFr?'FIN DE PARTIE':'GAME OVER';
 if(msg){
-if(reason==='humans_win'){ msg.textContent='Humans win!'; if(detail) detail.textContent='You found the AI.'; }
-else if(reason==='ai_win'){ msg.textContent='AI wins!'; if(detail) detail.textContent='The AI stayed hidden.'; }
-else { msg.textContent='Draw'; if(detail) detail.textContent='Game ended.'; }
+if(reason==='humans_win'){ msg.textContent=goFr?'Les humains gagnent !':'Humans win!'; if(detail) detail.textContent=goFr?'Vous avez démasqué les IA.':'You found the AI.'; }
+else if(reason==='ai_win'){ msg.textContent=goFr?'Les IA gagnent !':'AI wins!'; if(detail) detail.textContent=goFr?'Les IA sont restées cachées.':'The AI stayed hidden.'; }
+else { msg.textContent=goFr?'Égalité':'Draw'; if(detail) detail.textContent=goFr?'Partie terminée.':'Game ended.'; }
 }
 if(gameoverHomeBtn) gameoverHomeBtn.textContent = G.lang === 'fr' ? "Retour à l'accueil" : 'Return home';
 renderEndScreenHistory('gameover-history', 'gameover-history-title');
@@ -2682,7 +2988,7 @@ function renderReveal(state){
   history.forEach(function(r){
     const line = document.createElement('div');
     line.className = 'reveal-round';
-    const votes = r.votes.length ? r.votes.map(function(v){ return name(v.voterId) + ' → ' + name(v.targetId); }).join(', ') : (fr ? 'aucun vote' : 'no votes');
+    const votes = r.votes.length ? r.votes.map(function(v){ return name(v.voterId) + ' → ' + (v.targetId ? name(v.targetId) : (fr ? 'abstention' : 'abstained')); }).join(', ') : (fr ? 'aucun vote' : 'no votes');
     const ep = r.eliminatedId ? byId[r.eliminatedId] : null;
     const out = ep ? name(r.eliminatedId) + (fr ? ' éliminé ' : ' out ') + (ep.isAI ? '🤖' : '🧑') : (fr ? 'égalité, personne' : 'tie, no one out');
     line.innerHTML = '<span class="reveal-round-num">' + (fr ? 'M' : 'R') + r.round + '</span>' + votes + ' <span class="reveal-round-out">⇒ ' + out + '</span>';
