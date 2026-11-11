@@ -94,8 +94,8 @@ export function registerVoiceRoutes(app: Express, rooms: ReadonlyMap<string, Voi
 
   console.log(tts ? `[voice] TTS ${tts.name}/${tts.model}, STT ${stt ? `${stt.name}/${stt.model}` : 'off'}` : '[voice] off');
 
-  // The socket id is known only to its own client (never broadcast in the game state): it proves room membership,
-  // and a disconnected socket has already been removed from the room's players.
+  // The socket id is known only to its own client (never broadcast in the game state): it proves room membership.
+  // A seat taken back after a dropped connection answers to its new socket only (GameRoom.resume).
   function member(req: Request, res: Response) {
     const roomId = req.get('x-voice-room') ?? '';
     const socketId = req.get('x-voice-socket') ?? '';

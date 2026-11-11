@@ -59,6 +59,18 @@ const VERSION = (() => {
 
 const gameRooms = new Map<string, GameRoom>();
 
+function createRoom(roomId: string, aiCount: number): GameRoom {
+  const room: GameRoom = new GameRoom(roomId, io, llmProviders, aiCount, {
+    onVacant: () => {
+      if (gameRooms.get(roomId) !== room) return;
+      gameRooms.delete(roomId);
+      console.log(`Room ${roomId} deleted (no humans left)`);
+    },
+  });
+  gameRooms.set(roomId, room);
+  return room;
+}
+
 function getOrCreateRoom(roomId: string): GameRoom {
   // Si c'est le public lobby, chercher une room disponible
   if (roomId === 'public-lobby') {
@@ -78,8 +90,7 @@ function getOrCreateRoom(roomId: string): GameRoom {
     // Aucune room dispo, créer une nouvelle avec un ID unique
     const newRoomId = 'public-' + Date.now();
     const aiCount = parseInt(process.env.AI_COUNT || '3');
-    const room = new GameRoom(newRoomId, io, llmProviders, aiCount);
-    gameRooms.set(newRoomId, room);
+    const room = createRoom(newRoomId, aiCount);
     console.log(`Created new public room: ${newRoomId} with ${aiCount} AIs`);
     return room;
   }
@@ -87,8 +98,7 @@ function getOrCreateRoom(roomId: string): GameRoom {
   // Room privée avec code custom
   if (!gameRooms.has(roomId)) {
     const aiCount = parseInt(process.env.AI_COUNT || '3');
-    const room = new GameRoom(roomId, io, llmProviders, aiCount);
-    gameRooms.set(roomId, room);
+    createRoom(roomId, aiCount);
     console.log(`Created private room: ${roomId} with ${aiCount} AIs`);
   }
   return gameRooms.get(roomId)!;
@@ -100,7 +110,8 @@ io.on('connection', (socket) => {
   console.log(`Client connected: ${socket.id}`);
 
   let currentRoom: GameRoom | null = null;
-  let playerId: string | null = null;
+  // Resolved on every action: once a resume moves the seat to another socket, this one plays for nobody.
+  const me = (): string | null => (currentRoom ? currentRoom.playerIdBySocket(socket.id) : null);
 
   // Rejoindre une room
   socket.on('joinRoom', async ({ roomId, username, language }: { roomId: string; username: string; language?: 'fr' | 'en' }) => {
@@ -113,24 +124,44 @@ io.on('connection', (socket) => {
     if (success) {
       socket.join(actualRoomId);  // Rejoindre la vraie room (pas "public-lobby")
       currentRoom = room;
-      
-      // Trouver l'ID du joueur
-      const player = room.getState().players.find(
-        (p) => p.type === 'human' && p.socketId === socket.id
-      );
-      if (player) {
-        playerId = player.id;
-      }
-
-      socket.emit('joinSuccess', { playerId, roomId: actualRoomId });
+      const playerId = room.playerIdBySocket(socket.id);
+      // The token goes to this socket only: it is how this client takes its seat back after a dropped connection.
+      socket.emit('joinSuccess', { playerId, roomId: actualRoomId, token: playerId ? room.sessionToken(playerId) : null });
       console.log(`${username} joined successfully in ${actualRoomId}`);
     } else {
       socket.emit('joinError', { message: 'Room is full or unavailable' });
     }
   });
 
+  // Reprendre sa place après une coupure (veille mobile, réseau) avec le jeton reçu à joinSuccess
+  socket.on('resumeSession', (payload: { roomId?: unknown; token?: unknown } | undefined) => {
+    const roomId = typeof payload?.roomId === 'string' ? payload.roomId : '';
+    const room = gameRooms.get(roomId);
+    const seat = room && typeof payload?.token === 'string' ? room.resume(socket.id, payload.token) : null;
+    if (!room || !seat) {
+      socket.emit('resumeError', {});
+      return;
+    }
+    socket.join(roomId);
+    currentRoom = room;
+    // A socket that never noticed its own drop (a second tab, a half-open connection) stops playing this seat.
+    if (seat.previousSocketId && seat.previousSocketId !== socket.id) io.sockets.sockets.get(seat.previousSocketId)?.disconnect(true);
+    socket.emit('resumeSuccess', { playerId: seat.playerId, roomId });
+    socket.emit('gameState', room.publicState());
+    console.log(`${seat.playerId} resumed in ${roomId}`);
+  });
+
+  // Retour à l'accueil volontaire
+  socket.on('leaveRoom', () => {
+    if (!currentRoom) return;
+    currentRoom.leave(socket.id);
+    socket.leave(currentRoom.getRoomId());
+    currentRoom = null;
+  });
+
   // Envoyer un message
   socket.on('sendMessage', ({ message }: { message: string }) => {
+    const playerId = me();
     if (!currentRoom || !playerId) return;
 
     console.log(`Message from ${playerId}: ${message}`);
@@ -139,6 +170,7 @@ io.on('connection', (socket) => {
 
   // Répondre à la question
   socket.on('answerQuestion', ({ answer }: { answer: string }) => {
+    const playerId = me();
     if (!currentRoom || !playerId) return;
 
     console.log(`Answer from ${playerId}: ${answer}`);
@@ -147,6 +179,7 @@ io.on('connection', (socket) => {
 
   // Voter
   socket.on('vote', ({ targetId }: { targetId: string }) => {
+    const playerId = me();
     if (!currentRoom || !playerId) return;
 
     console.log(`Vote from ${playerId} for ${targetId}`);
@@ -155,6 +188,7 @@ io.on('connection', (socket) => {
 
   // Flaguer un message comme suspicious
   socket.on('flagMessage', ({ messageId, reason }: { messageId: string; reason?: string }) => {
+    const playerId = me();
     if (!currentRoom || !playerId) return;
     currentRoom.flagMessage(playerId, messageId, reason);
   });
@@ -173,20 +207,10 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Déconnexion
+  // Déconnexion : la place reste (grâce), la room se supprime d'elle-même quand plus aucun humain n'y est (onVacant)
   socket.on('disconnect', () => {
     console.log(`Client disconnected: ${socket.id}`);
-
-    if (currentRoom) {
-      currentRoom.removePlayer(socket.id);
-      // Clean up the room immediately if no humans remain
-      const rid = currentRoom.getRoomId();
-      const humans = currentRoom.getState().players.filter((p) => p.type === 'human');
-      if (humans.length === 0) {
-        gameRooms.delete(rid);
-        console.log(`Room ${rid} deleted (no humans left)`);
-      }
-    }
+    currentRoom?.disconnect(socket.id);
   });
 });
 
@@ -195,10 +219,9 @@ io.on('connection', (socket) => {
 setInterval(() => {
   for (const [id, room] of gameRooms) {
     const state = room.getState();
-    const humans = state.players.filter((p) => p.type === 'human');
-    if (humans.length === 0 || state.phase === 'gameover') {
+    if (!room.hasLiveHuman() || state.phase === 'gameover') {
       gameRooms.delete(id);
-      console.log(`[Cleanup] Room ${id} removed (phase=${state.phase}, humans=${humans.length})`);
+      console.log(`[Cleanup] Room ${id} removed (phase=${state.phase}, live humans=${room.hasLiveHuman()})`);
     }
   }
 }, 5 * 60 * 1000);
