@@ -2715,9 +2715,9 @@ function renderVotePanel(ap){
     h = '<div class="vote-done">' + (mine.targetId ? (fr ? '✓ Vote envoyé : ' : '✓ Vote sent: ') + escHtml(t ? t.username : '?') : (fr ? '✓ Abstention envoyée' : '✓ Abstention sent')) + '</div>';
     if (mine.targetId) {
       const picked = myVoteReason();
-      h += '<div class="vote-reason"><span class="vote-reason-label">' + (fr ? 'Pourquoi ?' : 'Why?') + '</span>';
+      h += '<div class="vote-reason"><span class="vote-reason-label">' + escHtml(fr ? 'Pourquoi ?' : 'Why?') + '</span>';
       VOTE_REASONS.forEach(function(r){
-        h += '<button type="button" class="vote-reason-chip' + (picked === r[0] ? ' selected' : '') + '" data-reason="' + r[0] + '" aria-pressed="' + (picked === r[0]) + '">' + (fr ? r[1] : r[2]) + '</button>';
+        h += '<button type="button" class="vote-reason-chip' + (picked === r[0] ? ' selected' : '') + '" data-reason="' + escHtml(r[0]) + '" aria-pressed="' + (picked === r[0]) + '">' + escHtml(fr ? r[1] : r[2]) + '</button>';
       });
       h += '</div>';
     }
@@ -3429,15 +3429,15 @@ function renderGameFeedback(){
   if (!box) return;
   if (gameFeedback.room !== roomId) gameFeedback = { room: roomId, rating: 0, clue: '', sent: false };
   const t = G.lang === 'fr' ? FEEDBACK_TEXT.fr : FEEDBACK_TEXT.en;
-  if (gameFeedback.sent) { box.innerHTML = '<div class="feedback-thanks">' + t.thanks + '</div>'; return; }
-  let h = '<div class="feedback-label">' + t.rate + '</div><div class="feedback-stars">';
+  if (gameFeedback.sent) { box.innerHTML = '<div class="feedback-thanks">' + escHtml(t.thanks) + '</div>'; return; }
+  let h = '<div class="feedback-label">' + escHtml(t.rate) + '</div><div class="feedback-stars">';
   for (let i = 1; i <= 5; i++) {
     h += '<button type="button" class="feedback-star' + (i <= gameFeedback.rating ? ' on' : '') + '" data-rating="' + i + '" aria-label="' + i + '/5" aria-pressed="' + (i === gameFeedback.rating) + '">★</button>';
   }
   h += '</div>';
   if (gameFeedback.rating) {
     h += '<textarea class="feedback-clue" id="feedback-clue" rows="2" maxlength="500" placeholder="' + escHtml(t.clue) + '"></textarea>'
-      + '<button type="button" class="feedback-send" id="feedback-send">' + t.send + '</button>';
+      + '<button type="button" class="feedback-send" id="feedback-send">' + escHtml(t.send) + '</button>';
   }
   box.innerHTML = h;
   box.querySelectorAll('.feedback-star').forEach(function(b){
