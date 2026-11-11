@@ -107,6 +107,26 @@ export function globalGapMs(rng: () => number = Math.random): number {
   return uniform(2500, 4000, rng);
 }
 
+/** All active bots together against their seats: their share of the lines compared with seats / n. */
+export function groupPaceOf(botLines: number, total: number, players: number, seats: number): Pace {
+  return seats > 0 ? paceOf(botLines, total, players / seats) : 'balanced';
+}
+
+/** At most this many bot lines in any 10 s window (direct replies excepted); one more while the bots as a group are under their share. */
+export const MAX_BOT_LINES_PER_10S = 2;
+
+/** Wait before a non-direct bot line: a jittered gap after any bot line (longer when the bots are over) and the 10 s ceiling. */
+export function botFloorWaitMs(now: number, lastBotPostAt: number, recentBotPosts: number[], group: Pace, rng: () => number = Math.random): number {
+  const jitter = rng() * 600;
+  const gap = globalGapMs(rng) * (group === 'over' ? 1.5 : 1);
+  const ceiling = MAX_BOT_LINES_PER_10S + (group === 'under' ? 1 : 0);
+  const sinceLast = now - lastBotPostAt;
+  if (sinceLast < gap) return gap - sinceLast + jitter;
+  const recent = recentBotPosts.filter((t) => now - t < 10000);
+  if (recent.length >= ceiling) return recent[recent.length - ceiling] + 10000 - now + jitter;
+  return 0;
+}
+
 export function makeSeededRng(seed: number): () => number {
   let a = seed >>> 0;
   return () => {

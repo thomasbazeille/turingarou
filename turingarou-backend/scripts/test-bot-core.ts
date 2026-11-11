@@ -67,7 +67,7 @@ class DeferredProvider implements ChatProvider {
 
 const format: GameFormat = { maxPlayers: 8, humanCount: 5, aiCount: 3, questionSec: 20, discussionSec: 100, voteSec: 30, maxRounds: 7, language: 'fr' };
 
-function setup() {
+function setup(rng: () => number = () => 0.5) {
   const clock = new ManualClock();
   const provider = new DeferredProvider();
   const state: GameRoomState = {
@@ -107,7 +107,6 @@ function setup() {
     submitAnswer: (_id, text) => answers.push(`r${state.currentRound}:${state.phase}:${text}`),
     castVote: (voter, target) => votes.push({ voter, target }),
   };
-  const rng = () => 0.5;
   const director = new BotDirector(room, { clock, rng, log: (l) => logs.push(l) });
   director.addBot(
     new Bot(
@@ -119,7 +118,16 @@ function setup() {
     state.phase = phase;
     if (phase === 'discussion') state.discussionEndTime = clock.now() + 100000;
   };
-  return { clock, provider, state, director, posted, answers, votes, logs, enter };
+  const addBot = (id: string, name: string, responseStyle: 'quick' | 'thoughtful') => {
+    state.players.push({ type: 'ai', id, username: name, color: '', colorName: '', isReady: true, isEliminated: false, personality: { name, traits: [], systemPrompt: `You are ${name}, a person.`, responseStyle, suspicionLevel: 0.5 } });
+    director.addBot(
+      new Bot(
+        { id, name, role: 'ai', provider, pool: [provider], profile: { caseProfile: 'raw', dropFinalPeriodProb: 0, temperatureOffset: 0 }, responseStyle, strategy: '{{CURRENT_GAME_SETUP}}', personality: `You are ${name}, a person.` },
+        { llm: director.llmSink, speech: director.speechSink, rng }
+      )
+    );
+  };
+  return { clock, provider, state, director, posted, answers, votes, logs, enter, addBot };
 }
 
 const say = (message: string) => JSON.stringify({ shouldRespond: true, message });
@@ -274,6 +282,71 @@ await test('pace: a bot over its share still answers at once when a player names
   provider.answer(idx, say('bah jsp trop'));
   await clock.advance(6000);
   assert.deepEqual(posted, ['bah jsp trop']);
+});
+
+await test('pace: while the bots are under their share, a third bot line fits in 10 s', async () => {
+  const { clock, provider, state, director, enter } = setup();
+  director.startQuestion(format);
+  enter('discussion');
+  director.startDiscussion();
+  seedLines(state, clock.now(), Array.from({ length: 12 }, (_, i) => (i % 2 ? 'h1' : 'h2')));
+  const name = (id: string, content: string) => {
+    const msg: GameMessage = { id, playerId: 'h1', playerName: 'emma', content, timestamp: clock.now(), phase: 'discussion', round: 1 };
+    state.messages.push(msg);
+    director.onPlayerMessage(msg, false);
+  };
+  const answerLast = (text: string) => provider.answer(provider.pending.length - 1, say(text));
+  name('d1', 'lucas ?');
+  await clock.advance(600);
+  answerLast('oui ?');
+  await clock.advance(3400);
+  name('d2', 'lucas t es ou');
+  await clock.advance(600);
+  answerLast('chez moi pourquoi');
+  await clock.advance(4400);
+  answerLast('bon on vote qui');
+  await clock.advance(6000);
+  const bot = state.messages.filter((m) => m.playerId === 'b1').map((m) => m.timestamp);
+  assert.equal(bot.length, 3, `bot lines: ${bot.length}`);
+  assert.ok(bot[2] - bot[0] < 10000, `third line ${bot[2] - bot[0]} ms after the first`);
+});
+
+await test('pace: a bot over its share never sends a follow-up burst after a short line', async () => {
+  const { clock, provider, state, director, posted, enter } = setup(() => 0.1);
+  director.startQuestion(format);
+  enter('discussion');
+  director.startDiscussion();
+  seedLines(state, clock.now(), ['b1', 'h1', 'b1', 'h2', 'b1', 'h1']);
+  const msg: GameMessage = { id: 'h-name', playerId: 'h1', playerName: 'emma', content: 'lucas tu en penses quoi ?', timestamp: clock.now(), phase: 'discussion', round: 1 };
+  state.messages.push(msg);
+  director.onPlayerMessage(msg, false);
+  await clock.advance(200);
+  provider.answer(provider.pending.length - 1, say('bah jsp'));
+  await clock.advance(6000);
+  assert.deepEqual(posted, ['bah jsp']);
+  const calls = decisions(provider).length;
+  await clock.advance(10000);
+  assert.equal(decisions(provider).length, calls, 'no burst decision after the reply');
+});
+
+await test('pace: the silence watchdog picks the bot that spoke least, not the quick one', async () => {
+  const { clock, provider, state, director, enter, addBot } = setup(() => 0.05);
+  addBot('b2', 'zoe', 'thoughtful');
+  director.startQuestion(format);
+  enter('discussion');
+  director.startDiscussion();
+  seedLines(state, clock.now(), ['b1', 'h1', 'b1']);
+  await clock.advance(15000);
+  const quiet = decisions(provider).filter((p) => p.req.messages.some((m) => m.content.includes('quiet for a while')));
+  assert.equal(quiet.length, 1, `watchdog calls: ${quiet.length}`);
+  assert.ok(quiet[0].req.messages[0].content.startsWith('You are zoe'), quiet[0].req.messages[0].content.slice(0, 30));
+});
+
+await test('pace: the decision prompt carries the share hint on a regular tick only', () => {
+  const id: PromptIdentity = { name: 'lucas', role: 'ai', strategy: '', personality: 'You are lucas, a person.', caseProfile: 'lower' };
+  assert.ok(decisionPrompt(id, { pace: 'over' }, [], null).includes('talking more than the others'));
+  assert.ok(decisionPrompt(id, { pace: 'under' }, [], null).includes('barely spoken'));
+  assert.ok(!/barely spoken|talking more than/.test(decisionPrompt(id, { pace: 'balanced' }, [], null)));
 });
 
 // ---- context: deterministic forgetting ----

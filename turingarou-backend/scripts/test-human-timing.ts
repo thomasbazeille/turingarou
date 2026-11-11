@@ -1,10 +1,12 @@
 import { strict as assert } from 'node:assert/strict';
 import {
   answerTarget,
+  botFloorWaitMs,
   cooldownMs,
   discussionDelay,
   firstMessageDelay,
   globalGapMs,
+  groupPaceOf,
   makeSeededRng,
   paceOf,
   readingMs,
@@ -343,6 +345,24 @@ test('skipProbability and cooldownMs: under < balanced < over for every style', 
       assert.ok(at('under') < at('balanced') && at('balanced') < at('over'), `${style} cooldown short=${short}`);
     }
   }
+});
+
+test('groupPaceOf: 3 bots of 8 players own 3/8 of the lines when balanced', () => {
+  assert.equal(groupPaceOf(7, 20, 8, 3), 'balanced');
+  assert.equal(groupPaceOf(4, 20, 8, 3), 'under');
+  assert.equal(groupPaceOf(10, 20, 8, 3), 'over');
+});
+
+test('botFloorWaitMs: 2 bot lines in 10 s hold a third, unless the bots as a group are under their share', () => {
+  const r = () => 0.5;
+  assert.equal(botFloorWaitMs(10000, 6000, [4000, 6000], 'under', r), 0);
+  assert.equal(botFloorWaitMs(10000, 6000, [4000, 6000], 'balanced', r), 4000 + 300);
+});
+
+test('botFloorWaitMs: the gap after any bot line is 1.5x longer while the bots are over their share', () => {
+  const r = () => 0.5;
+  assert.equal(botFloorWaitMs(10000, 6000, [6000], 'balanced', r), 0);
+  assert.equal(botFloorWaitMs(10000, 6000, [6000], 'over', r), 3250 * 1.5 - 4000 + 300);
 });
 
 // --- globalGapMs ---

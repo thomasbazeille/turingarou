@@ -9,10 +9,11 @@ import { addressedTo } from './directAddress.js';
 import { checkMessage } from './formGate.js';
 import {
   answerTarget,
+  botFloorWaitMs,
   cooldownMs,
   discussionDelay,
   firstMessageDelay,
-  globalGapMs,
+  groupPaceOf,
   PACE_WINDOW_LINES,
   Pace,
   paceOf,
@@ -34,8 +35,6 @@ const TICK_SPREAD_MS = 3000;
 const REACTION_MIN_MS = 2000;
 const REACTION_SPREAD_MS = 4000;
 const BURST_PROB = 0.15;
-/** At most this many bot lines in any 10 s window (direct replies excepted); one more while the bots as a group are under their share. */
-const MAX_BOT_LINES_PER_10S = 2;
 
 const CANNED: Record<'fr' | 'en', { accusation: string[]; named: string[] }> = {
   fr: {
@@ -415,7 +414,7 @@ export class BotDirector {
       }
       const now = this.now();
       if (!job.direct) {
-        const wait = this.floorWait(now);
+        const wait = botFloorWaitMs(now, this.lastBotPostAt, this.recentBotPosts, this.groupPace(), this.deps.rng);
         if (wait > 0) {
           job.timer = this.timers.after(wait, attempt);
           return;
@@ -434,18 +433,6 @@ export class BotDirector {
       if (short && pace !== 'over' && this.deps.rng() < BURST_PROB) this.scheduleBurst(slot, epoch);
     };
     job.timer = this.timers.after(delay, attempt);
-  }
-
-  private floorWait(now: number): number {
-    const jitter = this.deps.rng() * 600;
-    const pace = this.groupPace();
-    const gap = globalGapMs(this.deps.rng) * (pace === 'over' ? 1.5 : 1);
-    const ceiling = MAX_BOT_LINES_PER_10S + (pace === 'under' ? 1 : 0);
-    const sinceLast = now - this.lastBotPostAt;
-    if (sinceLast < gap) return gap - sinceLast + jitter;
-    const recent = this.recentBotPosts.filter((t) => now - t < 10000);
-    if (recent.length >= ceiling) return recent[recent.length - ceiling] + 10000 - now + jitter;
-    return 0;
   }
 
   private scheduleBurst(slot: Slot, epoch: number): void {
@@ -510,13 +497,11 @@ export class BotDirector {
     return [...this.slots.values()].filter((s) => active.has(s.bot.id));
   }
 
-  /** All active bots together against their seats: paceOf(own, total, n / seats) compares own / total with seats / n. */
   private groupPace(): Pace {
     const ids = new Set(this.activeSlots().map((s) => s.bot.id));
     const lines = this.discussionMessages().slice(-PACE_WINDOW_LINES);
     const players = this.room.state().players.filter((p) => !p.isEliminated).length;
-    if (ids.size === 0) return 'balanced';
-    return paceOf(lines.filter((m) => ids.has(m.playerId)).length, lines.length, players / ids.size);
+    return groupPaceOf(lines.filter((m) => ids.has(m.playerId)).length, lines.length, players, ids.size);
   }
 
   /** This bot's share of the current discussion against 1/n players still in the game. */
