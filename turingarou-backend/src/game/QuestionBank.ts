@@ -26,6 +26,7 @@ function flattenQuestionArrays(obj: unknown, skipKeys: Set<string> = new Set(['e
 }
 
 let cachedFr: string[] | null = null;
+let cachedFrTexture: string[] = [];
 
 function loadFrenchQuestions(): string[] {
   if (cachedFr) return cachedFr;
@@ -37,8 +38,9 @@ function loadFrenchQuestions(): string[] {
   }
   try {
     const raw = readFileSync(path, 'utf8');
-    const data = JSON.parse(raw) as unknown;
+    const data = JSON.parse(raw) as Record<string, unknown>;
     cachedFr = flattenQuestionArrays(data);
+    cachedFrTexture = flattenQuestionArrays(data.texture_questions);
     if (cachedFr.length === 0) cachedFr = getFallbackFrench();
     else console.log(`[QuestionBank] Loaded ${cachedFr.length} FR questions from questions_bank.json`);
   } catch (err) {
@@ -257,7 +259,78 @@ const QUESTIONS_EN_POOL = [
   "What's the weirdest texture you've touched?",
 ];
 
+/** Sensory, emotional, social, concrete memories: the FR ones live in questions_bank.json under texture_questions. */
+const QUESTIONS_EN_TEXTURE = [
+  "What smell takes you straight back to being a kid?",
+  "A sound you genuinely can't stand?",
+  "A school lunch you still remember the taste of?",
+  "Last time you were properly freezing, where were you?",
+  "A food texture that grosses you out?",
+  "What sound means holidays to you?",
+  "What did your grandparents' place smell like?",
+  "Something you like touching for no reason?",
+  "A taste from childhood you miss?",
+  "Last thing that made you laugh out loud on your own?",
+  "Last time you got really nervous, what was it for?",
+  "Small thing that put you in a good mood today?",
+  "Last movie or show that made you cry?",
+  "Some stupid little thing that ruined your day recently?",
+  "Ever had a laughing fit at the worst possible moment?",
+  "Last time you were proud of yourself, what for?",
+  "Something that scared you way more than it should have?",
+  "What annoys you most on public transport?",
+  "Your last text, what was it about?",
+  "A friend who embarrassed you in public?",
+  "Are you the one who's always late or the one who waits?",
+  "Last family dinner, what did everyone talk about?",
+  "What do your friends always tease you about?",
+  "Worst party you've been to, in one line?",
+  "At a party: kitchen, couch or dance floor?",
+  "Last person you laughed with on the phone?",
+  "Weirdest neighbor you've had?",
+  "What was your first phone?",
+  "Favorite after-school snack as a kid?",
+  "Worst teacher you ever had, what did they do?",
+  "A summer camp or childhood holiday memory?",
+  "What was your first concert?",
+  "Dumbest thing you did in middle school?",
+  "Cartoon you never missed as a kid?",
+  "Last time you took a train, where were you going?",
+  "A toy you still have?",
+  "What did you do with your first paycheck?",
+  "Last dish you completely messed up?",
+];
+
 export function getQuestionsForLanguage(lang: 'fr' | 'en'): string[] {
   if (lang === 'fr') return loadFrenchQuestions();
-  return QUESTIONS_EN_POOL;
+  return [...QUESTIONS_EN_POOL, ...QUESTIONS_EN_TEXTURE];
+}
+
+export function getTextureQuestions(lang: 'fr' | 'en'): string[] {
+  if (lang === 'en') return QUESTIONS_EN_TEXTURE;
+  loadFrenchQuestions();
+  return cachedFrTexture;
+}
+
+export function isTextureQuestion(question: string, lang: 'fr' | 'en'): boolean {
+  return getTextureQuestions(lang).includes(question);
+}
+
+/**
+ * Minimum share of texture questions in a game (sensory, emotional, social: answers that differ between a person and a
+ * model, Among Liars; not measured there). By round r at least round(0.4 r) of them were asked: 1 by round 2, 2 by
+ * round 4, 3 by round 7.
+ */
+export const TEXTURE_MIN_SHARE = 0.4;
+
+/** The question of the next round: a texture one when the game is behind its minimum share, never one already asked. */
+export function drawQuestion(lang: 'fr' | 'en', asked: readonly string[], rng: () => number = Math.random): string {
+  const texture = getTextureQuestions(lang);
+  const all = getQuestionsForLanguage(lang);
+  const textureSoFar = asked.filter((q) => texture.includes(q)).length;
+  const behind = texture.length > 0 && textureSoFar < Math.round((asked.length + 1) * TEXTURE_MIN_SHARE);
+  const source = behind ? texture : all;
+  const fresh = source.filter((q) => !asked.includes(q));
+  const pool = fresh.length > 0 ? fresh : source;
+  return pool[Math.floor(rng() * pool.length)];
 }

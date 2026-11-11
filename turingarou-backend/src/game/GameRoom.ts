@@ -10,7 +10,7 @@ import {
   GameFormat,
 } from '../types/game.types.js';
 import { ChatProvider } from '../llm/chatClient.js';
-import { getQuestionsForLanguage } from './QuestionBank.js';
+import { drawQuestion } from './QuestionBank.js';
 import {
   saveGameLog,
   updateHumanProfiles,
@@ -684,8 +684,8 @@ export class GameRoom {
   }
 
   private getRandomQuestion(): string {
-    const questions = getQuestionsForLanguage(this.state.language === 'en' ? 'en' : 'fr');
-    return questions[Math.floor(this.deps.rng() * questions.length)];
+    const asked = Array.from({ length: this.state.currentRound - 1 }, (_, i) => this.questionsByRound.get(i + 1) ?? '');
+    return drawQuestion(this.state.language === 'en' ? 'en' : 'fr', asked, this.deps.rng);
   }
 
   private emitState(): void {

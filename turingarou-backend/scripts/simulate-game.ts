@@ -15,11 +15,14 @@ import { GameRoom, GameRoomDeps, RoomEmitter, DISCUSSION_PHASE_MS } from '../src
 import { DISCUSSION_LOCK_MS, VOTE_DEADLINE_MS } from '../src/game/BotDirector.js';
 import { ChatProvider, ChatRequest, ChatResult, ProviderError } from '../src/llm/chatClient.js';
 import { makeSeededRng } from '../src/game/humanTiming.js';
+import { isTextureQuestion } from '../src/game/QuestionBank.js';
 import { getInspectorPromptContent, getRandomAIPlayerStrategy } from '../src/game/StrategyLoader.js';
 import type { GameLogData } from '../src/game/GameLogger.js';
 import type { GameMessage, GameRoomState, QuestionAnswer } from '../src/types/game.types.js';
 
 type Lang = 'fr' | 'en';
+/** Guaranteed share of texture questions per game, the requirement itself (not QuestionBank's constant). */
+const TEXTURE_MIN_SHARE = 0.4;
 type Kind = 'decision' | 'answer' | 'vote';
 
 // ====== VIRTUAL CLOCK ======
@@ -470,6 +473,7 @@ async function runGame(sc: Scenario): Promise<GameResult> {
   let emitsAfterEnd = 0;
   const humans: { socketId: string; name: string; id: string }[] = [];
   const accusations: Accusation[] = [];
+  const questions: string[] = [];
 
   const usedNames = new Set<string>();
   const names: GameRoomDeps['names'] = {
@@ -527,6 +531,7 @@ async function runGame(sc: Scenario): Promise<GameResult> {
     if (finished) return;
     const present = humans.filter((h) => isActive(h.id));
     if (phase === 'question') {
+      questions.push(state().currentQuestion ?? '');
       for (const h of present) {
         if (simRng() < 0.08) continue;
         clock.setTimeout(() => {
@@ -671,6 +676,13 @@ async function runGame(sc: Scenario): Promise<GameResult> {
       offend('telemetry', 'telemetry line is not JSON');
     }
   }
+
+  // Texture questions: at least round(0.4 x rounds) of the questions a game asked.
+  const textureAsked = questions.filter((q) => isTextureQuestion(q, sc.lang)).length;
+  inc('questions_asked', questions.length);
+  inc('texture_asked', textureAsked);
+  if (textureAsked < Math.round(questions.length * TEXTURE_MIN_SHARE)) offend('texture_short', `${textureAsked} texture of ${questions.length}: ${questions.join(' | ')}`);
+  if (new Set(questions).size !== questions.length) offend('question_repeated', questions.join(' | '));
 
   // The three AIs of a game never share a response style, a role, a case habit or a length habit.
   const castEntries = Object.values(telemetry?.cast ?? {});
@@ -964,6 +976,12 @@ function report(results: GameResult[], elapsed: number, games: number): void {
       value: `${games - sum('cast_not_distinct')}/${games} games; ${new Set(results.map((r) => r.cast)).size} different style:role casts`,
       ok: sum('cast_not_distinct') === 0 && new Set(results.map((r) => r.cast)).size > 1,
       keys: ['cast_not_distinct'],
+    },
+    {
+      name: `texture questions (min ${TEXTURE_MIN_SHARE * 100} % per game) / repeats`,
+      value: `${sum('texture_asked')}/${sum('questions_asked')} = ${((100 * sum('texture_asked')) / Math.max(1, sum('questions_asked'))).toFixed(0)} %, short in ${sum('texture_short')} games; repeated ${sum('question_repeated')}`,
+      ok: sum('texture_short') + sum('question_repeated') === 0 && sum('questions_asked') > 0,
+      keys: ['texture_short', 'question_repeated'],
     },
     { name: 'min gap between bot lines (non-direct)', value: `${(minGap / 1000).toFixed(2)} s over ${sum('gap_pairs')} pairs`, ok: sum('gap_below_2500') === 0, keys: ['gap_below_2500'] },
     { name: 'active bots voted / fallback = no usable vote', value: `${sum('bot_votes_cast')}/${sum('bot_votes_expected')}, fallback ${sum('vote_fallbacks')} (needed ${sum('vote_fallbacks_needed')})`, ok: sum('bot_did_not_vote') + sum('vote_fallback_mismatch') === 0, keys: ['bot_did_not_vote', 'vote_fallback_mismatch'] },
