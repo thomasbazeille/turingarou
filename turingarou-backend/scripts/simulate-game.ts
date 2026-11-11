@@ -1489,8 +1489,9 @@ async function runGame(sc: Scenario): Promise<GameResult> {
       offend('end_coherent', `game over "${s.gameOverReason}" with ${ais} AIs, ${realHumans} humans, ${active.length} players at r${s.currentRound}`);
     }
   }
-  // Each human's own review: on their own socket only, after the game over, with their flags and the truth about
-  // each author. Every human connected at the end gets exactly one; an aborted game sends none.
+  // Each human's own review: on their own socket only, after the game over, with their score (recomputed here from
+  // the votes shown at each round end) and their flags with the truth about each author. Every human connected at the
+  // end gets exactly one; an aborted game sends none.
   for (const r of reviews) {
     inc('reviews');
     const h = humans.find((x) => x.socketId === r.target && room.playerIdBySocket(r.target) === x.id);
@@ -1502,6 +1503,18 @@ async function runGame(sc: Scenario): Promise<GameResult> {
     else {
       const expected = h ? flagsOf.get(h.id) ?? [] : [];
       if (JSON.stringify(review.flags.map((f) => f.messageId)) !== JSON.stringify(expected)) bad.push(`flags [${review.flags.map((f) => f.messageId).join(',')}], flagged [${expected.join(',')}]`);
+      const rounds = h
+        ? [...endroundVotes.entries()].sort((a, b) => a[0] - b[0]).flatMap(([rd, votes]) => {
+            const own = votes.find((v) => v.voterId === h.id);
+            return own ? [{ round: rd, outcome: own.targetId === null ? 'abstain' : botIds.has(own.targetId) ? 'ai' : 'human', out: eliminatedIn.get(rd) === h.id }] : [];
+          })
+        : [];
+      const aiFound = rounds.filter((r) => r.outcome === 'ai').length;
+      const falseAccusations = rounds.filter((r) => r.outcome === 'human').length;
+      inc('scores_checked');
+      inc('score_ai_found', review.score.aiFound);
+      inc('score_false_accusations', review.score.falseAccusations);
+      if (JSON.stringify(review.score) !== JSON.stringify({ aiFound, falseAccusations, rounds })) bad.push(`score ${JSON.stringify(review.score)}, votes say ${aiFound} AIs found, ${falseAccusations} false over ${rounds.length} rounds`);
       for (const f of review.flags) {
         inc('flags_checked');
         const line = s.messages.find((x) => x.id === f.messageId);
@@ -1854,9 +1867,9 @@ function report(results: GameResult[], elapsed: number, games: number, probe: Fl
       keys: ['transcript'],
     },
     {
-      name: "each human's review (flags) on their own socket only, after the end",
-      value: `${sum('reviews_ok')}/${sum('reviews')} reviews right, ${sum('flags_checked')} flags checked`,
-      ok: sum('review') === 0 && sum('reviews') > 0 && sum('flags_checked') > 0,
+      name: "each human's review (score, flags) on their own socket only, after the end",
+      value: `${sum('reviews_ok')}/${sum('reviews')} reviews right; scores ${sum('scores_checked')} (AIs found ${sum('score_ai_found')}, false accusations ${sum('score_false_accusations')}); ${sum('flags_checked')} flags`,
+      ok: sum('review') === 0 && sum('reviews') > 0 && sum('flags_checked') > 0 && sum('score_ai_found') > 0 && sum('score_false_accusations') > 0,
       keys: ['review'],
     },
     {

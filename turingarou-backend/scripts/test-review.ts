@@ -1,13 +1,13 @@
 /**
  * The game over review: the transcript of the whole game with every author revealed, sent with the game over
- * only and again to a player back with their session token; each human's own review (the lines they flagged and
- * who wrote them), sent to that human's socket only.
+ * only and again to a player back with their session token; each human's own review (their score: AIs found and
+ * false accusations, and the lines they flagged and who wrote them), sent to that human's socket only.
  *
  *   npx tsx scripts/test-review.ts
  */
 import assert from 'node:assert/strict';
 import { DISCUSSION_PHASE_MS, ENDROUND_MS, GameRoom, QUESTION_PHASE_MS, RoomEmitter } from '../src/game/GameRoom.js';
-import { buildTranscript, flagResults } from '../src/game/gameReview.js';
+import { buildTranscript, flagResults, scoreVotes } from '../src/game/gameReview.js';
 import type { ChatProvider } from '../src/llm/chatClient.js';
 import { makeSeededRng } from '../src/game/humanTiming.js';
 
@@ -225,6 +225,50 @@ await check("the flagger sees their flags with the truth (an AI's line, a human'
   assert.deepEqual(first.flags.map((f) => f.authorId), [game.aiIds[0], game.humanIds[1]]);
   for (const id of game.humanIds.slice(1)) assert.deepEqual(game.room.reviewOf(id)!.flags, [], `${id} sees flags that are not theirs`);
   assert.ok(!game.roomStates.some((s) => JSON.stringify(s).includes('"flags"')), 'flags in a state sent to the room');
+});
+
+// ====== SCORE ======
+
+await check('score: AIs found and false accusations kept apart, abstentions in neither, no round after being voted out', () => {
+  const v = (voterId: string, targetId: string | null) => ({ voterId, targetId });
+  const history = [
+    { round: 2, votes: [v('me', 'h1'), v('ai1', 'me')], eliminatedId: 'h1' },
+    { round: 1, votes: [v('me', 'ai1'), v('h1', null)], eliminatedId: 'ai1' },
+    { round: 3, votes: [v('me', null), v('ai2', 'me')], eliminatedId: null },
+    { round: 4, votes: [v('me', 'insp'), v('ai2', 'me')], eliminatedId: 'me' },
+    { round: 5, votes: [v('ai2', 'h3')], eliminatedId: 'h3' },
+  ];
+  const isAI = (id: string) => ['ai1', 'ai2', 'insp'].includes(id);
+  assert.deepEqual(scoreVotes('me', history, isAI), {
+    aiFound: 2,
+    falseAccusations: 1,
+    rounds: [
+      { round: 1, outcome: 'ai', out: false },
+      { round: 2, outcome: 'human', out: false },
+      { round: 3, outcome: 'abstain', out: false },
+      { round: 4, outcome: 'ai', out: true },
+    ],
+  });
+  assert.deepEqual(scoreVotes('nobody', history, isAI), { aiFound: 0, falseAccusations: 0, rounds: [] });
+});
+
+await check("each human's score at the game over follows their own votes, against the seats revealed", () => {
+  const rounds = game.room.getState().currentRound;
+  for (const id of game.humanIds) {
+    const expected = [];
+    for (let rd = 1; rd <= rounds; rd++) {
+      const mine = game.votes.find((x) => x.round === rd && x.voterId === id);
+      const target = game.votes.find((x) => x.round === rd)!.targetId;
+      const outBefore = game.votes.some((x) => x.round < rd && x.targetId === id);
+      if (outBefore) break;
+      expected.push({ round: rd, outcome: mine ? (game.aiIds.includes(mine.targetId) ? 'ai' : 'human') : 'abstain', out: target === id });
+    }
+    const score = game.room.reviewOf(id)!.score;
+    assert.deepEqual(score.rounds, expected, `rounds of ${id}`);
+    assert.equal(score.aiFound, expected.filter((r) => r.outcome === 'ai').length);
+    assert.equal(score.falseAccusations, expected.filter((r) => r.outcome === 'human').length);
+  }
+  assert.ok(game.room.reviewOf(game.humanIds[0])!.score.aiFound > 0, 'the scenario found no AI');
 });
 
 await check('a player back with their token after the game over gets the same transcript', () => {

@@ -181,6 +181,13 @@
     @keyframes revealIn { from { opacity: 0; transform: translateY(7px) scale(0.96); } to { opacity: 1; transform: none; } }
     .review { max-width: 760px; width: calc(100% - 30px); margin: 14px auto 6px; text-align: left; }
     .review:empty { display: none; }
+    .score-row { display: flex; gap: 10px; justify-content: center; margin-bottom: 6px; }
+    .score-tile { flex: 0 1 200px; background: rgba(15,23,42,0.8); border: 1px solid rgba(255,255,255,0.1); border-radius: 7px; padding: 10px; text-align: center; }
+    .score-n { font-size: 30px; font-weight: 700; line-height: 1.1; }
+    .score-tile.found .score-n { color: #22c55e; }
+    .score-tile.wrong .score-n { color: #f59e0b; }
+    .score-l { color: #cbd5e1; font-size: 12px; }
+    .score-total { color: #94a3b8; font-size: 11px; text-align: center; margin-bottom: 12px; }
     .review-flag { font-size: 12px; color: #e2e8f0; padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
     .review-flag .ai { color: #ef4444; }
     .review-flag .human { color: #22c55e; }
@@ -1087,7 +1094,7 @@ socket.on('myAnswer', (a) => {
 
 // At the game over each player gets their own review (what they flagged); nobody else sees it.
 socket.on('myReview', (r) => {
-  G.review = r && Array.isArray(r.flags) ? r : null;
+  G.review = r && Array.isArray(r.flags) && r.score ? r : null;
   if (G.s === 'gameover') renderReview();
 });
 
@@ -3380,7 +3387,26 @@ function renderReveal(state){
   });
 }
 
-/** This player's own game over review, sent to them alone: the lines they flagged and who really wrote them. */
+const TALLY_KEY = 'turingarou.tally.v1';
+
+/** Running totals kept in this browser only (no account): each game counted once, by the server's gameKey. */
+function tallyWith(review){
+  let t = null;
+  try { t = JSON.parse(localStorage.getItem(TALLY_KEY) || 'null'); } catch (e) {}
+  if (!t || typeof t.aiFound !== 'number' || typeof t.falseAccusations !== 'number' || typeof t.played !== 'number' || !Array.isArray(t.recent)) {
+    t = { aiFound: 0, falseAccusations: 0, played: 0, recent: [] };
+  }
+  if (t.recent.indexOf(review.gameKey) < 0) {
+    t.aiFound += review.score.aiFound;
+    t.falseAccusations += review.score.falseAccusations;
+    t.played += 1;
+    t.recent = t.recent.concat(review.gameKey).slice(-50);
+    try { localStorage.setItem(TALLY_KEY, JSON.stringify(t)); } catch (e) {}
+  }
+  return t;
+}
+
+/** This player's own game over review, sent to them alone: their score, and the lines they flagged with who really wrote them. */
 function renderReview(){
   const fr = G.lang === 'fr';
   const el = document.getElementById('gameover-review');
@@ -3388,6 +3414,26 @@ function renderReview(){
   el.innerHTML = '';
   const r = G.review;
   if (!r) return;
+  const foundLabel = function(n){ return fr ? (n > 1 ? 'IA trouvées' : 'IA trouvée') : (n === 1 ? 'AI found' : 'AIs found'); };
+  const wrongLabel = function(n){ return fr ? (n > 1 ? 'fausses accusations' : 'fausse accusation') : (n === 1 ? 'false accusation' : 'false accusations'); };
+  const tile = function(cls, n, label){
+    return '<div class="score-tile ' + cls + '"><div class="score-n">' + n + '</div><div class="score-l">' + label + '</div></div>';
+  };
+  const scoreHead = document.createElement('div');
+  scoreHead.className = 'end-screen-history-title';
+  scoreHead.textContent = fr ? 'Ta partie' : 'Your game';
+  el.appendChild(scoreHead);
+  const row = document.createElement('div');
+  row.className = 'score-row';
+  row.innerHTML = tile('found', r.score.aiFound, foundLabel(r.score.aiFound)) + tile('wrong', r.score.falseAccusations, wrongLabel(r.score.falseAccusations));
+  el.appendChild(row);
+  const t = tallyWith(r);
+  if (t.played > 1) {
+    const total = document.createElement('div');
+    total.className = 'score-total';
+    total.textContent = (fr ? 'Au total : ' : 'All time: ') + t.aiFound + ' ' + foundLabel(t.aiFound) + ' · ' + t.falseAccusations + ' ' + wrongLabel(t.falseAccusations) + ' · ' + t.played + (fr ? ' parties' : ' games');
+    el.appendChild(total);
+  }
   if (r.flags.length) {
     const head = document.createElement('div');
     head.className = 'end-screen-history-title';

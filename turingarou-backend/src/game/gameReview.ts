@@ -1,4 +1,4 @@
-import type { GameMessage, QuestionAnswer } from '../types/game.types.js';
+import type { GameMessage, QuestionAnswer, Vote } from '../types/game.types.js';
 
 /** A seat as the game over reveals it: human or AI, and the model behind an AI. */
 export interface RevealedPlayer {
@@ -62,11 +62,43 @@ export interface FlagResult {
   isAI: boolean;
 }
 
+/** One round's vote of a player: against an AI, against a human, or none (abstained, or did not vote). */
+export interface RoundVote {
+  round: number;
+  outcome: 'ai' | 'human' | 'abstain';
+  /** Voted out this round: the player votes in no later round. */
+  out: boolean;
+}
+
+/** Two numbers kept apart, never netted: AIs found (votes against an AI) and false accusations (against a human). */
+export interface Score {
+  aiFound: number;
+  falseAccusations: number;
+  /** Every round the player could vote in. */
+  rounds: RoundVote[];
+}
+
 /** What one player gets at the game over, and nobody else. */
 export interface PlayerReview {
   /** Same for every player of the game, different from any other game: the browser counts a game once. */
   gameKey: string;
+  score: Score;
   flags: FlagResult[];
+}
+
+/** A player's score from the votes revealed at each round end (one entry per player who could vote, a missing vote as an abstention). */
+export function scoreVotes(playerId: string, history: { round: number; votes: Vote[]; eliminatedId: string | null }[], isAI: (playerId: string) => boolean): Score {
+  const rounds: RoundVote[] = [];
+  for (const r of [...history].sort((a, b) => a.round - b.round)) {
+    const own = r.votes.find((v) => v.voterId === playerId);
+    if (!own) continue;
+    rounds.push({ round: r.round, outcome: own.targetId === null ? 'abstain' : isAI(own.targetId) ? 'ai' : 'human', out: r.eliminatedId === playerId });
+  }
+  return {
+    aiFound: rounds.filter((r) => r.outcome === 'ai').length,
+    falseAccusations: rounds.filter((r) => r.outcome === 'human').length,
+    rounds,
+  };
 }
 
 /** The lines a player flagged, in the order flagged, each with the truth about its author. */
