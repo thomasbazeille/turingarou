@@ -1437,6 +1437,17 @@ async function runGame(sc: Scenario): Promise<GameResult> {
           if ((p.pttClips ?? 0) !== (sentVoice.get(p.id) ?? 0)) offend('collected_persist', `${p.name} posted ${sentVoice.get(p.id) ?? 0} spoken lines, persisted ${String(p.pttClips)}`);
         } else if (p.consent || p.pttClips !== undefined) offend('collected_persist', `${kind} ${p.name} persisted with a consent or clips`);
       }
+      // Every vote that named nobody is persisted, the explicit abstentions told from the missing votes.
+      for (const r of log.rounds) {
+        const shown = endroundVotes.get(r.round) ?? [];
+        const explicit = explicitVotes.get(r.round) ?? [];
+        const expected = shown
+          .filter((v) => v.targetId === null)
+          .map((v) => ({ voter: s.players.find((p) => p.id === v.voterId)?.username ?? v.voterId, explicit: explicit.some((x) => x.voterId === v.voterId) }));
+        const got = r.abstentions ?? [];
+        for (const a of got) inc(a.explicit ? 'persisted_abstain_explicit' : 'persisted_abstain_missing');
+        if (JSON.stringify(got) !== JSON.stringify(expected)) offend('abstention_persist', `r${r.round} persisted ${JSON.stringify(got)}, the round showed ${JSON.stringify(expected)}`);
+      }
       if (JSON.stringify(log.voice) !== JSON.stringify(voice)) offend('collected_persist', `voice ${JSON.stringify(log.voice)} persisted, the room had ${JSON.stringify(voice)}`);
       for (const msg of log.messages) {
         const pid = nameToId.get(msg.player);
@@ -1826,6 +1837,12 @@ function report(results: GameResult[], elapsed: number, games: number, probe: Fl
       value: `${sum('collected_persist')} wrong; consents ${sum('persisted_consents')}, push-to-talk clips ${sum('persisted_ptt_clips')}`,
       ok: sum('collected_persist') === 0 && sum('persisted_consents') > 0 && sum('persisted_ptt_clips') > 0,
       keys: ['collected_persist'],
+    },
+    {
+      name: 'abstentions persisted, chosen told from missing votes',
+      value: `${sum('abstention_persist')} rounds wrong; chosen ${sum('persisted_abstain_explicit')}, missing ${sum('persisted_abstain_missing')}`,
+      ok: sum('abstention_persist') === 0 && sum('persisted_abstain_explicit') > 0 && sum('persisted_abstain_missing') > 0,
+      keys: ['abstention_persist'],
     },
     { name: 'persisted player kinds', value: `${sum('persisted_kind') + sum('not_persisted')} wrong`, ok: sum('persisted_kind') + sum('not_persisted') === 0, keys: ['persisted_kind', 'not_persisted'] },
     {

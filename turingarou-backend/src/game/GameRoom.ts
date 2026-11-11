@@ -209,7 +209,8 @@ export class GameRoom {
    * the casting order would point at humans.
    */
   private revealedVotes: Vote[] = [];
-  private abstainersByRound = new Map<number, string[]>();
+  /** Who named nobody each round: explicit = chose to abstain, otherwise no vote by the end (shown as an abstention). */
+  private abstainersByRound = new Map<number, { voter: string; explicit: boolean }[]>();
   /** Votes, abstentions, chat lines and reply quotes by kind of player, for the game-telemetry line. */
   private ux: Record<PlayerKind, { votes: number; abstain: number; noVote: number; lines: number; replies: number }> = {
     human: { votes: 0, abstain: 0, noVote: 0, lines: 0, replies: 0 },
@@ -742,7 +743,11 @@ export class GameRoom {
       this.state.currentRound,
       this.state.votes.flatMap((v) => (v.targetId ? [{ voter: this.nameOf(v.voterId), target: this.nameOf(v.targetId) }] : []))
     );
-    this.abstainersByRound.set(this.state.currentRound, this.revealedVotes.filter((v) => !v.targetId).map((v) => this.nameOf(v.voterId)));
+    const cast = new Set(this.state.votes.map((v) => v.voterId));
+    this.abstainersByRound.set(
+      this.state.currentRound,
+      this.revealedVotes.filter((v) => !v.targetId).map((v) => ({ voter: this.nameOf(v.voterId), explicit: cast.has(v.voterId) }))
+    );
     this.voteHistory.push({ round: this.state.currentRound, votes: [...this.revealedVotes], eliminatedId: eliminatedId || null });
     if (eliminated) {
       this.eliminationsByRound.set(this.state.currentRound, { name: eliminated.username, isAI: eliminated.type !== 'human' });
@@ -801,7 +806,7 @@ export class GameRoom {
         round: rd,
         question: this.questionsByRound.get(rd) ?? '',
         answers: this.state.answersByRound?.[rd] ?? [],
-        votes: [...(this.votesByRound.get(rd) ?? []), ...(this.abstainersByRound.get(rd) ?? []).map((voter) => ({ voter, target: 'nobody (abstained)' }))],
+        votes: [...(this.votesByRound.get(rd) ?? []), ...(this.abstainersByRound.get(rd) ?? []).map((a) => ({ voter: a.voter, target: 'nobody (abstained)' }))],
         eliminated: this.eliminationsByRound.get(rd) ?? null,
       });
     }
@@ -841,6 +846,7 @@ export class GameRoom {
           question: this.questionsByRound.get(rd) ?? '',
           answers: (answersByRound[rd] ?? []).map((a) => ({ player: a.playerName, type: kindOf(a.playerId), answer: a.answer })),
           votes: this.votesByRound.get(rd) ?? [],
+          abstentions: this.abstainersByRound.get(rd) ?? [],
           eliminated: this.eliminationsByRound.get(rd) ?? null,
         });
       }

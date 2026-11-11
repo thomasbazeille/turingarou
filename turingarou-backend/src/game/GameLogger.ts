@@ -10,6 +10,7 @@
  *   round_questions — question posée par round
  *   round_answers   — réponses aux questions
  *   round_votes     — votes par round
+ *   round_abstentions — qui n'a désigné personne : abstention choisie ou vote absent à la clôture
  *   messages        — messages de discussion
  *   human_profiles  — profil cumulé par username (seulement les humains qui ont donné leur accord)
  *   player_consents — accord de chaque humain pour que ses messages servent d'exemples de style aux IA
@@ -35,6 +36,8 @@ export interface RoundLog {
   question: string;
   answers: { player: string; type: string; answer: string }[];
   votes: RoundVote[];
+  /** Who named nobody: explicit = chose to abstain, otherwise no vote by the end (every client sees an abstention). */
+  abstentions?: { voter: string; explicit: boolean }[];
   eliminated?: { name: string; isAI: boolean } | null;
 }
 
@@ -227,6 +230,14 @@ export async function initDB(): Promise<void> {
       ptt_clips     INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS round_abstentions (
+      id        SERIAL PRIMARY KEY,
+      game_id   TEXT NOT NULL REFERENCES games(game_id),
+      round     INTEGER NOT NULL,
+      voter     TEXT NOT NULL,
+      explicit  INTEGER NOT NULL
+    );
+
     CREATE UNIQUE INDEX IF NOT EXISTS idx_game_players_unique
       ON game_players(game_id, player_name);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_round_questions_unique
@@ -247,6 +258,8 @@ export async function initDB(): Promise<void> {
       ON player_consents(game_id, player_name);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_player_voice_unique
       ON player_voice(game_id, player_name);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_round_abstentions_unique
+      ON round_abstentions(game_id, round, voter);
 
     CREATE INDEX IF NOT EXISTS idx_messages_game_id      ON messages(game_id);
     CREATE INDEX IF NOT EXISTS idx_round_answers_game_id ON round_answers(game_id);
@@ -369,6 +382,12 @@ export async function saveGameLog(data: GameLogData): Promise<void> {
           await db.query(
             `INSERT INTO round_votes (game_id, round, voter, target) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
             [data.gameId, r.round, v.voter, v.target]
+          );
+        }
+        for (const a of r.abstentions ?? []) {
+          await db.query(
+            `INSERT INTO round_abstentions (game_id, round, voter, explicit) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+            [data.gameId, r.round, a.voter, a.explicit ? 1 : 0]
           );
         }
         if (r.eliminated) {
