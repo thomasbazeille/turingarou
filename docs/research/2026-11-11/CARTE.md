@@ -7,7 +7,7 @@ Synthèse de 5 recherches (jeux humain ou IA, UX de la déduction sociale, réte
 - **L1 Reprise et révélation** (fait) : Jeton de session, grâce de 90 s, révélation finale avec le modèle.
 - **L5 IA plus crédibles** (fait) : Débit 1/n, diversité, questions texture, détournements, longueur.
 - **L2 La manche** (fait) : Vote en deux temps et caché, réponse ciblée, fin anticipée, mise en scène.
-- **L3 Remplir une table** (en cours) : Lien d'invitation, lancement dès 3 humains, revanche avec noms neufs.
+- **L3 Remplir une table** (fait) : Lien d'invitation, lancement dès 3 humains, revanche avec noms neufs.
 - **L4 Retour** (à faire) : Relecture, partage sans spoiler, double score, signalements rendus, réponses cachées.
 - **L6 Mesure et éthique** (à faire) : Annonce et consentement, A/B voix, raison du vote, copier-coller.
 
@@ -18,9 +18,9 @@ _Le goulot : il faut 5 humains connectés en même temps._
 | Fonctionnalité | Statut | Lot | Coût | Preuve | Risque |
 |---|---|---|---|---|---|
 | Salon privé à code | existe | — | S | Seule voie éprouvée pour réunir un groupe sans public (Jackbox, skribbl.io). [source](https://www.jackboxgames.com/the-ability-to-kick-players-and-other-new-features-coming-to-party-pack-9/) | — |
-| Lien d'invitation et QR qui pré-remplit le code | en cours | L3 | S | Jackbox : le QR ouvre la salle, code déjà saisi, sans compte. [source](https://www.jackboxgames.com/the-ability-to-kick-players-and-other-new-features-coming-to-party-pack-9/) | — |
-| Taille variable : 3 à 5 humains, part d’IA gardée | en cours | L3 | M | Compléter à 8 avec des IA ferait voter 6 IA contre 2 humains : on garde environ 3 IA sur 8 (3 humains + 2 IA, 4 + 2, 5 + 3). Aucun jeu comparable : à valider sur une dizaine de parties. | Plus la part d'IA monte, plus l'équilibre change. |
-| Revanche d'un clic, même groupe, noms neufs pour tous | en cours | L3 | S | Le groupe est l'unité de retour : plus de 70 % des sessions de Death by AI réunissent plus de 3 amis (chiffre d'éditeur). [source](https://discord.com/build-case-studies/playroom) | Si les humains gardent leur nom, les nouvelles IA se repèrent tout de suite. |
+| Lien d'invitation et QR qui pré-remplit le code | existe | L3 | S | Jackbox : le QR ouvre la salle, code déjà saisi, sans compte. [source](https://www.jackboxgames.com/the-ability-to-kick-players-and-other-new-features-coming-to-party-pack-9/) | — |
+| Taille variable : 3 à 5 humains, part d’IA gardée | existe | L3 | M | Compléter à 8 avec des IA ferait voter 6 IA contre 2 humains : on garde environ 3 IA sur 8 (3 humains + 2 IA, 4 + 3, 5 + 3 ; 4 + 3 retenu sur 200 parties simulées par table). Aucun jeu comparable : à valider sur de vraies parties. | Plus la part d'IA monte, plus l'équilibre change. |
+| Revanche d'un clic, même groupe, noms neufs pour tous | existe | L3 | S | Le groupe est l'unité de retour : plus de 70 % des sessions de Death by AI réunissent plus de 3 amis (chiffre d'éditeur). [source](https://discord.com/build-case-studies/playroom) | Si les humains gardent leur nom, les nouvelles IA se repèrent tout de suite. |
 | Duel ou entraînement contre IA | plus tard | — | M | Human or Not, le plus gros succès du genre, est un 1 contre 1. [source](https://arxiv.org/abs/2305.20010) | — |
 | Lancement en Discord Activity | plus tard | — | M-L | Le groupe y est déjà, la session fait la salle. [source](https://docs.discord.com/developers/platform/activities) | — |
 | Parties programmées avec notification | plus tard | — | S | Seulement avec un public : HQ Trivia montre le coût du rendez-vous manqué. [source](https://productmint.com/what-happened-to-hq-trivia/) | — |
