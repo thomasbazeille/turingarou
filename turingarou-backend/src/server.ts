@@ -295,15 +295,17 @@ app.get('/health', (req, res) => {
 
 registerVoiceRoutes(app, gameRooms);
 
+// Private rooms are counted, never named: their code is the only key to them.
 app.get('/rooms', (req, res) => {
-  const rooms = Array.from(gameRooms.values()).map((room) => ({
+  const all = Array.from(gameRooms.values());
+  const rooms = all.filter((room) => room.getRoomId().startsWith('public-')).map((room) => ({
     roomId: room.getRoomId(),
     players: room.getState().players.length,
     phase: room.getState().phase,
     round: room.getState().currentRound,
   }));
 
-  res.json({ rooms });
+  res.json({ rooms, private: all.length - rooms.length });
 });
 
 registerHistoryRoutes(app);
