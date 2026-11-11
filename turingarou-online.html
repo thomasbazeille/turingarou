@@ -961,9 +961,7 @@ const Voice = (() => {
     return new Blob([buf], { type: 'audio/wav' });
   }
 
-  function wavRecorder(stream, r) {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    if (ctx.resume) ctx.resume();
+  function wavRecorder(stream, r, ctx) {
     const src = ctx.createMediaStreamSource(stream);
     const proc = ctx.createScriptProcessor(4096, 1, 1);
     const mute = ctx.createGain();
@@ -994,10 +992,15 @@ const Voice = (() => {
     if (rec || G.s !== 'discussion') return;
     const r = (rec = { released: false, chunks: [] });
     setPtt('wait');
+    // iOS starts an AudioContext only inside the user gesture, so it is created before awaiting the microphone.
+    const ctx = cfg.sttFormat === 'wav' ? new (window.AudioContext || window.webkitAudioContext)() : null;
+    if (ctx && ctx.resume) ctx.resume().catch(() => {});
+    const dropCtx = () => { if (ctx && ctx.close) ctx.close().catch(() => {}); };
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
     } catch (_) {
+      dropCtx();
       rec = null;
       setPtt('idle');
       status(vt('Micro refusé ou indisponible', 'Microphone denied or unavailable'));
@@ -1005,6 +1008,7 @@ const Voice = (() => {
     }
     if (r.released) {
       stream.getTracks().forEach((t) => t.stop());
+      dropCtx();
       rec = null;
       setPtt('idle');
       status(vt('Maintiens le bouton pour parler', 'Hold the button to talk'));
@@ -1014,10 +1018,11 @@ const Voice = (() => {
     const mimeType = cfg.sttFormat === 'wav' ? null : types.find((t) => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t));
     try {
       r.recorder = cfg.sttFormat === 'wav'
-        ? wavRecorder(stream, r)
+        ? wavRecorder(stream, r, ctx)
         : new MediaRecorder(stream, mimeType ? { mimeType, audioBitsPerSecond: 32000 } : { audioBitsPerSecond: 32000 });
     } catch (_) {
       stream.getTracks().forEach((t) => t.stop());
+      dropCtx();
       rec = null;
       setPtt('idle');
       status(vt('Enregistrement non supporté', 'Recording not supported'));
