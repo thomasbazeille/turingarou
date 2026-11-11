@@ -1292,8 +1292,9 @@ function report(results: GameResult[], elapsed: number, games: number, probe: Fl
     },
     {
       name: 'reply quotes: an earlier line of the room, by bots and humans',
-      value: `bots ${sum('bot_replies')}/${sum('bot_lines_all')} lines (direct ${ev('reply_quote:direct')}, named ${ev('reply_quote:named')}, other ${ev('reply_quote:other')}), humans ${sum('human_replies')}/${sum('human_lines_all')}; unknown ids dropped ${sum('invalid_replies')}; quoted accusations replied within 10 s ${sum('quoted_accusations_replied')}/${sum('quoted_accusations')}`,
-      ok: sum('reply_wrong') === 0 && sum('bot_replies') > 0 && sum('human_replies') > 0 && sum('invalid_replies') > 0,
+      value: `bots ${sum('bot_replies')}/${sum('bot_lines_all')} lines (direct ${ev('reply_quote:direct')}, named ${ev('reply_quote:named')}, other ${ev('reply_quote:other')}), humans ${sum('human_replies')}/${sum('human_lines_all')}; unknown ids dropped ${sum('invalid_replies')}; quoted accusations replied within 10 s ${sum('quoted_accusations_replied')}/${sum('quoted_accusations')} (>= 60 %)`,
+      // Quoting a bot's older line without naming it addresses the bot: it answers like a named accusation.
+      ok: sum('reply_wrong') === 0 && sum('bot_replies') > 0 && sum('human_replies') > 0 && sum('invalid_replies') > 0 && sum('quoted_accusations') >= 15 && sum('quoted_accusations_replied') >= 0.6 * sum('quoted_accusations'),
       keys: ['reply_wrong'],
     },
     {
