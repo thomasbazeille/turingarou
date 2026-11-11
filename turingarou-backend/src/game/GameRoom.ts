@@ -132,6 +132,19 @@ if (LOST_VOTE_CLOSE_MS >= VOTE_PHASE_MS) throw new Error('the close without lost
 /** A private room's host may launch from this many humans: fewer leaves nothing to deduce. */
 export const MIN_LAUNCH_HUMANS = 3;
 
+/** The longest name a human may type; the home page's input stops there too. */
+export const USERNAME_MAX = 15;
+
+/**
+ * A typed name as every browser and the AIs' prompts will read it: text only, without markup, control or direction
+ * characters, spaces collapsed, at most USERNAME_MAX characters. Empty once cleaned: the room draws a name instead.
+ */
+export function cleanUsername(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  const text = raw.normalize('NFC').replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069<>]/g, '').replace(/\s+/g, ' ').trim();
+  return Array.from(text).slice(0, USERNAME_MAX).join('').trim();
+}
+
 /**
  * AIs at a table of this many seats on the humans' side (an inspector sits there): close to the full game's 3 in 8,
  * never topped up to 8 seats, where 6 AIs would outvote 2 humans every round. 4 humans get 3 AIs: in simulated games
@@ -308,7 +321,8 @@ export class GameRoom {
     const color = this.freeColor();
     if (!color) return false;
     // A rematch would hand the new AIs away if the humans kept the names everyone just saw revealed.
-    const name = this.table.freshNames ? this.deps.names.pick(this.takenNames()) : username;
+    const typed = cleanUsername(username);
+    const name = this.table.freshNames || !typed ? this.deps.names.pick(this.takenNames()) : typed;
 
     const player: HumanPlayer = {
       type: 'human',

@@ -2055,7 +2055,7 @@ av.style.boxShadow=done?'0 0 12px '+p.color+'80':'none';
 av.textContent=p.username.charAt(0);
 const tx=document.createElement('div');
 tx.style.flex='1';
-tx.innerHTML='<div style="color:'+(p.isLocal&&!done?'#71717a':'#fff')+';font-size:13px;font-weight:500;">'+p.username+'</div>';
+tx.innerHTML='<div style="color:'+(p.isLocal&&!done?'#71717a':'#fff')+';font-size:13px;font-weight:500;">'+escHtml(p.username)+'</div>';
 c.appendChild(av);
 c.appendChild(tx);
 if(done){
@@ -2168,14 +2168,14 @@ const vt=va.length>0?(G.lang==='fr'?'Voté par : ':'Voted by: ')+va.join(', '):(
 const vi=p.hasVoted&&roundNum===G.r?'<div style="position:absolute;top:-3px;right:-3px;width:18px;height:18px;background:#22c55e;border-radius:50%;border:2px solid #000;display:flex;align-items:center;justify-content:center;font-size:10px;z-index:10;">✓</div>':'';
 let ah='';
 if(im){
-ah='<div class="heart-shape"><svg viewBox="0 0 64 64"><path d="M32 54C32 54,10 38,10 24C10 16,16 12,22 12C26 12,30 14,32 18C34 14,38 12,42 12C48 12,54 16,54 24C54 38,32 54,32 54Z" fill="'+p.color+'" stroke="#FFD700" stroke-width="2"/></svg><div class="heart-shape-text">'+p.username.charAt(0)+'</div>'+vi+'</div>';
+ah='<div class="heart-shape"><svg viewBox="0 0 64 64"><path d="M32 54C32 54,10 38,10 24C10 16,16 12,22 12C26 12,30 14,32 18C34 14,38 12,42 12C48 12,54 16,54 24C54 38,32 54,32 54Z" fill="'+p.color+'" stroke="#FFD700" stroke-width="2"/></svg><div class="heart-shape-text">'+escHtml(p.username.charAt(0))+'</div>'+vi+'</div>';
 }else{
-ah='<div class="avatar-circle" style="background:'+p.color+';box-shadow:0 0 18px '+p.color+'80;position:relative;">'+p.username.charAt(0)+vi+'</div>';
+ah='<div class="avatar-circle" style="background:'+p.color+';box-shadow:0 0 18px '+p.color+'80;position:relative;">'+escHtml(p.username.charAt(0))+vi+'</div>';
 }
 const c=document.createElement('div');
 c.className='player-avatar-col';
 const showHistory=G.sh&&G.vh[p.id]&&roundNum===G.r;
-c.innerHTML='<div class="player-username">'+p.username+'</div>'+ah+'<div class="heart-icon'+(G.h[p.id]&&roundNum===G.r?' filled':'')+'" onclick="toggleHeart(\''+p.id+'\')"'+(p.isLocal?' style="cursor:default;opacity:0.2;"':'')+'>'+(G.h[p.id]&&roundNum===G.r?'❤️':'🤍')+'</div>'+(showHistory?'<div class="vote-history-overlay">'+G.vh[p.id].map(v=>'<div class="vote-history-item">R'+v.r+': '+v.vf+'</div>').join('')+(G.r>G.vh[p.id].length?'<div class="vote-history-item">R'+G.r+': ...</div>':'')+'</div>':'')+'<div class="avatar-tooltip">'+vt+'</div>';
+c.innerHTML='<div class="player-username">'+escHtml(p.username)+'</div>'+ah+'<div class="heart-icon'+(G.h[p.id]&&roundNum===G.r?' filled':'')+'" onclick="toggleHeart(\''+p.id+'\')"'+(p.isLocal?' style="cursor:default;opacity:0.2;"':'')+'>'+(G.h[p.id]&&roundNum===G.r?'❤️':'🤍')+'</div>'+(showHistory?'<div class="vote-history-overlay">'+G.vh[p.id].map(v=>'<div class="vote-history-item">R'+v.r+': '+v.vf+'</div>').join('')+(G.r>G.vh[p.id].length?'<div class="vote-history-item">R'+G.r+': ...</div>':'')+'</div>':'')+'<div class="avatar-tooltip">'+vt+'</div>';
 h.appendChild(c);
 });
 // Mettre à jour la visibilité des colonnes
@@ -2222,13 +2222,13 @@ const vt=va.length>0?(G.lang==='fr'?'Voté par : ':'Voted by: ')+va.join(', '):(
 const vi=p.hasVoted?'<div style="position:absolute;top:-3px;right:-3px;width:18px;height:18px;background:#22c55e;border-radius:50%;border:2px solid #000;display:flex;align-items:center;justify-content:center;font-size:10px;z-index:10;">✓</div>':'';
 let ah='';
 if(im){
-ah='<div class="heart-shape"><svg viewBox="0 0 64 64"><path d="M32 54C32 54,10 38,10 24C10 16,16 12,22 12C26 12,30 14,32 18C34 14,38 12,42 12C48 12,54 16,54 24C54 38,32 54,32 54Z" fill="'+p.color+'" stroke="#FFD700" stroke-width="2"/></svg><div class="heart-shape-text">'+p.username.charAt(0)+'</div>'+vi+'</div>';
+ah='<div class="heart-shape"><svg viewBox="0 0 64 64"><path d="M32 54C32 54,10 38,10 24C10 16,16 12,22 12C26 12,30 14,32 18C34 14,38 12,42 12C48 12,54 16,54 24C54 38,32 54,32 54Z" fill="'+p.color+'" stroke="#FFD700" stroke-width="2"/></svg><div class="heart-shape-text">'+escHtml(p.username.charAt(0))+'</div>'+vi+'</div>';
 }else{
-ah='<div class="avatar-circle" style="background:'+p.color+';box-shadow:0 0 18px '+p.color+'80;position:relative;">'+p.username.charAt(0)+vi+'</div>';
+ah='<div class="avatar-circle" style="background:'+p.color+';box-shadow:0 0 18px '+p.color+'80;position:relative;">'+escHtml(p.username.charAt(0))+vi+'</div>';
 }
 const c=document.createElement('div');
 c.className='player-avatar-col';
-c.innerHTML='<div class="player-username">'+p.username+'</div>'+ah+'<div class="heart-icon'+(G.h[p.id]?' filled':'')+'" onclick="toggleHeart(\''+p.id+'\')"'+(p.isLocal?' style="cursor:default;opacity:0.2;"':'')+'>'+(G.h[p.id]?'❤️':'🤍')+'</div>'+(G.sh&&G.vh[p.id]?'<div class="vote-history-overlay">'+G.vh[p.id].map(v=>'<div class="vote-history-item">R'+v.r+': '+v.vf+'</div>').join('')+(G.r>G.vh[p.id].length?'<div class="vote-history-item">R'+G.r+': ...</div>':'')+'</div>':'')+'<div class="avatar-tooltip">'+vt+'</div>';
+c.innerHTML='<div class="player-username">'+escHtml(p.username)+'</div>'+ah+'<div class="heart-icon'+(G.h[p.id]?' filled':'')+'" onclick="toggleHeart(\''+p.id+'\')"'+(p.isLocal?' style="cursor:default;opacity:0.2;"':'')+'>'+(G.h[p.id]?'❤️':'🤍')+'</div>'+(G.sh&&G.vh[p.id]?'<div class="vote-history-overlay">'+G.vh[p.id].map(v=>'<div class="vote-history-item">R'+v.r+': '+v.vf+'</div>').join('')+(G.r>G.vh[p.id].length?'<div class="vote-history-item">R'+G.r+': ...</div>':'')+'</div>':'')+'<div class="avatar-tooltip">'+vt+'</div>';
 h.appendChild(c);
 });
 renderMessages();
@@ -2254,7 +2254,7 @@ const c=document.createElement('div');
 c.className='eliminated-circle'+(ep.isAI?' robot':'');
 c.style.background=ep.color;
 c.style.boxShadow='0 0 7px '+ep.color+'60';
-c.innerHTML='<div class="eliminated-tooltip">'+ep.username+(ep.isAI?' 🤖':'')+'</div>';
+c.innerHTML='<div class="eliminated-tooltip">'+escHtml(ep.username)+(ep.isAI?' 🤖':'')+'</div>';
 ec.appendChild(c);
 }
 });
@@ -2418,7 +2418,7 @@ const sep=document.createElement('div');
 sep.className='round-separator';
 const ep=rd<=G.eliminationOrder.length?G.p.find(p=>p.id===G.eliminationOrder[rd-1]):null;
 const robotClass=ep&&ep.isAI?' robot':'';
-sep.innerHTML='<div class="round-separator-line"><div class="round-separator-hr"></div><div class="round-separator-text">'+(G.lang==='fr'?'MANCHE '+rd+' TERMINÉE':'ROUND '+rd+' ENDED')+'</div><div class="round-separator-hr"></div></div>'+(ep?'<div class="round-eliminated-info"><span>'+ep.username+(ep.isAI?' 🤖':'')+(G.lang==='fr'?' éliminé':' eliminated')+'</span><div class="round-eliminated-circle'+robotClass+'" style="background:'+ep.color+';box-shadow:0 0 5px '+ep.color+'60;"></div></div>':'');
+sep.innerHTML='<div class="round-separator-line"><div class="round-separator-hr"></div><div class="round-separator-text">'+(G.lang==='fr'?'MANCHE '+rd+' TERMINÉE':'ROUND '+rd+' ENDED')+'</div><div class="round-separator-hr"></div></div>'+(ep?'<div class="round-eliminated-info"><span>'+escHtml(ep.username)+(ep.isAI?' 🤖':'')+(G.lang==='fr'?' éliminé':' eliminated')+'</span><div class="round-eliminated-circle'+robotClass+'" style="background:'+ep.color+';box-shadow:0 0 5px '+ep.color+'60;"></div></div>':'');
 placeFullWidth(sep,50);
 }
 }
@@ -2533,7 +2533,7 @@ sep.className='round-separator';
 sep.style.cssText='position:static;width:100%;';
 const ep=rd<=G.eliminationOrder.length?G.p.find(p=>p.id===G.eliminationOrder[rd-1]):null;
 const robotClass=ep&&ep.isAI?' robot':'';
-sep.innerHTML='<div class="round-separator-line"><div class="round-separator-hr"></div><div class="round-separator-text">'+(G.lang==='fr'?'MANCHE '+rd+' TERMINÉE':'ROUND '+rd+' ENDED')+'</div><div class="round-separator-hr"></div></div>'+(ep?'<div class="round-eliminated-info"><span>'+ep.username+(ep.isAI?' 🤖':'')+(G.lang==='fr'?' éliminé':' eliminated')+'</span><div class="round-eliminated-circle'+robotClass+'" style="background:'+ep.color+';box-shadow:0 0 5px '+ep.color+'60;"></div></div>':'');
+sep.innerHTML='<div class="round-separator-line"><div class="round-separator-hr"></div><div class="round-separator-text">'+(G.lang==='fr'?'MANCHE '+rd+' TERMINÉE':'ROUND '+rd+' ENDED')+'</div><div class="round-separator-hr"></div></div>'+(ep?'<div class="round-eliminated-info"><span>'+escHtml(ep.username)+(ep.isAI?' 🤖':'')+(G.lang==='fr'?' éliminé':' eliminated')+'</span><div class="round-eliminated-circle'+robotClass+'" style="background:'+ep.color+';box-shadow:0 0 5px '+ep.color+'60;"></div></div>':'');
 scl.appendChild(sep);
 }
 }
@@ -2931,7 +2931,7 @@ function renderEndScreenHistory(containerId, titleId) {
       line.textContent = m.text;
     } else {
       var name = (G.p && G.p.find(function(p) { return p.id === m.playerId; })) ? G.p.find(function(p) { return p.id === m.playerId; }).username : '?';
-      line.innerHTML = '<span class="hist-name">' + name + ':</span>' + (m.text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      line.innerHTML = '<span class="hist-name">' + escHtml(name) + ':</span>' + (m.text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
     container.appendChild(line);
   });

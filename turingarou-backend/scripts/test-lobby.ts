@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createHash, webcrypto } from 'node:crypto';
-import { GameRoom, MIN_LAUNCH_HUMANS, RoomEmitter, TableOptions, aiCountFor } from '../src/game/GameRoom.js';
+import { GameRoom, MIN_LAUNCH_HUMANS, RoomEmitter, TableOptions, USERNAME_MAX, aiCountFor, cleanUsername } from '../src/game/GameRoom.js';
 import { REMATCH_WINDOW_MS, ROOM_CODE_ALPHABET, newRoomCode, rematchTable, routeRematch } from '../src/game/rematch.js';
 import type { ChatProvider } from '../src/llm/chatClient.js';
 import { makeSeededRng } from '../src/game/humanTiming.js';
@@ -277,6 +277,26 @@ await check('fresh names: no seat keeps a name of the finished game, drawn by th
   assert.equal(again.picks.length, 5, 'humans and AIs were not all drawn by the same picker');
   for (const t of tokens) assert.equal(again.room.resume('G2-x', t), null, 'an old token opened the rematch');
   for (const t of tokens.slice(0, 3)) assert.equal(first.room.resume('G1-x', t), null, 'a token reopened the finished game after the rematch');
+});
+
+console.log('typed names');
+
+await check('a typed name loses markup, control and direction characters, and stops at USERNAME_MAX', () => {
+  assert.equal(cleanUsername('<img src=x onerror=alert(1)>'), 'img src=x onerr');
+  assert.equal(cleanUsername('  Zoé   l\'ours\n '), "Zoé l'ours");
+  assert.equal(cleanUsername('a\u202Eb\u200Bc\u0007'), 'abc');
+  assert.equal(Array.from(cleanUsername('é'.repeat(40))).length, USERNAME_MAX);
+  assert.equal(cleanUsername('🦊'.repeat(20)), '🦊'.repeat(USERNAME_MAX));
+  for (const raw of [undefined, null, 42, { toString: () => '<b>' }, ['x'], '', '   ', '<>']) assert.equal(cleanUsername(raw), '');
+});
+
+await check('a name sent past the page is cleaned by the room; one left empty gets a drawn name', async () => {
+  const { room, join } = makeRoom('N1');
+  await join('<script>x</script>');
+  assert.equal(await room.addHumanPlayer('N1-raw', { evil: 1 } as unknown as string, 'fr'), true);
+  const [typed, drawn] = room.getState().players;
+  assert.equal(typed.username, 'scriptx/script');
+  assert.ok(drawn.username.length > 0 && !/[<>]/.test(drawn.username), `drawn name "${drawn.username}"`);
 });
 
 console.log(failures ? `\n${failures} échec(s)` : '\nTout est vert');
