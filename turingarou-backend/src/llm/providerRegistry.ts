@@ -315,3 +315,15 @@ export function describePool(pool: ProviderPool): string {
   const parts = pool.members.map((m) => `${m.spec.id}=${m.provider.name} (${Math.round((100 * m.weight) / total)}%)`);
   return `${parts.join(', ')} [${pool.source}]`;
 }
+
+const MODEL_WORDS: Record<string, string> = { deepseek: 'DeepSeek', gpt: 'GPT', oss: 'OSS' };
+
+/** "Anthropic/claude-haiku-4-5" → "Claude Haiku 4.5": the model as players read it in the end-of-game reveal. */
+export function modelLabel(providerName: string): string {
+  const model = (providerName.split('/').pop() ?? providerName).replace(/-latest$/, '').replace(/(\d)-(\d+)$/, '$1.$2');
+  return model
+    .split('-')
+    .filter(Boolean)
+    .map((w) => MODEL_WORDS[w] ?? (/^\d+b$/.test(w) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)))
+    .join(' ');
+}

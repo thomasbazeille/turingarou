@@ -11,9 +11,10 @@
  * Date.now and Math.random for the virtual clock and a seeded generator during each game.
  */
 import { performance } from 'node:perf_hooks';
-import { GameRoom, GameRoomDeps, RoomEmitter, DISCUSSION_PHASE_MS } from '../src/game/GameRoom.js';
+import { GameRoom, GameRoomDeps, RoomEmitter, DISCUSSION_PHASE_MS, RECONNECT_GRACE_MS, VOTE_PHASE_MS } from '../src/game/GameRoom.js';
 import { DISCUSSION_LOCK_MS, VOTE_DEADLINE_MS } from '../src/game/BotDirector.js';
 import { ChatProvider, ChatRequest, ChatResult, ProviderError } from '../src/llm/chatClient.js';
+import { modelLabel } from '../src/llm/providerRegistry.js';
 import { makeSeededRng } from '../src/game/humanTiming.js';
 import { isTextureQuestion } from '../src/game/QuestionBank.js';
 import { getInspectorPromptContent, getRandomAIPlayerStrategy } from '../src/game/StrategyLoader.js';
@@ -380,6 +381,14 @@ class FakeLab {
 
 // ====== ONE GAME ======
 
+interface FakeHuman {
+  socketId: string;
+  name: string;
+  id: string;
+  token: string;
+  connected: boolean;
+}
+
 interface Accusation {
   t: number;
   round: number;
@@ -441,20 +450,36 @@ interface Telemetry {
 /** quiet: a human line every 18-45 s (2-3 per discussion, Time to Talk humans post ~4 per day phase); chatty: every 6-22 s (6-7). */
 type Tempo = 'quiet' | 'chatty';
 
+/**
+ * Humans dropping mid-discussion: one comes back within the grace, one never does, all drop and never come back
+ * (abort), all drop and the last comes back (no abort).
+ */
+type Drops = 'one-back' | 'one-gone' | 'all-gone' | 'all-one-back';
+
 interface Scenario {
   seed: number;
   lang: Lang;
   inspector: boolean;
-  abortInRound: number | null;
   tempo: Tempo;
+  drops: Drops | null;
+  dropRound: number;
 }
+
+/** Fields of a player every browser may see before the game over; anything else is a leak. */
+const PUBLIC_PLAYER_KEYS = ['color', 'colorName', 'id', 'isEliminated', 'isReady', 'username'];
+const REVEAL_PLAYER_KEYS = ['isAI', 'model'];
+const PUBLIC_TOP_KEYS = new Set([
+  'roomId', 'phase', 'currentRound', 'players', 'messages', 'currentQuestion', 'answers', 'answersByRound', 'votes',
+  'protectedPlayerId', 'discussionEndTime', 'questionEndTime', 'voteEndTime', 'maxPlayers', 'minPlayers', 'aiCount',
+  'eliminatedPlayerId', 'eliminatedPlayerIsAI', 'gameOverReason', 'language', 'eliminationOrder', 'eliminatedAiCount',
+]);
 
 const realTimers = { setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout, now: Date.now, random: Math.random };
 const unhandled: string[] = [];
 process.on('unhandledRejection', (reason) => unhandled.push(String(reason).slice(0, 200)));
 
 async function runGame(sc: Scenario): Promise<GameResult> {
-  const id = `${sc.lang}-s${sc.seed}-${sc.tempo}${sc.inspector ? '-insp' : ''}${sc.abortInRound ? '-abort' : ''}`;
+  const id = `${sc.lang}-s${sc.seed}-${sc.tempo}${sc.inspector ? '-insp' : ''}${sc.drops ? `-${sc.drops}` : ''}`;
   const roomRng = makeSeededRng(sc.seed * 1000 + (sc.lang === 'en' ? 1 : 0));
   const simRng = makeSeededRng(sc.seed * 7919 + (sc.lang === 'en' ? 17 : 3));
   const clock = new VirtualClock(1_800_000_000_000);
@@ -490,10 +515,25 @@ async function runGame(sc: Scenario): Promise<GameResult> {
   const eliminatedIn = new Map<number, string | null>();
   let finished = false;
   let emitsAfterEnd = 0;
-  const humans: { socketId: string; name: string; id: string }[] = [];
+  let emitsTotal = 0;
+  let lastJson = '';
+  let abortAt: number | null = null;
+  const humans: FakeHuman[] = [];
   const accusations: Accusation[] = [];
   const questions: string[] = [];
   const traps: { t: number; round: number; targetId: string; targetIsBot: boolean; remaining: number }[] = [];
+  // Humans whose socket dropped: their public entry (minus isEliminated) at the drop, which must never change.
+  const dropped = new Map<string, { at: number; entry: string }>();
+  const drops: { h: FakeHuman; at: number; eliminated: boolean }[] = [];
+  const resumes: { h: FakeHuman; at: number; round: number }[] = [];
+  const votesAgainstGone: { round: number; voterId: string; targetId: string }[] = [];
+  const publicEntry = (pl: Record<string, unknown>) => JSON.stringify(PUBLIC_PLAYER_KEYS.filter((k) => k !== 'isEliminated').map((k) => pl[k]));
+  /** Calls the room and says whether a state went out to the browsers meanwhile. */
+  const emitsDuring = (fn: () => void): number => {
+    const before = emitsTotal;
+    fn();
+    return emitsTotal - before;
+  };
 
   const usedNames = new Set<string>();
   const names: GameRoomDeps['names'] = {
@@ -506,13 +546,17 @@ async function runGame(sc: Scenario): Promise<GameResult> {
 
   const state = (): GameRoomState => room.getState();
   const isActive = (pid: string) => state().players.some((p) => p.id === pid && !p.isEliminated);
+  // Like server.ts: an action counts for the seat its socket plays for, resolved at the time of the action.
+  const seatOf = (h: FakeHuman): string | null => (h.connected ? room.playerIdBySocket(h.socketId) : null);
+  const goneSince = (h: FakeHuman) => drops.find((d) => d.h === h && !resumes.some((r) => r.h === h))?.at ?? null;
   const remaining = () => (state().discussionEndTime ?? 0) - clock.now();
 
   // ---- fake humans ----
   const L = HUMAN_LINES[sc.lang];
-  const humanPost = (h: { id: string; name: string }, round: number) => {
+  const humanPost = (h: FakeHuman, round: number) => {
     const s = state();
-    if (s.phase !== 'discussion' || s.currentRound !== round || !isActive(h.id)) return;
+    const seat = seatOf(h);
+    if (s.phase !== 'discussion' || s.currentRound !== round || !seat || !isActive(seat)) return;
     const others = s.players.filter((p) => !p.isEliminated && p.id !== h.id);
     const discussion = s.messages.filter((x) => x.phase === 'discussion' && x.round === round && x.playerId !== 'system');
     const last = discussion[discussion.length - 1];
@@ -545,7 +589,7 @@ async function runGame(sc: Scenario): Promise<GameResult> {
       text = pick(L.casual);
     }
     const remainingAtSend = remaining();
-    const posted = room.addMessage(h.id, text);
+    const posted = room.addMessage(seat, text);
     if (posted && target) {
       const botIds = botIdSet();
       accusations.push({ t: clock.now(), round, targetId: target.id, targetName: target.username, targetIsBot: botIds.has(target.id), remaining: remainingAtSend, named, accusation });
@@ -554,72 +598,159 @@ async function runGame(sc: Scenario): Promise<GameResult> {
 
   const botIdSet = () => new Set(state().players.filter((p) => p.type === 'ai' || (p.type === 'human' && p.socketId === '')).map((p) => p.id));
 
+  const startChain = (h: FakeHuman, round: number, firstIn: number) => {
+    const chain = () => {
+      if (finished || !h.connected || state().phase !== 'discussion' || state().currentRound !== round) return;
+      if (remaining() < 3000) return;
+      humanPost(h, round);
+      clock.setTimeout(chain, sc.tempo === 'quiet' ? 18000 + simRng() * 27000 : 6000 + simRng() * 16000);
+    };
+    clock.setTimeout(chain, firstIn);
+  };
+
+  const drop = (h: FakeHuman) => {
+    if (finished || !h.connected) return;
+    const last = JSON.parse(lastJson) as { players: Record<string, unknown>[] };
+    const entry = last.players.find((pl) => pl.id === h.id);
+    if (!entry) offend('dropped_seen', `${h.name} absent from the state before dropping`);
+    else dropped.set(h.id, { at: clock.now(), entry: publicEntry(entry) });
+    drops.push({ h, at: clock.now(), eliminated: !isActive(h.id) });
+    const n = emitsDuring(() => room.disconnect(h.socketId));
+    h.connected = false;
+    if (n > 0) offend('dropped_seen', `${n} state emit(s) when ${h.name}'s socket dropped`);
+    if (sc.drops === 'one-gone' || sc.drops === 'all-gone') {
+      // The grace over, the token no longer opens the seat (checked only while the game still runs).
+      clock.setTimeout(() => {
+        if (finished || state().phase === 'gameover' || state().phase === 'waiting') return;
+        inc('resume_refused_checks');
+        if (room.resume(`${h.socketId}-late`, h.token)) offend('resume', `${h.name} resumed after the grace`);
+      }, RECONNECT_GRACE_MS + 1);
+    }
+  };
+
+  const comeBack = (h: FakeHuman) => {
+    if (finished || h.connected) return;
+    const oldSocket = h.socketId;
+    const newSocket = `${oldSocket}-back`;
+    let seat: ReturnType<GameRoom['resume']> = null;
+    const n = emitsDuring(() => (seat = room.resume(newSocket, h.token)));
+    if (n > 0) offend('dropped_seen', `${n} state emit(s) when ${h.name} resumed`);
+    const got = seat as ReturnType<GameRoom['resume']>;
+    if (!got || got.playerId !== h.id) offend('resume', `${h.name}: resume gave ${JSON.stringify(got)}`);
+    if (got && got.previousSocketId !== oldSocket) offend('resume', `${h.name}: previous socket ${got.previousSocketId} != ${oldSocket}`);
+    if (room.playerIdBySocket(oldSocket) !== null) offend('resume', `${h.name}: the old socket still plays the seat`);
+    if (room.playerIdBySocket(newSocket) !== h.id) offend('resume', `${h.name}: the new socket does not play the seat`);
+    // What the returning client is sent is what every browser was last sent.
+    if (JSON.stringify(room.publicState()) !== lastJson) offend('resume', `${h.name}: state sent on resume differs from the last broadcast`);
+    h.socketId = newSocket;
+    h.connected = true;
+    resumes.push({ h, at: clock.now(), round: state().currentRound });
+    if (state().phase === 'discussion') startChain(h, state().currentRound, 2000 + simRng() * 6000);
+  };
+
   const onPhase = (phase: string, round: number) => {
     if (finished) return;
-    const present = humans.filter((h) => isActive(h.id));
+    const present = humans.filter((h) => h.connected && isActive(h.id));
     if (phase === 'question') {
       questions.push(state().currentQuestion ?? '');
       for (const h of present) {
         if (simRng() < 0.08) continue;
         clock.setTimeout(() => {
-          if (state().phase === 'question' && state().currentRound === round) room.addAnswer(h.id, pick(L.answers));
+          const seat = seatOf(h);
+          if (seat && state().phase === 'question' && state().currentRound === round) room.addAnswer(seat, pick(L.answers));
         }, 2000 + simRng() * 15000);
       }
-    } else if (phase === 'discussion') {
-      for (const h of present) {
-        const chain = () => {
-          if (finished || state().phase !== 'discussion' || state().currentRound !== round) return;
-          if (remaining() < 3000) return;
-          humanPost(h, round);
-          clock.setTimeout(chain, sc.tempo === 'quiet' ? 18000 + simRng() * 27000 : 6000 + simRng() * 16000);
-        };
-        // Round 1 opens shy (humans read the answers first): the silence watchdog has to break it.
-        clock.setTimeout(chain, round === 1 ? 14000 + simRng() * 20000 : 2000 + simRng() * 10000);
+      // Everyone drops at the question: every grace ends within the discussion, before a vote can eliminate anyone.
+      if ((sc.drops === 'all-gone' || sc.drops === 'all-one-back') && round === sc.dropRound) {
+        humans.forEach((h, i) => clock.setTimeout(() => drop(h), 1000 + i * 2000));
+        if (sc.drops === 'all-one-back') clock.setTimeout(() => comeBack(humans[humans.length - 1]), 1000 + (humans.length - 1) * 2000 + 40000);
       }
-      if (sc.abortInRound === round) {
-        clock.setTimeout(() => {
-          for (const h of humans) room.removePlayer(h.socketId);
-          finished = true;
-        }, 30000 + simRng() * 30000);
+    } else if (phase === 'discussion') {
+      // Round 1 opens shy (humans read the answers first): the silence watchdog has to break it.
+      for (const h of present) startChain(h, round, round === 1 ? 14000 + simRng() * 20000 : 2000 + simRng() * 10000);
+      if ((sc.drops === 'one-back' || sc.drops === 'one-gone') && round === sc.dropRound && present[0]) {
+        const h = present[0];
+        clock.setTimeout(() => drop(h), 20000);
+        if (sc.drops === 'one-back') clock.setTimeout(() => comeBack(h), 50000);
       }
     } else if (phase === 'voting') {
-      for (const h of present) {
-        if (simRng() < 0.05) continue;
+      // A seat whose grace ran out can still be voted against.
+      const gone = humans.find((h) => !h.connected && isActive(h.id) && (goneSince(h) ?? Infinity) + RECONNECT_GRACE_MS <= clock.now());
+      present.forEach((h, idx) => {
+        const againstGone = gone && idx === 0 && gone.id !== state().protectedPlayerId;
+        if (!againstGone && simRng() < 0.05) return;
         clock.setTimeout(() => {
           const st = state();
-          if (st.phase !== 'voting' || st.currentRound !== round) return;
-          const candidates = st.players.filter((p) => !p.isEliminated && p.id !== h.id && p.id !== st.protectedPlayerId);
-          if (candidates.length > 0) room.addVote(h.id, pick(candidates).id);
+          const seat = seatOf(h);
+          if (!seat || st.phase !== 'voting' || st.currentRound !== round) return;
+          if (againstGone) {
+            votesAgainstGone.push({ round, voterId: seat, targetId: gone.id });
+            room.addVote(seat, gone.id);
+            return;
+          }
+          const candidates = st.players.filter((p) => !p.isEliminated && p.id !== seat && p.id !== st.protectedPlayerId);
+          if (candidates.length > 0) room.addVote(seat, pick(candidates).id);
         }, 2000 + simRng() * 25000);
-      }
+      });
     }
   };
 
+  let gameoverPayload: Record<string, unknown> | null = null;
   const io: RoomEmitter = {
     to: () => ({
       emit: (event: string, payload: unknown) => {
         if (event !== 'gameState') return true;
+        emitsTotal++;
         if (finished) {
           emitsAfterEnd++;
           return true;
         }
+        const json = JSON.stringify(payload);
+        // A state identical to the previous one says nothing but "something happened now": a drop, a grace ending.
+        if (json === lastJson) offend('dropped_seen', `state re-sent unchanged at ${phases[phases.length - 1]?.phase} r${state().currentRound}`);
+        lastJson = json;
+        const p = payload as { phase: string; currentRound: number; votes?: { voterId: string; targetId: string }[]; eliminatedPlayerId?: string | null; players: Record<string, unknown>[] };
+        const over = p.phase === 'gameover';
         // What every browser receives must not say who is an AI.
-        for (const pl of (payload as { players?: Record<string, unknown>[] }).players ?? []) {
+        for (const pl of p.players ?? []) {
           if (!/^p-[0-9a-f]{16}$/.test(String(pl.id))) offend('revealing_id', `player id "${String(pl.id)}" is not opaque`);
           for (const k of ['type', 'personality', 'socketId', 'messageHistory']) {
             if (k in pl) offend('revealing_id', `player ${String(pl.username)} exposes "${k}"`);
           }
+          // Before the game over, every player (human, AI, inspector, dropped human) shows exactly the same fields.
+          const extra = Object.keys(pl).filter((k) => !PUBLIC_PLAYER_KEYS.includes(k) && !(over && REVEAL_PLAYER_KEYS.includes(k)));
+          const missing = PUBLIC_PLAYER_KEYS.filter((k) => !(k in pl));
+          if (extra.length + missing.length > 0) offend('reveal_early', `${p.phase} r${p.currentRound}: ${String(pl.username)} has [${extra.join(',')}] lacks [${missing.join(',')}]`);
         }
-        const p = payload as { phase: string; currentRound: number; votes?: { voterId: string; targetId: string }[]; eliminatedPlayerId?: string | null };
+        if (!over) {
+          inc(`reveal_checked:${p.phase}`);
+          for (const k of Object.keys(p)) if (!PUBLIC_TOP_KEYS.has(k)) offend('reveal_early', `${p.phase} r${p.currentRound}: top-level field "${k}"`);
+          if ((p as { gameOverReason?: unknown }).gameOverReason != null) offend('reveal_early', `${p.phase}: gameOverReason set`);
+        } else gameoverPayload = JSON.parse(json);
+        for (const [pid, d] of dropped) {
+          const pl = p.players.find((x) => x.id === pid);
+          if (!pl) offend('dropped_seen', `${p.phase} r${p.currentRound}: dropped player ${pid} missing from the list`);
+          else if (publicEntry(pl) !== d.entry) offend('dropped_seen', `${p.phase} r${p.currentRound}: dropped player ${String(pl.username)} entry changed`);
+        }
         const last = phases[phases.length - 1];
         if (!last || last.phase !== p.phase || last.round !== p.currentRound) {
+          const voteStart = last?.phase === 'voting' ? last.t : null;
           phases.push({ t: clock.now(), phase: p.phase, round: p.currentRound });
           if (p.phase === 'endround') {
             endroundVotes.set(p.currentRound, [...(p.votes ?? [])]);
             eliminatedIn.set(p.currentRound, p.eliminatedPlayerId ?? null);
+            // A vote closed before its deadline with a vote missing: only allowed once every bot must have voted.
+            const voters = p.players.filter((pl) => !pl.isEliminated || pl.id === p.eliminatedPlayerId).length;
+            if (voteStart !== null && (p.votes ?? []).length < voters && clock.now() < voteStart + VOTE_PHASE_MS) {
+              inc('vote_closed_without_gone');
+              if (clock.now() < voteStart + VOTE_DEADLINE_MS) offend('dropped_seen', `r${p.currentRound} vote closed at ${((clock.now() - voteStart) / 1000).toFixed(1)} s with a vote missing, before the bots' deadline`);
+            }
           }
-          if (p.phase === 'gameover') finished = true;
-          else onPhase(p.phase, p.currentRound);
+          if (over) finished = true;
+          else if (p.phase === 'waiting' && phases.some((x) => x.phase !== 'waiting')) {
+            abortAt = clock.now();
+            finished = true;
+          } else onPhase(p.phase, p.currentRound);
         }
         return true;
       },
@@ -649,9 +780,10 @@ async function runGame(sc: Scenario): Promise<GameResult> {
       const name = names.pick([]);
       const socketId = `sock-${i}`;
       await room.addHumanPlayer(socketId, name, sc.lang);
-      const p = state().players.find((x) => x.type === 'human' && x.socketId === socketId)!;
-      humans.push({ socketId, name, id: p.id });
+      const pid = room.playerIdBySocket(socketId)!;
+      humans.push({ socketId, name, id: pid, token: room.sessionToken(pid) ?? '', connected: true });
     }
+    if (humans.some((h) => !h.token || lastJson.includes(h.token))) offend('resume', 'session token missing or present in the game state');
     if (sc.inspector) await room.addInspectorPlayer();
 
     const outcome = await clock.run(() => finished, clock.now() + 3 * 3600_000);
@@ -674,10 +806,56 @@ async function runGame(sc: Scenario): Promise<GameResult> {
 
   // ====== MEASURES ======
   const s = state();
-  const aborted = sc.abortInRound !== null;
+  const aborted = sc.drops === 'all-gone';
   if (aborted) {
     if (s.phase !== 'waiting') offend('abort_not_clean', `phase ${s.phase} after abort`);
   } else if (s.phase !== 'gameover') offend('no_gameover', `final phase ${s.phase}`);
+  if (abortAt !== null && !aborted) offend('abort_timing', `aborted at ${abortAt} although a human came back`);
+
+  // Abort: exactly when the last human still playing (not eliminated) runs out of grace, not when they drop.
+  if (aborted && abortAt !== null) {
+    const playing = drops.filter((d) => !d.eliminated);
+    const expected = Math.max(...playing.map((d) => d.at)) + RECONNECT_GRACE_MS;
+    inc('aborts_measured');
+    if (Math.abs(abortAt - expected) > 1) offend('abort_timing', `aborted ${((abortAt - expected) / 1000).toFixed(1)} s from the last grace end`);
+  }
+  if (sc.drops === 'all-one-back') inc('kept_alive_by_return', s.phase === 'gameover' ? 1 : 0);
+
+  // Drops and returns.
+  inc('drops', drops.length);
+  inc('drops_back', resumes.length);
+  for (const r of resumes) {
+    const msgs = s.messages.filter((x) => x.playerId === r.h.id && x.timestamp > r.at).length;
+    const answers = Object.entries(s.answersByRound ?? {})
+      .filter(([rd]) => Number(rd) > r.round)
+      .reduce((n, [, list]) => n + list.filter((a) => a.playerId === r.h.id).length, 0) + (s.currentRound > r.round ? s.answers.filter((a) => a.playerId === r.h.id).length : 0);
+    const votes = [...endroundVotes.entries()].filter(([rd]) => rd >= r.round).reduce((n, [, list]) => n + list.filter((v) => v.voterId === r.h.id).length, 0);
+    inc('after_resume_messages', msgs);
+    inc('after_resume_answers', answers);
+    inc('after_resume_votes', votes);
+    if (msgs === 0) offend('resume', `${r.h.name} posted nothing after resuming`);
+  }
+  for (const v of votesAgainstGone) {
+    if (endroundVotes.get(v.round)?.some((x) => x.voterId === v.voterId && x.targetId === v.targetId)) inc('votes_against_gone');
+    else offend('dropped_seen', `r${v.round} vote against a gone player refused`);
+  }
+
+  // Reveal at the game over: every player, right kind, model of every bot.
+  if (!aborted && gameoverPayload) {
+    const labels = new Set(PROFILES.map((pr) => modelLabel(pr.name)));
+    for (const pl of (gameoverPayload as { players: Record<string, unknown>[] }).players) {
+      const live = s.players.find((x) => x.id === pl.id);
+      const isBot = !!live && (live.type === 'ai' || (live.type === 'human' && live.socketId === ''));
+      inc('reveal_players');
+      const ok = pl.isAI === isBot && (isBot ? typeof pl.model === 'string' && labels.has(pl.model) : !('model' in pl));
+      if (ok) inc('reveal_ok');
+      else offend('reveal_wrong', `${String(pl.username)} isAI=${String(pl.isAI)} model=${String(pl.model)} (bot=${isBot})`);
+    }
+    const history = (gameoverPayload as { voteHistory?: { round: number; votes: unknown[] }[] }).voteHistory ?? [];
+    if (history.length !== endroundVotes.size || history.some((r) => JSON.stringify(r.votes) !== JSON.stringify(endroundVotes.get(r.round)))) {
+      offend('reveal_wrong', `vote history (${history.length} rounds) differs from the votes shown at each round end (${endroundVotes.size})`);
+    }
+  }
   inc(aborted ? 'games_aborted' : 'games_completed');
   if (emitsAfterEnd > 0) offend('emits_after_end', `${emitsAfterEnd} state emits after ${aborted ? 'abort' : 'game over'}`);
 
@@ -798,10 +976,22 @@ async function runGame(sc: Scenario): Promise<GameResult> {
     // Humans leave on abort: only complete games have a known table per round.
     if (aborted) continue;
     const ais = present.filter((p) => aiIds.has(p.id));
+    // A human whose socket was down during this discussion is a silent seat by construction, not a talker the bots
+    // should match: their seat and lines stay out of the per-capita comparison.
+    const from = startOf('discussion', rd) ?? 0;
+    const to = startOf('voting', rd) ?? Infinity;
+    const away = new Set(
+      drops
+        .filter(({ h, at }) => {
+          const back = resumes.find((r) => r.h === h && r.at >= at)?.at ?? Infinity;
+          return at < to && back > from;
+        })
+        .map(({ h }) => h.id)
+    );
     pace.aiLines += lines.filter((x) => aiIds.has(x.playerId)).length;
-    pace.otherLines += lines.filter((x) => !aiIds.has(x.playerId)).length;
+    pace.otherLines += lines.filter((x) => !aiIds.has(x.playerId) && !away.has(x.playerId)).length;
     pace.aiSeats += ais.length;
-    pace.otherSeats += present.length - ais.length;
+    pace.otherSeats += present.filter((p) => !aiIds.has(p.id) && !away.has(p.id)).length;
     for (const p of ais) {
       fairLines.set(p.id, (fairLines.get(p.id) ?? 0) + lines.length / present.length);
       ownLines.set(p.id, (ownLines.get(p.id) ?? 0) + lines.filter((x) => x.playerId === p.id).length);
@@ -940,7 +1130,8 @@ async function main(): Promise<void> {
   const scenarios: Scenario[] = [];
   for (let seed = 1; seed <= seeds; seed++) {
     for (const lang of ['fr', 'en'] as Lang[]) {
-      scenarios.push({ seed, lang, inspector: seed % 2 === 0, abortInRound: seed === 3 ? 2 : null, tempo: (seed + (lang === 'en' ? 1 : 0)) % 2 === 0 ? 'quiet' : 'chatty' });
+      const drops: Drops | null = (['one-back', 'one-gone', 'all-gone', 'all-one-back', 'one-gone', null] as (Drops | null)[])[(seed - 1) % 6];
+      scenarios.push({ seed, lang, inspector: seed % 2 === 0, drops, dropRound: drops === 'one-gone' && seed % 6 === 2 ? 1 : 2, tempo: (seed + (lang === 'en' ? 1 : 0)) % 2 === 0 ? 'quiet' : 'chatty' });
     }
   }
 
@@ -1037,6 +1228,30 @@ function report(results: GameResult[], elapsed: number, games: number): void {
     { name: 'telemetry line per game', value: `${games - sum('telemetry')}/${games}; trigger→post p50 ${medianOf('direct')} s direct, ${medianOf('regular')} s regular`, ok: sum('telemetry') === 0, keys: ['telemetry'] },
     { name: 'timers / emits / calls after end', value: `${sum('room_timers_left')} / ${sum('emits_after_end')} / ${sum('call_started_after_end')}, clock drained ${games - sum('clock_not_drained')}/${games}`, ok: sum('room_timers_left') + sum('emits_after_end') + sum('clock_not_drained') === 0, keys: ['room_timers_left', 'emits_after_end', 'clock_not_drained'] },
     { name: 'player ids and fields sent to clients reveal nothing', value: `${sum('revealing_id')} leaks`, ok: sum('revealing_id') === 0, keys: ['revealing_id'] },
+    {
+      name: 'no reveal field before the game over, per phase',
+      value: `${sum('reveal_early')} leaks over ${['waiting', 'question', 'discussion', 'voting', 'endround'].map((ph) => `${ph} ${sum(`reveal_checked:${ph}`)}`).join(', ')} states; game over reveals ${sum('reveal_ok')}/${sum('reveal_players')} players right`,
+      ok: sum('reveal_early') + sum('reveal_wrong') === 0 && sum('reveal_players') > 0 && sum('reveal_checked:discussion') > 0,
+      keys: ['reveal_early', 'reveal_wrong'],
+    },
+    {
+      name: 'dropped human looks like an AI (same entry, no emit, vote target)',
+      value: `${sum('dropped_seen')} tells over ${sum('drops')} drops; votes against a gone seat ${sum('votes_against_gone')}, votes closed without a gone seat ${sum('vote_closed_without_gone')} (never before the bots' deadline)`,
+      ok: sum('dropped_seen') === 0 && sum('drops') > 0 && sum('votes_against_gone') > 0 && sum('vote_closed_without_gone') > 0,
+      keys: ['dropped_seen'],
+    },
+    {
+      name: 'dropped human resumes the seat within the grace, not after',
+      value: `${sum('drops_back')} resumed, ${sum('resume')} failures; after resume msgs ${sum('after_resume_messages')}, answers ${sum('after_resume_answers')}, votes ${sum('after_resume_votes')}; refused after grace ${sum('resume_refused_checks')}`,
+      ok: sum('resume') === 0 && sum('drops_back') > 0 && sum('after_resume_votes') > 0 && sum('resume_refused_checks') > 0,
+      keys: ['resume'],
+    },
+    {
+      name: 'game aborted once no human is connected or in grace',
+      value: `${sum('aborts_measured')} aborts at the last grace end; ${sum('kept_alive_by_return')} kept alive by a return`,
+      ok: sum('abort_timing') === 0 && sum('aborts_measured') === sum('games_aborted') && sum('aborts_measured') > 0 && sum('kept_alive_by_return') > 0,
+      keys: ['abort_timing'],
+    },
     { name: 'persisted player kinds', value: `${sum('persisted_kind') + sum('not_persisted')} wrong`, ok: sum('persisted_kind') + sum('not_persisted') === 0, keys: ['persisted_kind', 'not_persisted'] },
   ];
 

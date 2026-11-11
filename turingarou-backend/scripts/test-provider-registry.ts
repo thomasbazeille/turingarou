@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { buildProviderPool, parsePoolSpec } from '../src/llm/providerRegistry.js';
+import { buildProviderPool, modelLabel, parsePoolSpec, PROVIDER_CATALOG } from '../src/llm/providerRegistry.js';
 import { OpenAICompatProvider, stripReasoning } from '../src/llm/OpenAICompatProvider.js';
 import { ProviderError } from '../src/llm/chatClient.js';
 
@@ -99,6 +99,15 @@ await check('plain 429 stays retryable', async () => {
   await assert.rejects(provider().chat({ messages: [{ role: 'user', content: 'q' }] }), (e: any) => e instanceof ProviderError && e.retryable === true);
 });
 globalThis.fetch = realFetch;
+
+await check('modelLabel: the model as players read it in the end-of-game reveal', () => {
+  assert.equal(modelLabel('Anthropic/claude-haiku-4-5'), 'Claude Haiku 4.5');
+  assert.equal(modelLabel('Deepseek/deepseek-chat'), 'DeepSeek Chat');
+  assert.equal(modelLabel('Mistral/mistral-small-latest'), 'Mistral Small');
+  assert.equal(modelLabel('Groq/openai/gpt-oss-20b'), 'GPT OSS 20B');
+  assert.equal(modelLabel('Cerebras/qwen-3.8-27b'), 'Qwen 3.8 27B');
+  for (const spec of PROVIDER_CATALOG) assert.match(modelLabel(`${spec.vendor}/${spec.model}`), /^[A-Z0-9][\w. ]+$/, spec.id);
+});
 
 console.log(failures ? `\n${failures} échec(s)` : '\nTout est vert');
 process.exit(failures ? 1 : 0);

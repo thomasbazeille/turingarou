@@ -1,3 +1,4 @@
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { getRandomAIPlayerStrategy, getInspectorPromptContent, StrategyEntry } from './StrategyLoader.js';
 import { addPlayerName, pickAIName } from './PlayerNamesStore.js';
 import {
@@ -8,8 +9,10 @@ import {
   QuestionAnswer,
   AIPersonality,
   GameFormat,
+  Vote,
 } from '../types/game.types.js';
 import { ChatProvider } from '../llm/chatClient.js';
+import { modelLabel } from '../llm/providerRegistry.js';
 import { drawQuestion } from './QuestionBank.js';
 import {
   saveGameLog,
@@ -49,6 +52,8 @@ export interface GameRoomDeps {
     getRandomHumanProfile(opts?: PersonaQuery): Promise<HumanPersona | null>;
   };
   log: (line: string) => void;
+  /** No human is connected or within their grace any more: the server forgets the room. */
+  onVacant: () => void;
 }
 
 const defaultDeps: GameRoomDeps = {
@@ -58,9 +63,22 @@ const defaultDeps: GameRoomDeps = {
   strategies: { aiPlayer: getRandomAIPlayerStrategy, inspector: getInspectorPromptContent },
   persistence: { saveGameLog, updateHumanProfiles, saveMessageFlag, getRandomHumanProfile },
   log: (line) => console.log(line),
+  onVacant: () => {},
 };
 
 type PlayerKind = 'human' | 'ai' | 'inspector';
+
+/** What the room knows of a real human's connection. Never part of the game state. */
+interface Session {
+  /** Secret handed to this player's client only, to take the seat back from a new socket. */
+  token: string;
+  connected: boolean;
+  disconnectedAt: number;
+  /** Pending while a disconnected player may still come back. */
+  timer: TimerHandle | null;
+  /** Grace over or left on purpose: a silent seat that never comes back. */
+  gone: boolean;
+}
 
 const COLORS = [
   { name: 'Red', hex: '#ef4444' },
@@ -78,8 +96,24 @@ export const DISCUSSION_PHASE_MS = 100000;
 export const VOTE_PHASE_MS = 30000;
 export const ENDROUND_MS = 8000;
 export const MAX_ROUNDS = 7;
+/** In the lobby a dropped player keeps their seat this long, then frees it so the room can still fill. */
+export const LOBBY_GRACE_MS = 10_000;
+/** Mid-game a dropped human can take their seat back this long; afterwards they stay as a silent player. */
+export const RECONNECT_GRACE_MS = 90_000;
+/**
+ * A vote waiting only on players whose grace ran out closes at this point of the phase, never earlier: every bot has
+ * voted by VOTE_DEADLINE_MS, so from then on a missing vote is already known to be a human's and closing without it
+ * says nothing about who is an AI. An earlier close with a vote missing would point at that player.
+ */
+export const LOST_VOTE_CLOSE_MS = VOTE_DEADLINE_MS + 1000;
 
 if (VOTE_DEADLINE_MS >= VOTE_PHASE_MS) throw new Error('bot vote deadline must fall inside the vote phase');
+if (LOST_VOTE_CLOSE_MS >= VOTE_PHASE_MS) throw new Error('the close without lost players must fall inside the vote phase');
+
+function sameSecret(a: string, b: string): boolean {
+  const digest = (x: string) => createHash('sha256').update(x).digest();
+  return timingSafeEqual(digest(a), digest(b));
+}
 
 const PERSONALITY_TEMPLATES: Omit<AIPersonality, 'name'>[] = [
   { traits: ['analytical', 'calm', 'logical'], systemPrompt: `You are {name}, a calm and analytical person. You tend to think before you speak and use logic. You're playing a social deduction game and must act like a human.`, responseStyle: 'thoughtful', suspicionLevel: 0.3 },
@@ -103,9 +137,15 @@ export class GameRoom {
   private director: BotDirector;
   private phaseTimers: Timers;
   private phaseTimer: TimerHandle | null = null;
+  private graceTimers: Timers;
+  /** Real humans only (inspectors are bots), by player id. */
+  private sessions = new Map<string, Session>();
+  private vacant = false;
   /** Kind of every player who ever joined, departed humans included (their messages stay in the log). */
   private kinds = new Map<string, PlayerKind>();
   private votesByRound = new Map<number, { voter: string; target: string }[]>();
+  /** Every finished vote by player id, revealed with the game over. */
+  private voteHistory: { round: number; votes: Vote[]; eliminatedId: string | null }[] = [];
   private eliminationsByRound = new Map<number, { name: string; isAI: boolean }>();
   private questionsByRound = new Map<number, string>();
   private eliminationOrder: string[] = [];
@@ -119,6 +159,7 @@ export class GameRoom {
     this.llmProviders = Array.isArray(llmProvider) ? llmProvider : [llmProvider];
     this.deps = { ...defaultDeps, ...deps };
     this.phaseTimers = new Timers(this.deps.clock);
+    this.graceTimers = new Timers(this.deps.clock);
     this.director = new BotDirector(
       {
         state: () => this.state,
@@ -207,6 +248,7 @@ export class GameRoom {
     };
     this.state.players.push(player);
     this.kinds.set(player.id, 'human');
+    this.sessions.set(player.id, { token: randomBytes(24).toString('base64url'), connected: true, disconnectedAt: 0, timer: null, gone: false });
     this.deps.names.add(username);
     this.emitState();
     await this.startIfFull();
@@ -258,31 +300,149 @@ export class GameRoom {
     this.startGame();
   }
 
-  removePlayer(socketId: string): void {
-    this.state.players = this.state.players.filter((p) => p.type !== 'human' || p.socketId !== socketId);
+  /** Secret of a human's seat, for their own client only (joinSuccess); never in the game state. */
+  sessionToken(playerId: string): string | null {
+    return this.sessions.get(playerId)?.token ?? null;
+  }
 
-    // A game where no real human is left (inspectors are bots) stops instead of burning model calls.
-    const gameInProgress = !['waiting', 'gameover'].includes(this.state.phase);
-    const humanCount = this.state.players.filter((p) => this.kinds.get(p.id) === 'human' && !p.isEliminated).length;
-    if (gameInProgress && humanCount === 0) {
-      this.abortGame();
+  /** The seat a socket plays for. A socket replaced by a resume, or of a player who left, plays for nobody. */
+  playerIdBySocket(socketId: string): string | null {
+    if (!socketId) return null;
+    const player = this.state.players.find((p) => p.type === 'human' && p.socketId === socketId);
+    const session = player ? this.sessions.get(player.id) : undefined;
+    return player && session && !session.gone ? player.id : null;
+  }
+
+  /**
+   * A human's socket dropped. Nothing public changes: an AI never disconnects, so the seat stays exactly as it was
+   * while the player may come back (LOBBY_GRACE_MS in the lobby, RECONNECT_GRACE_MS mid-game).
+   */
+  disconnect(socketId: string): void {
+    const id = this.playerIdBySocket(socketId);
+    const session = id ? this.sessions.get(id) : undefined;
+    if (!id || !session || !session.connected) return;
+    session.connected = false;
+    session.disconnectedAt = this.now();
+    // Nothing waits for anyone once the game is over or aborted; after the game over the player may still resume.
+    if (this.state.phase === 'gameover' || this.aborted) {
+      this.notifyIfVacant();
       return;
     }
+    const inLobby = this.state.phase === 'waiting' && !this.starting;
+    session.timer = this.graceTimers.after(inLobby ? LOBBY_GRACE_MS : RECONNECT_GRACE_MS, () => this.graceCheck(id));
+  }
+
+  /** Back to home on purpose: the lobby frees the seat now, a game keeps it as a silent one. */
+  leave(socketId: string): void {
+    const id = this.playerIdBySocket(socketId);
+    if (!id) return;
+    if (this.state.phase === 'waiting' && !this.starting) this.removeFromLobby(id);
+    else this.markGone(id);
+    this.notifyIfVacant();
+  }
+
+  /**
+   * A client back with its token takes its seat on a new socket and plays on. Refused for a token of another room,
+   * once the grace is over, after the player left, or in an aborted room. Nothing is broadcast.
+   */
+  resume(socketId: string, token: string): { playerId: string; previousSocketId: string } | null {
+    if (!socketId || typeof token !== 'string' || !token || this.aborted) return null;
+    for (const [id, session] of this.sessions) {
+      if (session.gone || !sameSecret(session.token, token)) continue;
+      const player = this.state.players.find((p): p is HumanPlayer => p.id === id && p.type === 'human');
+      if (!player) return null;
+      const previousSocketId = player.socketId;
+      player.socketId = socketId;
+      this.graceTimers.cancel(session.timer);
+      session.timer = null;
+      session.connected = true;
+      return { playerId: id, previousSocketId };
+    }
+    return null;
+  }
+
+  /** Connected, or disconnected and still within their grace. */
+  private present(id: string): boolean {
+    const session = this.sessions.get(id);
+    return !!session && (session.connected || session.timer !== null);
+  }
+
+  /** Some human is connected or may still come back; once false the server can forget the room. */
+  hasLiveHuman(): boolean {
+    return [...this.sessions.keys()].some((id) => this.present(id));
+  }
+
+  private graceCheck(id: string): void {
+    const session = this.sessions.get(id);
+    if (!session || session.connected) return;
+    session.timer = null;
+    if (this.state.phase === 'waiting' && !this.starting && !this.aborted) {
+      this.removeFromLobby(id);
+      this.notifyIfVacant();
+      return;
+    }
+    // Dropped in the lobby, but the game started meanwhile: the mid-game grace applies.
+    const left = session.disconnectedAt + RECONNECT_GRACE_MS - this.now();
+    if (left > 0 && !this.aborted) {
+      session.timer = this.graceTimers.after(left, () => this.graceCheck(id));
+      return;
+    }
+    this.markGone(id);
+    this.notifyIfVacant();
+  }
+
+  private removeFromLobby(id: string): void {
+    this.graceTimers.cancel(this.sessions.get(id)?.timer);
+    this.sessions.delete(id);
+    this.state.players = this.state.players.filter((p) => p.id !== id);
     this.emitState();
-    if (this.state.phase === 'voting') this.tryEndVotingEarly();
+  }
+
+  /** The seat stays, silent like a taciturn AI: still a vote target, no longer awaited, never resumed. */
+  private markGone(id: string): void {
+    const session = this.sessions.get(id);
+    if (!session || session.gone) return;
+    this.graceTimers.cancel(session.timer);
+    session.timer = null;
+    session.connected = false;
+    session.gone = true;
+    if (this.abortIfNoLiveHuman()) return;
+    this.tryEndVotingEarly();
+  }
+
+  private isGone(id: string): boolean {
+    return this.sessions.get(id)?.gone === true;
+  }
+
+  /** A game where no real human still plays (connected or in grace; inspectors are bots) stops instead of burning model calls. */
+  private abortIfNoLiveHuman(): boolean {
+    const inProgress = this.starting || !['waiting', 'gameover'].includes(this.state.phase);
+    if (!inProgress || this.aborted) return false;
+    if (this.state.players.some((p) => !p.isEliminated && this.present(p.id))) return false;
+    this.abortGame();
+    return true;
+  }
+
+  private notifyIfVacant(): void {
+    if (this.vacant || this.hasLiveHuman()) return;
+    this.vacant = true;
+    this.deps.onVacant();
   }
 
   private abortGame(): void {
     if (this.aborted) return;
     this.aborted = true;
-    this.deps.log(`[GameRoom ${this.state.roomId}] All humans disconnected — aborting game.`);
+    this.deps.log(`[GameRoom ${this.state.roomId}] No human connected or in grace — aborting game.`);
     this.phaseTimers.clearAll();
     this.phaseTimer = null;
+    this.graceTimers.clearAll();
+    for (const session of this.sessions.values()) session.timer = null;
     this.director.dispose();
     this.logTelemetry('aborted');
     // Back to waiting so the frontend shows the waiting screen.
     this.state.phase = 'waiting';
     this.emitState();
+    this.notifyIfVacant();
   }
 
   private async addAIPlayers(): Promise<void> {
@@ -461,6 +621,7 @@ export class GameRoom {
       this.state.currentRound,
       this.state.votes.map((v) => ({ voter: this.nameOf(v.voterId), target: this.nameOf(v.targetId) }))
     );
+    this.voteHistory.push({ round: this.state.currentRound, votes: [...this.state.votes], eliminatedId: eliminatedId || null });
     if (eliminated) {
       this.eliminationsByRound.set(this.state.currentRound, { name: eliminated.username, isAI: eliminated.type !== 'human' });
       this.eliminationOrder.push(eliminated.id);
@@ -483,6 +644,8 @@ export class GameRoom {
       this.endGame(remainingAI, remainingHumans);
       return;
     }
+    // The vote may have just eliminated the last human still playing.
+    if (this.abortIfNoLiveHuman()) return;
 
     this.state.eliminatedPlayerId = null;
     if (!this.state.answersByRound) this.state.answersByRound = {};
@@ -497,6 +660,9 @@ export class GameRoom {
     this.state.eliminatedPlayerId = null;
     this.phaseTimers.clearAll();
     this.phaseTimer = null;
+    // The game is over: a player still away may come back to see the end, but nothing waits for anyone any more.
+    this.graceTimers.clearAll();
+    for (const session of this.sessions.values()) session.timer = null;
     this.director.dispose();
     this.emitState();
     this.persistGameLog();
@@ -654,7 +820,13 @@ export class GameRoom {
     if (this.state.phase !== 'voting') return;
     const active = this.state.players.filter((p) => !p.isEliminated);
     const voted = new Set(this.state.votes.map((v) => v.voterId));
-    if (active.length > 0 && active.every((p) => voted.has(p.id))) this.schedulePhase(0, () => this.processVotes());
+    const missing = active.filter((p) => !voted.has(p.id));
+    if (active.length > 0 && missing.length === 0) {
+      this.schedulePhase(0, () => this.processVotes());
+    } else if (missing.length > 0 && missing.every((p) => this.isGone(p.id))) {
+      const voteStart = (this.state.voteEndTime ?? this.now()) - VOTE_PHASE_MS;
+      this.schedulePhase(voteStart + LOST_VOTE_CLOSE_MS - this.now(), () => this.processVotes());
+    }
   }
 
   private addSystemMessage(content: string): void {
@@ -692,8 +864,20 @@ export class GameRoom {
     this.io.to(this.state.roomId).emit('gameState', this.sanitizeState());
   }
 
-  /** Never reveals who is an AI to the clients. */
+  /** What every browser of the room was last sent, for a client that just took its seat back. */
+  publicState(): Record<string, unknown> {
+    return this.sanitizeState();
+  }
+
+  /** Who each player was, and the model behind each bot (inspectors are bots on the humans' side). Game over only. */
+  private revealOf(id: string): { isAI: boolean; model?: string } {
+    const bot = this.director.bots().find((b) => b.id === id);
+    return bot ? { isAI: true, model: modelLabel(bot.providerName) } : { isAI: false };
+  }
+
+  /** Never reveals who is an AI to the clients before the game is over. */
   private sanitizeState(): Record<string, unknown> {
+    const over = this.state.phase === 'gameover';
     const out: Record<string, unknown> = {
       ...this.state,
       players: this.state.players.map((p) => ({
@@ -703,6 +887,7 @@ export class GameRoom {
         colorName: p.colorName,
         isReady: p.isReady,
         isEliminated: p.isEliminated,
+        ...(over ? this.revealOf(p.id) : {}),
       })),
       eliminationOrder: [...this.eliminationOrder],
     };
@@ -712,15 +897,18 @@ export class GameRoom {
       out.votes = this.state.votes;
       out.eliminatedAiCount = this.state.players.filter((p) => p.isEliminated && p.type === 'ai').length;
     }
-    if (this.state.phase === 'gameover') out.gameOverReason = this.state.gameOverReason ?? null;
+    if (over) {
+      out.gameOverReason = this.state.gameOverReason ?? null;
+      out.voteHistory = this.voteHistory.map((r) => ({ ...r, votes: [...r.votes] }));
+    }
     if (this.state.phase === 'voting' || this.state.phase === 'discussion') out.votes = this.state.votes;
     out.language = this.state.language ?? 'fr';
     return out;
   }
 
-  /** Timers still pending for this room (phases and bots); 0 after game over or abort. */
+  /** Timers still pending for this room (phases, graces and bots); 0 after game over or abort. */
   pendingTimers(): number {
-    return this.phaseTimers.size + this.director.pendingTimers();
+    return this.phaseTimers.size + this.graceTimers.size + this.director.pendingTimers();
   }
 
   getState(): GameRoomState {

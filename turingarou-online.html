@@ -159,6 +159,31 @@
     .vote-history-overlay { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 5px; background: rgba(0,0,0,0.9); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 4px 6px; box-shadow: 0 4px 7px rgba(0,0,0,0.5); z-index: 1000; white-space: nowrap; pointer-events: none; }
     .vote-history-item { font-size: 8px; color: rgba(255,255,255,0.6); font-style: italic; line-height: 1.3; margin-bottom: 1px; }
     .vote-history-item:last-child { margin-bottom: 0; }
+    /* Reveal at game over */
+    .reveal-wrap { max-width: 760px; width: calc(100% - 30px); margin: 0 auto 6px; }
+    .reveal-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .reveal-card { background: rgba(15,23,42,0.8); border: 1px solid rgba(255,255,255,0.1); border-radius: 7px; padding: 10px 6px; display: flex; flex-direction: column; align-items: center; gap: 3px; text-align: center; opacity: 0; animation: revealIn 0.5s ease-out forwards; }
+    .reveal-card.ai { border-color: rgba(239,68,68,0.6); box-shadow: 0 0 14px rgba(239,68,68,0.25); }
+    .reveal-card.human { border-color: rgba(34,197,94,0.45); }
+    .reveal-avatar { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: bold; color: #fff; }
+    .reveal-card.out .reveal-avatar { filter: saturate(0.4); opacity: 0.7; }
+    .reveal-name { color: #e2e8f0; font-size: 12px; font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .reveal-kind { font-family: monospace; font-size: 11px; font-weight: bold; letter-spacing: 1.5px; }
+    .reveal-card.ai .reveal-kind { color: #ef4444; text-shadow: 0 0 8px rgba(239,68,68,0.6); }
+    .reveal-card.human .reveal-kind { color: #22c55e; }
+    .reveal-model { color: #fca5a5; font-family: monospace; font-size: 10px; }
+    .reveal-fate { color: #64748b; font-size: 9px; }
+    .reveal-votes { margin-top: 12px; font-size: 11px; color: #cbd5e1; line-height: 1.5; text-align: left; }
+    .reveal-round { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .reveal-round-num { color: #22d3ee; font-family: monospace; margin-right: 4px; }
+    .reveal-round-out { color: #94a3b8; }
+    @keyframes revealIn { from { opacity: 0; transform: translateY(7px) scale(0.96); } to { opacity: 1; transform: none; } }
+    @media (max-width: 600px) { .reveal-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (prefers-reduced-motion: reduce) { .reveal-card { animation: none; opacity: 1; } }
+    /* Connection notice, shown to this player only */
+    .conn-toast { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(24,24,27,0.92); border: 1px solid rgba(34,197,94,0.45); color: #86efac; font-size: 11px; padding: 5px 12px; border-radius: 5px; z-index: 3000; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+    .conn-toast.show { opacity: 1; }
+    .conn-toast.warn { border-color: rgba(245,158,11,0.5); color: #fcd34d; }
 
     /* AI WIN BACKGROUND ANIMATION */
     @keyframes ai-sneak {
@@ -637,8 +662,13 @@
         <div class="round-complete" id="gameover-title">GAME OVER</div>
         <div class="ai-unplugged" id="gameover-message">—</div>
       </div>
-      <div class="elimination-content">
-        <p style="color:#94a3b8;font-size:18px;margin:20px;" id="gameover-detail">Thanks for playing.</p>
+      <div class="elimination-content" style="flex:0 0 auto;padding:10px 30px;">
+        <p style="color:#94a3b8;font-size:18px;margin:10px;" id="gameover-detail">Thanks for playing.</p>
+      </div>
+      <div class="reveal-wrap">
+        <div class="end-screen-history-title" id="gameover-reveal-title">Qui était qui</div>
+        <div class="reveal-grid" id="gameover-reveal"></div>
+        <div class="reveal-votes" id="gameover-votes"></div>
       </div>
       <div class="next-round-container">
         <button class="next-round-btn" onclick="goHome()">
@@ -651,6 +681,8 @@
       </div>
     </div>
   </div>
+
+  <div id="conn-toast" class="conn-toast" role="status" aria-live="polite"></div>
 
   <!-- Socket.io Client -->
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
@@ -682,10 +714,12 @@ const BACKEND_URL = (() => {
 
 console.log('🔗 Backend URL:', BACKEND_URL);
 
+// Keeps retrying (up to ~3 min at 5 s apart) past the server's 90 s reconnect grace.
+const RECONNECT_ATTEMPTS = 40;
 const socket = io(BACKEND_URL, {
   transports: ['websocket', 'polling'],
   reconnection: true,
-  reconnectionAttempts: 5,
+  reconnectionAttempts: RECONNECT_ATTEMPTS,
   reconnectionDelay: 1000,
   timeout: 60000,  // 60s pour gérer le cold start de Render
 });
@@ -694,6 +728,34 @@ let playerId = null;
 let roomId = 'game-' + Math.random().toString(36).substr(2, 9);
 let isConnected = false;
 
+// Seat token from joinSuccess, per tab: a dropped connection (phone asleep, network) or a reload takes the seat back.
+const SESSION_KEY = 'turingarou.session';
+function saveSession(rid, token) {
+  try { if (rid && token) sessionStorage.setItem(SESSION_KEY, JSON.stringify({ roomId: rid, token: token })); } catch (e) {}
+}
+function loadSession() {
+  try { const s = JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null'); return s && s.roomId && s.token ? s : null; } catch (e) { return null; }
+}
+function clearSession() {
+  try { sessionStorage.removeItem(SESSION_KEY); } catch (e) {}
+}
+
+let connToastTimer = null;
+function showConnToast(text, warn) {
+  const el = document.getElementById('conn-toast');
+  if (!el) return;
+  el.textContent = text;
+  el.classList.toggle('warn', !!warn);
+  el.classList.add('show');
+  clearTimeout(connToastTimer);
+  connToastTimer = setTimeout(function () { el.classList.remove('show'); }, 2500);
+}
+
+// A phone back from sleep may have exhausted its retries: try again as soon as the page is visible.
+document.addEventListener('visibilitychange', function () {
+  if (document.visibilityState === 'visible' && !socket.connected) socket.connect();
+});
+
 // Indicateur visuel de connexion
 socket.on('connect', () => {
   console.log('✅ Connected to server');
@@ -701,10 +763,13 @@ socket.on('connect', () => {
   document.body.style.borderTop = '3px solid #22c55e';
   
   const btn = document.getElementById('start-btn');
-  if (btn && btn.textContent.includes('CONNECTING')) {
+  const session = loadSession();
+  // Holding a seat: a reconnect must not offer a second join.
+  if (btn && btn.textContent.includes('CONNECTING') && !session) {
     btn.disabled = false;
     btn.textContent = 'START SESSION';
   }
+  if (session) socket.emit('resumeSession', session);
 });
 
 socket.on('disconnect', () => {
@@ -726,14 +791,33 @@ socket.on('connect_error', (error) => {
   }
 });
 
-socket.on('joinSuccess', ({ playerId: id, roomId: actualRoomId }) => {
+socket.on('joinSuccess', ({ playerId: id, roomId: actualRoomId, token }) => {
   playerId = id;
   // Mettre à jour le roomId avec celui retourné par le serveur (important pour public lobby)
   if (actualRoomId) {
     roomId = actualRoomId;
   }
+  saveSession(roomId, token);
   applyAICharacter(roomId);
   console.log('✅ Joined as player:', playerId, 'in room:', roomId);
+});
+
+socket.on('resumeSuccess', ({ playerId: id, roomId: rid }) => {
+  playerId = id;
+  roomId = rid;
+  applyAICharacter(roomId);
+  const btn = document.getElementById('start-btn');
+  if (btn) btn.disabled = true;
+  showConnToast(G.lang === 'fr' ? 'Reconnecté' : 'Reconnected');
+});
+
+socket.on('resumeError', () => {
+  clearSession();
+  // Seat lost (grace over, room gone): back home. A stale token on a fresh page just goes away.
+  if (playerId) {
+    goHome();
+    showConnToast(G.lang === 'fr' ? 'Connexion perdue trop longtemps : partie quittée' : 'Disconnected too long: you left the game', true);
+  }
 });
 
 socket.on('joinError', ({ message }) => {
@@ -1109,7 +1193,8 @@ function updateGameFromServer(state) {
     color: p.color,
     colorName: p.colorName,
     isLocal: p.id === playerId,
-    isAI: false,
+    isAI: p.isAI === true,   // sent at game over only
+    model: p.model || null,
     hasAnswered: hasAnsweredFor(p.id),
     hasVoted: hasVotedFor(p.id),
     votesAgainst: []
@@ -1262,6 +1347,7 @@ function updateGameFromServer(state) {
     case 'gameover':
       showScreen('gameover');
       renderGameOver(state.gameOverReason || 'draw');
+      renderReveal(state);
       break;
   }
 }
@@ -2192,6 +2278,10 @@ function addAIInspector() {
 }
 
 function goHome(){
+  // Leaving on purpose: the server frees the lobby seat now, or keeps a silent one mid-game; no resume afterwards.
+  if (socket.connected) socket.emit('leaveRoom');
+  clearSession();
+  playerId = null;
   socket.disconnect();
   G.p = [];
   G.e = [];
@@ -2549,6 +2639,55 @@ if(reason==='humans_win'){
   startScaleAnimation();
   if(goScreen)goScreen.style.background='linear-gradient(135deg,#0f172a 0%,#1e1040 100%)';
 }
+}
+
+function escHtml(s){
+  return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/** Who was who, the model behind each AI, and every vote: sent by the server at game over only. */
+function renderReveal(state){
+  const fr = G.lang === 'fr';
+  const grid = document.getElementById('gameover-reveal');
+  const votesEl = document.getElementById('gameover-votes');
+  const title = document.getElementById('gameover-reveal-title');
+  if (!grid || !votesEl) return;
+  if (title) title.textContent = fr ? 'Qui était qui' : 'Who was who';
+  const history = Array.isArray(state.voteHistory) ? state.voteHistory : [];
+  const outRound = {};
+  history.forEach(function(r){ if (r.eliminatedId) outRound[r.eliminatedId] = r.round; });
+  const byId = {};
+  state.players.forEach(function(p){ byId[p.id] = p; });
+  grid.innerHTML = '';
+  state.players.forEach(function(p, i){
+    const ai = p.isAI === true;
+    const card = document.createElement('div');
+    card.className = 'reveal-card ' + (ai ? 'ai' : 'human') + (p.isEliminated ? ' out' : '');
+    card.style.animationDelay = (i * 160) + 'ms';
+    const you = p.id === playerId ? (fr ? ' (toi)' : ' (you)') : '';
+    const fate = outRound[p.id] ? (fr ? 'éliminé manche ' : 'out in round ') + outRound[p.id] : (fr ? "jusqu'au bout" : 'to the end');
+    card.innerHTML =
+      '<div class="reveal-avatar" style="background:' + escHtml(p.color) + '">' + escHtml((p.username || '?').charAt(0)) + '</div>' +
+      '<div class="reveal-name">' + escHtml(p.username) + you + '</div>' +
+      '<div class="reveal-kind">' + (ai ? (fr ? '🤖 IA' : '🤖 AI') : (fr ? '🧑 HUMAIN' : '🧑 HUMAN')) + '</div>' +
+      (ai && p.model ? '<div class="reveal-model">' + escHtml(p.model) + '</div>' : '') +
+      '<div class="reveal-fate">' + fate + '</div>';
+    grid.appendChild(card);
+  });
+  const name = function(id){
+    const p = byId[id];
+    return p ? '<span style="color:' + escHtml(p.color) + '">' + escHtml(p.username) + '</span>' : '?';
+  };
+  votesEl.innerHTML = history.length ? '<div class="end-screen-history-title">' + (fr ? 'Votes par manche' : 'Votes by round') + '</div>' : '';
+  history.forEach(function(r){
+    const line = document.createElement('div');
+    line.className = 'reveal-round';
+    const votes = r.votes.length ? r.votes.map(function(v){ return name(v.voterId) + ' → ' + name(v.targetId); }).join(', ') : (fr ? 'aucun vote' : 'no votes');
+    const ep = r.eliminatedId ? byId[r.eliminatedId] : null;
+    const out = ep ? name(r.eliminatedId) + (fr ? ' éliminé ' : ' out ') + (ep.isAI ? '🤖' : '🧑') : (fr ? 'égalité, personne' : 'tie, no one out');
+    line.innerHTML = '<span class="reveal-round-num">' + (fr ? 'M' : 'R') + r.round + '</span>' + votes + ' <span class="reveal-round-out">⇒ ' + out + '</span>';
+    votesEl.appendChild(line);
+  });
 }
 
 // nextRound() - Gérée par le backend, mais gardée pour compatibilité
