@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="fr">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TURINGAROU - Final Version</title>
+  <title>Turingarou : qui est une IA ?</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #000; color: #fff; overflow: hidden; }
@@ -1456,6 +1456,7 @@ function updateGameFromServer(state) {
   
   // Langue de la room (pour UI)
   if (state.language) G.lang = state.language;
+  applyPageLanguage(G.lang === 'fr');
   if (state.currentQuestion) {
     G.currentQuestion = state.currentQuestion;
     G.questions = G.questions || {};
@@ -1679,7 +1680,7 @@ window.addEventListener('beforeunload', () => {
 function init(){
 document.getElementById('username-input').oninput=updateLocalPlayer;
 document.getElementById('username-input').onkeydown=function(e){if(e.key==='Enter'){e.preventDefault();startGame();}};
-document.getElementById('lang-select').onchange=refreshHome;
+document.getElementById('lang-select').onchange=function(){refreshHome();renderWaitingRoom();};
 if(inviteCode)document.getElementById('room-input').value=inviteCode;
 refreshHome();
 renderWaitingRoom();
@@ -1697,9 +1698,16 @@ if(inviteCode)return (fr?'REJOINDRE LA SALLE ':'JOIN ROOM ')+inviteCode;
 return fr?'SALLE PUBLIQUE (5 HUMAINS + 3 IA)':'PUBLIC ROOM (5 HUMANS + 3 AIS)';
 }
 
+/** Tab title and page language follow the language picked at home, then the room's. */
+function applyPageLanguage(fr){
+document.title=fr?'Turingarou : qui est une IA ?':'Turingarou: who is an AI?';
+document.documentElement.lang=fr?'fr':'en';
+}
+
 /** Home screen before joining: public room, or the room of the invite link, or a new private room. */
 function refreshHome(){
 const fr=homeFr();
+if(!playerId)applyPageLanguage(fr);
 const sb=document.getElementById('start-btn');
 if(sb&&!playerId){sb.disabled=!G.ui;sb.textContent=startLabel();}
 const pb=document.getElementById('private-btn');
@@ -1744,7 +1752,7 @@ if(hasPlayer){
   c.appendChild(av);
   c.appendChild(nm);
 }else{
-  c.innerHTML='<div style="color:#64748b;font-size:11px;">Waiting...</div>';
+  c.innerHTML='<div style="color:#64748b;font-size:11px;">'+((playerId?G.lang==='fr':homeFr())?'En attente…':'Waiting…')+'</div>';
 }
 g.appendChild(c);
 }
