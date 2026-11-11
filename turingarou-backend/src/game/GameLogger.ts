@@ -429,7 +429,8 @@ export async function saveGameLog(data: GameLogData): Promise<void> {
       for (const p of data.players) {
         if (!p.consent) continue;
         await db.query(
-          `INSERT INTO player_consents (game_id, player_name, style_examples, notice_version) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+          `INSERT INTO player_consents (game_id, player_name, style_examples, notice_version) VALUES ($1, $2, $3, $4)
+           ON CONFLICT (game_id, player_name) DO UPDATE SET style_examples = LEAST(player_consents.style_examples, EXCLUDED.style_examples)`,
           [data.gameId, p.name, p.consent.styleExamples ? 1 : 0, p.consent.notice]
         );
       }

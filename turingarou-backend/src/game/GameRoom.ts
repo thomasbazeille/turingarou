@@ -890,7 +890,7 @@ export class GameRoom {
         .map((m) => ({ round: m.round, player: m.playerName, type: kindOf(m.playerId), content: m.content, timestamp: m.timestamp }));
 
       const data: GameLogData = {
-        gameId: this.state.roomId,
+        gameId: this.gameId(),
         date: new Date(this.now()).toISOString(),
         language: this.state.language ?? 'fr',
         result: this.state.gameOverReason ?? 'draw',
@@ -1034,7 +1034,7 @@ export class GameRoom {
     const sends = this.feedbackSends.get(playerId) ?? 0;
     if (sends >= FEEDBACK_MAX_SENDS) return false;
     this.feedbackSends.set(playerId, sends + 1);
-    void this.deps.persistence.saveGameFeedback(this.state.roomId, this.nameOf(playerId), feedback);
+    void this.deps.persistence.saveGameFeedback(this.gameId(), this.nameOf(playerId), feedback);
     return true;
   }
 
@@ -1119,7 +1119,7 @@ export class GameRoom {
     const own = this.flagsBy.get(playerId) ?? [];
     if (own.includes(messageId)) return;
     this.flagsBy.set(playerId, [...own, messageId]);
-    void this.deps.persistence.saveMessageFlag(this.state.roomId, messageId, player.username, message.round, reason);
+    void this.deps.persistence.saveMessageFlag(this.gameId(), messageId, player.username, message.round, reason);
   }
 
   // ====== UTILS ======
@@ -1179,13 +1179,21 @@ export class GameRoom {
     return bot ? { isAI: true, model: modelLabel(bot.providerName) } : { isAI: false };
   }
 
+  /**
+   * The id a game is stored under: its room and its start, since a private code is typed again by the same group and
+   * would otherwise merge their games (and keep the first answer of a player who later refused to be an example).
+   */
+  private gameId(): string {
+    return `${this.state.roomId}-${this.startedAt}`;
+  }
+
   /** What this human gets at the game over, for their client only; null before it, and for any other seat. */
   reviewOf(playerId: string): PlayerReview | null {
     if (this.state.phase !== 'gameover' || !this.sessions.has(playerId)) return null;
     const isAI = (id: string) => this.revealOf(id).isAI;
     const score = scoreVotes(playerId, this.voteHistory, isAI);
     return {
-      gameKey: `${this.state.roomId}-${this.startedAt}`,
+      gameKey: this.gameId(),
       score,
       share: shareText(score, this.state.language ?? 'fr'),
       flags: flagResults(this.flagsBy.get(playerId) ?? [], this.state.messages, isAI),

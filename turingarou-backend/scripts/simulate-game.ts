@@ -1579,7 +1579,9 @@ async function runGame(sc: Scenario): Promise<GameResult> {
       inc('persisted_typing_dropped', keptInputs.filter((x) => x.via === 'typed' && x.typingMs === null).length);
       if (sorted(keptInputs) !== sorted(sentInputs)) offend('collected_persist', `line inputs persisted ${keptInputs.length}, posted ${sentInputs.length}: ${JSON.stringify(keptInputs.find((x) => !sentInputs.some((y) => JSON.stringify(y) === JSON.stringify(x))) ?? null)}`);
       inc('persisted_feedback', savedFeedback.length);
-      if (sorted(savedFeedback) !== sorted(sentFeedback.map((f) => ({ gameId: state().roomId, ...f })))) offend('collected_persist', `notes written ${JSON.stringify(savedFeedback)}, sent ${JSON.stringify(sentFeedback)}`);
+      // A game is stored under its room and its start: a private code typed again must not merge two groups' games.
+      if (!log.gameId.startsWith(`${s.roomId}-`) || log.gameId === s.roomId) offend('collected_persist', `game stored as ${log.gameId}, room ${s.roomId}`);
+      if (sorted(savedFeedback) !== sorted(sentFeedback.map((f) => ({ gameId: log.gameId, ...f })))) offend('collected_persist', `notes written ${JSON.stringify(savedFeedback)}, sent ${JSON.stringify(sentFeedback)}`);
       if (JSON.stringify(log.voice) !== JSON.stringify(voice)) offend('collected_persist', `voice ${JSON.stringify(log.voice)} persisted, the room had ${JSON.stringify(voice)}`);
       for (const msg of log.messages) {
         const pid = nameToId.get(msg.player);

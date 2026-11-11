@@ -7,6 +7,8 @@
  * the requirements relax in steps (all-time, then 2 messages) but never across languages.
  * Messages naming a player of their own game are dropped: pasted into another game's prompt, a
  * "lucas t'es un bot" would make the AI address someone who is not there.
+ * Lines from a game where their author refused to serve as a style example (player_consents.style_examples = 0) are
+ * never read. Games from before the home-screen notice have no consent row and stay in the pool: Thomas's call.
  */
 
 import { addressedTo } from '../game/directAddress.js';
@@ -83,6 +85,7 @@ export async function selectHumanPersona(client: SqlClient, q: PersonaQuery = {}
          AND ($1::text IS NULL OR g.language = $1::text)
          AND m.ts >= $2::bigint
          AND length(trim(m.content)) > 0
+         AND NOT EXISTS (SELECT 1 FROM player_consents c WHERE c.game_id = m.game_id AND c.player_name = m.player_name AND c.style_examples = 0)
          AND NOT (lower(m.player_name) = ANY($3::text[]))
        GROUP BY m.player_name
        HAVING COUNT(DISTINCT m.content) >= $4::int
@@ -106,6 +109,7 @@ async function loadPersona(client: SqlClient, username: string, lang: Language |
      FROM messages m JOIN games g ON g.game_id = m.game_id
      WHERE m.player_name = $1 AND m.player_type = 'human'
        AND ($2::text IS NULL OR g.language = $2::text)
+       AND NOT EXISTS (SELECT 1 FROM player_consents c WHERE c.game_id = m.game_id AND c.player_name = m.player_name AND c.style_examples = 0)
      ORDER BY m.ts DESC
      LIMIT ${RECENT_MESSAGES}`,
     [username, lang]
@@ -118,6 +122,7 @@ async function loadPersona(client: SqlClient, username: string, lang: Language |
      JOIN games g ON g.game_id = a.game_id
      WHERE a.player_name = $1
        AND ($2::text IS NULL OR g.language = $2::text)
+       AND NOT EXISTS (SELECT 1 FROM player_consents c WHERE c.game_id = a.game_id AND c.player_name = a.player_name AND c.style_examples = 0)
        AND length(trim(a.answer)) > 0
      ORDER BY g.date DESC
      LIMIT 50`,
