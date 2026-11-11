@@ -8,8 +8,8 @@ Synthèse de 5 recherches (jeux humain ou IA, UX de la déduction sociale, réte
 - **L5 IA plus crédibles** (fait) : Débit 1/n, diversité, questions texture, détournements, longueur.
 - **L2 La manche** (fait) : Vote en deux temps et caché, réponse ciblée, fin anticipée, mise en scène.
 - **L3 Remplir une table** (fait) : Lien d'invitation, lancement dès 3 humains, revanche avec noms neufs.
-- **L4 Retour** (à faire) : Relecture, partage sans spoiler, double score, signalements rendus, réponses cachées.
-- **L6 Mesure et éthique** (à faire) : Annonce et consentement, A/B voix, raison du vote, copier-coller.
+- **L4 Retour** (fait) : Relecture, partage sans spoiler, double score, signalements rendus, réponses cachées.
+- **L6 Mesure et éthique** (en cours) : Fait : annonce et consentement, mode voix journalisé, raison du vote et note, copier-coller mesuré. Reste : tirage A/B, transcriptions alignées.
 
 ## Remplir une table
 
@@ -45,11 +45,11 @@ _La récompense, et ce qui donne envie de rejouer._
 | Fonctionnalité | Statut | Lot | Coût | Preuve | Risque |
 |---|---|---|---|---|---|
 | Révélation finale : qui était IA, et quel modèle | existe | L1 | S | Aujourd'hui les IA survivantes ne sont jamais dévoilées. La précision des joueurs monte avec le retour reçu (Human or Not). [source](https://arxiv.org/abs/2305.20010) | — |
-| Relecture du chat avec les IA dévoilées | à faire | L4 | M | Relire la partie en sachant qui était qui (Gartic Phone, Human or Not). | — |
-| Résultat partageable sans spoiler | à faire | L4 | S | Wordle : 90 joueurs en novembre 2021, environ 2 millions mi-janvier 2022, porté par la grille partagée. [source](https://en.wikipedia.org/wiki/Wordle) | — |
-| Double score personnel, sans compte | à faire | L4 | S | IA trouvées et fausses accusations séparées (Bot or Not de Surfshark), compteur gardé dans le navigateur. [source](https://ppc.land/half-of-users-cant-spot-ai-bots-surfsharks-game-reveals-why/) | — |
-| Réponses à la question cachées jusqu’à la fin de la phase | à faire | L4 | S | Les réponses s'affichent en direct pendant la phase question : l'instant où chaque IA répond se voit (repéré en relecture L2). | Fuite d'aujourd'hui. |
-| Signalements rendus à la fin | à faire | L4 | S | Les messages signalés sont stockés mais jamais montrés : « tu avais repéré X, c'était une IA ». | — |
+| Relecture du chat avec les IA dévoilées | existe | L4 | M | Relire la partie en sachant qui était qui (Gartic Phone, Human or Not). | — |
+| Résultat partageable sans spoiler | existe | L4 | S | Wordle : 90 joueurs en novembre 2021, environ 2 millions mi-janvier 2022, porté par la grille partagée. [source](https://en.wikipedia.org/wiki/Wordle) | — |
+| Double score personnel, sans compte | existe | L4 | S | IA trouvées et fausses accusations séparées (Bot or Not de Surfshark), compteur gardé dans le navigateur. [source](https://ppc.land/half-of-users-cant-spot-ai-bots-surfsharks-game-reveals-why/) | — |
+| Réponses à la question cachées jusqu’à la fin de la phase | existe | L4 | S | Les réponses s'affichent en direct pendant la phase question : l'instant où chaque IA répond se voit (repéré en relecture L2). | Fuite d'aujourd'hui. |
+| Signalements rendus à la fin | existe | L4 | S | Les messages signalés sont stockés mais jamais montrés : « tu avais repéré X, c'était une IA ». | — |
 
 ## Crédibilité des IA
 
@@ -74,7 +74,7 @@ _Garder chaque humain dans la partie, sans trahir personne._
 |---|---|---|---|---|---|
 | Reprise après coupure, par jeton de session | existe | L1 | M | iOS Safari coupe les WebSockets en arrière-plan ; aujourd'hui un téléphone en veille = joueur perdu. [source](https://socket.io/docs/v4/connection-state-recovery) | Un badge « déconnecté » trahirait un humain : rien de public ne doit changer. |
 | Règle des absents : grâce, puis joueur silencieux | existe | L1 | M | FACEIT ne sanctionne qu'au-delà de 5 minutes de coupure cumulées. [source](https://support.faceit.com/hc/en-us/articles/20413035342108-AFK-Leaver-noShow-Bans-Elo-FAQ) | — |
-| Repérage du copier-coller (ChatGPT en douce) | à faire | L6 | S | Aucune source trouvée : à mesurer soi-même avant de sanctionner. | — |
+| Repérage du copier-coller (ChatGPT en douce) | partiel | L6 | S | Aucune source trouvée. Collage et temps de frappe désormais mesurés, sans sanction : à lire sur de vraies parties. | — |
 
 ## Voix
 
@@ -87,7 +87,7 @@ _La question de Thomas : une autre interface change-t-elle la détection ?_
 | Déverrouillage audio iOS, file de lecture, bouton son | existe | — | S | Sans geste initial, rien ne joue sur iPhone. | — |
 | Gradium pour la synthèse et la transcription | existe | — | S | Éteint tant que la clé n'est pas posée ; enregistrement WAV côté navigateur. | — |
 | Transcriptions alignées sur le chat tapé | à tester | L6 | S | Ponctuation propre ou erreurs de transcription propres aux humains deviennent un tell. | Seuls les humains parlent : tout écart de forme les désigne. |
-| A/B texte contre voix | à faire | L6 | S | Environ 60 parties par bras pour voir 10 points d'écart de détection (calcul du rapport, non sourcé). | — |
+| A/B texte contre voix | partiel | L6 | S | Environ 60 parties par bras pour voir 10 points d'écart de détection (calcul du rapport, non sourcé). Mode texte ou voix journalisé par partie ; reste le tirage aléatoire des tables. | — |
 | Sous-titres synchronisés sur la voix | plus tard | — | M | Accessibilité et mode muet. | — |
 
 ## Mesure et éthique
@@ -96,8 +96,8 @@ _Savoir si ça marche, et le faire proprement._
 
 | Fonctionnalité | Statut | Lot | Coût | Preuve | Risque |
 |---|---|---|---|---|---|
-| Annonce « des IA jouent », consentement et refus de l'usage des messages | à faire | L6 | S | Pratique des études sérieuses ; l'expérience non consentie de Zurich sur Reddit a fait scandale. [source](https://retractionwatch.com/2025/04/28/experiment-using-ai-generated-posts-on-reddit-draws-fire-for-ethics-concerns) | Texte à faire valider (AI Act, art. 50). |
-| Raison du vote et note de fin de partie | à faire | L6 | S | Matière pour corriger les IA à partir des vraies parties. | — |
+| Annonce « des IA jouent », consentement et refus de l'usage des messages | existe | L6 | S | Pratique des études sérieuses ; l'expérience non consentie de Zurich sur Reddit a fait scandale. [source](https://retractionwatch.com/2025/04/28/experiment-using-ai-generated-posts-on-reddit-draws-fire-for-ethics-concerns) | Texte à faire valider (AI Act, art. 50). |
+| Raison du vote et note de fin de partie | existe | L6 | S | Matière pour corriger les IA à partir des vraies parties. | — |
 | Taux « jugé humain » par modèle et par persona | partiel | L6 | S | Le couple stratégie@fournisseur est déjà enregistré par bot. | — |
 
 ## À ne pas faire
