@@ -31,6 +31,15 @@ const DIRECT_REPLY_PROB = 0.85;
 /** A named or accused bot that still has no usable model answer by then posts a short canned reply instead. */
 const DIRECT_BUDGET_MS = 6500;
 const SILENCE_MS = 12000;
+/** SILENCE_MS was set for a full table of 8; fewer players pause longer between lines (tableScale). */
+export function silenceMs(players: number): number {
+  return SILENCE_MS * tableScale(players);
+}
+
+/** How much longer a person's pauses get at a table smaller than the full 8: 8/n, between 1 and 2. */
+export function tableScale(players: number): number {
+  return Math.min(2, Math.max(1, 8 / Math.max(1, players)));
+}
 const TICK_MIN_MS = 3000;
 const TICK_SPREAD_MS = 3000;
 const REACTION_MIN_MS = 2000;
@@ -319,12 +328,14 @@ export class BotDirector {
     const lastAt = discussion.length > 0 ? discussion[discussion.length - 1].timestamp : this.discussionStartedAt;
     const anyBusy = [...this.slots.values()].some((s) => s.job);
     const free = this.shuffle(this.activeSlots().filter((s) => !s.job && s.nextAllowedAt <= now));
-    // Nobody has said anything for 12 s: one bot breaks the silence instead of everyone waiting for everyone, the one
-    // that spoke least, a quick one on a tie.
-    if (!anyBusy && free.length > 0 && now - lastAt > SILENCE_MS && now - this.discussionStartedAt > 8000) {
+    // Nobody has said anything for a while: one bot breaks the silence instead of everyone waiting for everyone, the
+    // one that spoke least, a quick one on a tie. Never once the bots together are past their 1/n share: at a small
+    // table the humans' own pauses would otherwise be filled by bots, a volume every player sees.
+    const willing = this.groupPace() === 'over' ? [] : free;
+    if (!anyBusy && willing.length > 0 && now - lastAt > silenceMs(this.room.state().players.filter((p) => !p.isEliminated).length) && now - this.discussionStartedAt > 8000) {
       const lines = discussion.slice(-PACE_WINDOW_LINES);
       const own = (s: Slot) => lines.filter((m) => m.playerId === s.bot.id).length * 2 + (s.bot.responseStyle === 'quick' ? 0 : 1);
-      const speaker = free.reduce((a, b) => (own(b) < own(a) ? b : a));
+      const speaker = willing.reduce((a, b) => (own(b) < own(a) ? b : a));
       this.logEvent(speaker.bot.name, 'watchdog');
       this.launch(speaker, epoch, { quiet: true });
     }
@@ -454,7 +465,10 @@ export class BotDirector {
       this.recentBotPosts = [...this.recentBotPosts.filter((t) => now - t < 10000), now];
       const short = text.length < 50;
       const pace = this.paceFor(slot);
-      slot.nextAllowedAt = now + cooldownMs(slot.bot.responseStyle, short, this.deps.rng, pace);
+      // The cooldowns were set for a full table: fewer players leave longer gaps between one person's lines, unless
+      // this bot is behind its 1/n share (chatty humans), where the regulator must be free to catch up.
+      const scale = pace === 'under' ? 1 : tableScale(this.room.state().players.filter((p) => !p.isEliminated).length);
+      slot.nextAllowedAt = now + cooldownMs(slot.bot.responseStyle, short, this.deps.rng, pace) * scale;
       // ~15 % of short lines get a follow-up, like humans sending 2-3 lines in a row; never from a bot already over its share.
       if (short && pace !== 'over' && this.deps.rng() < BURST_PROB) this.scheduleBurst(slot, epoch);
     };

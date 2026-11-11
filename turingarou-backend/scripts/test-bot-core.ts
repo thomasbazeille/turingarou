@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { Bot } from '../src/game/Bot.js';
 import { drawCast, templatesFor } from '../src/game/botCast.js';
 import { makeSeededRng } from '../src/game/humanTiming.js';
-import { BotDirector, CANNED, DirectorRoom } from '../src/game/BotDirector.js';
+import { BotDirector, CANNED, DirectorRoom, silenceMs, tableScale } from '../src/game/BotDirector.js';
 import { buildGameContext, stableBucket, visibleMessages, BotView } from '../src/game/botContext.js';
 import { answerPrompt, decisionPrompt, systemPrompt, votePrompt, PromptIdentity } from '../src/game/botPrompts.js';
 import { getInspectorPromptContent, getRandomAIPlayerStrategy } from '../src/game/StrategyLoader.js';
@@ -337,11 +337,25 @@ await test('pace: the silence watchdog picks the bot that spoke least, not the q
   director.startQuestion(format);
   enter('discussion');
   director.startDiscussion();
-  seedLines(state, clock.now(), ['b1', 'h1', 'b1']);
-  await clock.advance(15000);
+  // The bots together stay within their share (2 lines of 5 at 4 players, 2 bots): the watchdog may speak.
+  seedLines(state, clock.now(), ['b1', 'h1', 'h2', 'h1', 'b1']);
+  // The silence threshold of this small table (tableScale), plus the tick that notices it.
+  await clock.advance(silenceMs(state.players.filter((p) => !p.isEliminated).length) + 3000);
   const quiet = decisions(provider).filter((p) => p.req.messages.some((m) => m.content.includes('quiet for a while')));
   assert.equal(quiet.length, 1, `watchdog calls: ${quiet.length}`);
   assert.ok(quiet[0].req.messages[0].content.startsWith('You are zoe'), quiet[0].req.messages[0].content.slice(0, 30));
+});
+
+await test('pace: the silence watchdog stays quiet once the bots together are past their share', async () => {
+  const { clock, provider, state, director, enter, addBot } = setup(() => 0.05);
+  addBot('b2', 'zoe', 'thoughtful');
+  director.startQuestion(format);
+  enter('discussion');
+  director.startDiscussion();
+  seedLines(state, clock.now(), ['b1', 'h1', 'b1']);
+  await clock.advance(silenceMs(state.players.filter((p) => !p.isEliminated).length) + 3000);
+  const quiet = decisions(provider).filter((p) => p.req.messages.some((m) => m.content.includes('quiet for a while')));
+  assert.equal(quiet.length, 0, `watchdog calls: ${quiet.length}`);
 });
 
 await test('pace: the decision prompt carries the share hint on a regular tick only', () => {
@@ -557,6 +571,16 @@ await test('no em or en dash in any assembled prompt, strategy files included', 
 
 await test('no quoted sample line in the prompt text we write', () => {
   for (const p of allPrompts('{{CURRENT_GAME_SETUP}}')) assert.ok(!/\("[^"]+"\)/.test(p), p.match(/.{0,30}\("[^"]+"\).{0,10}/)?.[0]);
+});
+
+await test('pauses scale with the table: 1 at 8 or more players, 8/n below, never past 2', async () => {
+  assert.equal(tableScale(8), 1);
+  assert.equal(tableScale(9), 1);
+  assert.equal(tableScale(5), 1.6);
+  assert.equal(tableScale(4), 2);
+  assert.equal(tableScale(2), 2);
+  assert.equal(silenceMs(8), 12000);
+  assert.equal(silenceMs(5), 19200);
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
