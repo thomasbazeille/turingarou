@@ -3,6 +3,7 @@ import type { HumanPersona } from './GameLogger.js';
 import { AI_GOAL_BLOCK, getInstructionsWithSetup } from './AIPlayerInstructions.js';
 import type { BotRole, OwnAnswer } from './botContext.js';
 import type { CaseProfile } from './formGate.js';
+import type { Pace } from './humanTiming.js';
 
 export interface PromptIdentity {
   name: string;
@@ -27,7 +28,15 @@ export interface DirectAddress {
 export interface DecisionCue {
   direct?: DirectAddress;
   quiet?: boolean;
+  /** Its share of the talk on a regular tick (never on a direct address or a silence to break). */
+  pace?: Pace;
 }
+
+const PACE_HINT: Record<Pace, string> = {
+  under: `\nYou have barely spoken in this discussion compared to the others: if anything at all catches your eye, say it.`,
+  balanced: '',
+  over: `\nYou have been talking more than the others in this discussion: let them talk. Only respond if something really calls for you, otherwise shouldRespond: false.`,
+};
 
 const DECISION_FORMAT = `
 # DECISION FORMAT
@@ -117,7 +126,7 @@ ${lastLine}
 
 Say something a real player would: react to one of the answers, ask someone a question, or make a light joke. One short line. Set shouldRespond to true.`;
   }
-  const since = sinceLastSec == null ? '' : `\nTime since your last message: ${sinceLastSec}s`;
+  const since = (sinceLastSec == null ? '' : `\nTime since your last message: ${sinceLastSec}s`) + PACE_HINT[cue.pace ?? 'balanced'];
   if (id.role === 'inspector') {
     return `Should you send a message?
 

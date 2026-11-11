@@ -384,11 +384,22 @@ interface Offender {
   what: string;
 }
 
+interface Pace {
+  tempo: Tempo;
+  aiLines: number;
+  otherLines: number;
+  aiSeats: number;
+  otherSeats: number;
+  /** Per AI: its lines divided by its fair share, the sum over rounds of round lines / players alive. */
+  botRatios: number[];
+}
+
 interface GameResult {
   id: string;
   lang: Lang;
   inspector: boolean;
   aborted: boolean;
+  pace: Pace | null;
   m: Counters;
   offenders: Record<string, Offender[]>;
   telemetry: Telemetry | null;
@@ -398,14 +409,19 @@ interface GameResult {
 
 interface Telemetry {
   result?: string;
+  paceLaunches?: Record<string, number>;
   postDelayMs?: { direct: { n: number; p50: number | null }; regular: { n: number; p50: number | null } };
 }
+
+/** quiet: a human line every 18-45 s (2-3 per discussion, Time to Talk humans post ~4 per day phase); chatty: every 6-22 s (6-7). */
+type Tempo = 'quiet' | 'chatty';
 
 interface Scenario {
   seed: number;
   lang: Lang;
   inspector: boolean;
   abortInRound: number | null;
+  tempo: Tempo;
 }
 
 const realTimers = { setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout, now: Date.now, random: Math.random };
@@ -413,7 +429,7 @@ const unhandled: string[] = [];
 process.on('unhandledRejection', (reason) => unhandled.push(String(reason).slice(0, 200)));
 
 async function runGame(sc: Scenario): Promise<GameResult> {
-  const id = `${sc.lang}-s${sc.seed}${sc.inspector ? '-insp' : ''}${sc.abortInRound ? '-abort' : ''}`;
+  const id = `${sc.lang}-s${sc.seed}-${sc.tempo}${sc.inspector ? '-insp' : ''}${sc.abortInRound ? '-abort' : ''}`;
   const roomRng = makeSeededRng(sc.seed * 1000 + (sc.lang === 'en' ? 1 : 0));
   const simRng = makeSeededRng(sc.seed * 7919 + (sc.lang === 'en' ? 17 : 3));
   const clock = new VirtualClock(1_800_000_000_000);
@@ -520,7 +536,7 @@ async function runGame(sc: Scenario): Promise<GameResult> {
           if (finished || state().phase !== 'discussion' || state().currentRound !== round) return;
           if (remaining() < 3000) return;
           humanPost(h, round);
-          clock.setTimeout(chain, 6000 + simRng() * 16000);
+          clock.setTimeout(chain, sc.tempo === 'quiet' ? 18000 + simRng() * 27000 : 6000 + simRng() * 16000);
         };
         // Round 1 opens shy (humans read the answers first): the silence watchdog has to break it.
         clock.setTimeout(chain, round === 1 ? 14000 + simRng() * 20000 : 2000 + simRng() * 10000);
@@ -717,6 +733,10 @@ async function runGame(sc: Scenario): Promise<GameResult> {
     }
   }
   if (Number.isFinite(minGap)) m.min_gap_ms = minGap;
+  const aiIds = new Set(s.players.filter((p) => p.type === 'ai').map((p) => p.id));
+  const fairLines = new Map<string, number>();
+  const ownLines = new Map<string, number>();
+  const pace: Pace = { tempo: sc.tempo, aiLines: 0, otherLines: 0, aiSeats: 0, otherSeats: 0, botRatios: [] };
   for (let rd = 1; rd <= s.currentRound; rd++) {
     if (startOf('voting', rd) === null) continue;
     const lines = s.messages.filter((x) => x.round === rd && x.phase === 'discussion' && x.playerId !== 'system');
@@ -727,7 +747,19 @@ async function runGame(sc: Scenario): Promise<GameResult> {
     inc('pace_human_lines', lines.filter((x) => !botIds.has(x.playerId)).length);
     inc('pace_bot_seats', nBots);
     inc('pace_human_seats', nHumans);
+    // Humans leave on abort: only complete games have a known table per round.
+    if (aborted) continue;
+    const ais = present.filter((p) => aiIds.has(p.id));
+    pace.aiLines += lines.filter((x) => aiIds.has(x.playerId)).length;
+    pace.otherLines += lines.filter((x) => !aiIds.has(x.playerId)).length;
+    pace.aiSeats += ais.length;
+    pace.otherSeats += present.length - ais.length;
+    for (const p of ais) {
+      fairLines.set(p.id, (fairLines.get(p.id) ?? 0) + lines.length / present.length);
+      ownLines.set(p.id, (ownLines.get(p.id) ?? 0) + lines.filter((x) => x.playerId === p.id).length);
+    }
   }
+  for (const [pid, fair] of fairLines) if (fair > 0) pace.botRatios.push((ownLines.get(pid) ?? 0) / fair);
 
   // Answers.
   const answersOf = (round: number): QuestionAnswer[] => (round === s.currentRound ? s.answers : s.answersByRound?.[round] ?? []);
@@ -830,7 +862,7 @@ async function runGame(sc: Scenario): Promise<GameResult> {
     }
   }
 
-  return { id, lang: sc.lang, inspector: sc.inspector, aborted, m, offenders, telemetry, lab: lab.counters, events: eventCounts };
+  return { id, lang: sc.lang, inspector: sc.inspector, aborted, pace: aborted ? null : pace, m, offenders, telemetry, lab: lab.counters, events: eventCounts };
 }
 
 // ====== MAIN ======
@@ -852,7 +884,7 @@ async function main(): Promise<void> {
   const scenarios: Scenario[] = [];
   for (let seed = 1; seed <= seeds; seed++) {
     for (const lang of ['fr', 'en'] as Lang[]) {
-      scenarios.push({ seed, lang, inspector: seed % 2 === 0, abortInRound: seed === 3 ? 2 : null });
+      scenarios.push({ seed, lang, inspector: seed % 2 === 0, abortInRound: seed === 3 ? 2 : null, tempo: (seed + (lang === 'en' ? 1 : 0)) % 2 === 0 ? 'quiet' : 'chatty' });
     }
   }
 
@@ -863,7 +895,7 @@ async function main(): Promise<void> {
     results.push(r);
     if (verbose) {
       console.log(
-        `${r.id.padEnd(18)} ${r.aborted ? 'aborted ' : (r.telemetry?.result ?? '?').padEnd(10)} lines=${r.m.bot_lines ?? 0} direct=${(r.m.bot_lines_direct ?? 0) + (r.m.bot_lines_canned ?? 0)} acc=${r.m.named_accusations_replied ?? 0}/${r.m.named_accusations ?? 0} votes=${r.m.bot_votes_cast ?? 0}/${r.m.bot_votes_expected ?? 0} fb=${r.m.vote_fallbacks ?? 0} tasks=${r.m.llm_tasks ?? 0}`
+        `${r.id.padEnd(18)} ${r.aborted ? 'aborted ' : (r.telemetry?.result ?? '?').padEnd(10)} lines=${r.m.bot_lines ?? 0} direct=${(r.m.bot_lines_direct ?? 0) + (r.m.bot_lines_canned ?? 0)} acc=${r.m.named_accusations_replied ?? 0}/${r.m.named_accusations ?? 0} votes=${r.m.bot_votes_cast ?? 0}/${r.m.bot_votes_expected ?? 0} fb=${r.m.vote_fallbacks ?? 0} tasks=${r.m.llm_tasks ?? 0} pace=${JSON.stringify(r.telemetry?.paceLaunches ?? {})} watchdog=${r.events.watchdog ?? 0}`
       );
     }
   }
@@ -884,11 +916,40 @@ function report(results: GameResult[], elapsed: number, games: number): void {
     return xs.length > 0 ? (xs[Math.floor(xs.length / 2)] / 1000).toFixed(1) : 'n/a';
   };
   const aborted = sum('games_aborted');
+  // Per-capita lines of the AIs over those of the other players. Time to Talk (arXiv 2506.05309): the 70B agent posted
+  // 2.95 messages per day phase against 4.23 for humans (ratio 0.70) and was spotted at chance (14.86 %); the upper
+  // bound mirrors it (not sourced). At a full table, 0.70-1.30 is an AI share of 0.30-0.44 around 3/8.
+  const RATE_BAND = [0.7, 1.3] as const;
+  const BOT_SHARE_MAX = 2;
+  const paces = results.map((r) => r.pace).filter((p): p is Pace => p !== null);
+  const rateOf = (ps: Pace[]) => {
+    const a = ps.reduce((n, p) => n + p.aiLines, 0) / Math.max(1, ps.reduce((n, p) => n + p.aiSeats, 0));
+    const o = ps.reduce((n, p) => n + p.otherLines, 0) / Math.max(1, ps.reduce((n, p) => n + p.otherSeats, 0));
+    return o > 0 ? a / o : Number.NaN;
+  };
+  const shareOf = (ps: Pace[]) => ps.reduce((n, p) => n + p.aiLines, 0) / Math.max(1, ps.reduce((n, p) => n + p.aiLines + p.otherLines, 0));
+  const inBand = (x: number) => x >= RATE_BAND[0] && x <= RATE_BAND[1];
+  const byTempo = (['quiet', 'chatty'] as Tempo[]).map((t) => ({ t, ps: paces.filter((p) => p.tempo === t) }));
+  const gamesOut = paces.filter((p) => !inBand(rateOf([p]))).length;
+  const botRatios = paces.flatMap((p) => p.botRatios).sort((a, b) => a - b);
+  const q = (xs: number[], f: number) => (xs.length > 0 ? xs[Math.min(xs.length - 1, Math.floor(f * xs.length))] : Number.NaN);
 
   const rows: { name: string; value: string; ok: boolean; keys: string[] }[] = [
     { name: 'game reaches gameover', value: `${completed - sum('no_gameover')}/${completed} (+${aborted} aborted, back to waiting)`, ok: sum('no_gameover') + sum('game_not_finished') + sum('abort_not_clean') === 0, keys: ['no_gameover', 'game_not_finished', 'abort_not_clean'] },
     { name: 'bot line outside discussion / last 10 s', value: `${sum('bot_line_outside_discussion')} / ${sum('bot_line_in_last_10s')} of ${sum('bot_lines')}`, ok: sum('bot_line_outside_discussion') + sum('bot_line_in_last_10s') === 0, keys: ['bot_line_outside_discussion', 'bot_line_in_last_10s'] },
     { name: 'lines per player per discussion (info)', value: `bots ${(sum('pace_bot_lines') / Math.max(1, sum('pace_bot_seats'))).toFixed(1)}, humans ${(sum('pace_human_lines') / Math.max(1, sum('pace_human_seats'))).toFixed(1)}`, ok: true, keys: [] },
+    {
+      name: `AI lines per capita / others' (band ${RATE_BAND.join('-')})`,
+      value: `${byTempo.map(({ t, ps }) => `${t} ${rateOf(ps).toFixed(2)} (AI share ${shareOf(ps).toFixed(3)}, ${ps.length} games)`).join('; ')}; games out of band ${gamesOut}/${paces.length}`,
+      ok: byTempo.every(({ ps }) => ps.length > 0 && inBand(rateOf(ps))),
+      keys: [],
+    },
+    {
+      name: `AI lines / fair share 1/n, per bot and game (max ${BOT_SHARE_MAX})`,
+      value: `min ${q(botRatios, 0).toFixed(2)}, p10 ${q(botRatios, 0.1).toFixed(2)}, median ${q(botRatios, 0.5).toFixed(2)}, p90 ${q(botRatios, 0.9).toFixed(2)}, max ${q(botRatios, 1).toFixed(2)} over ${botRatios.length}`,
+      ok: botRatios.length > 0 && q(botRatios, 1) <= BOT_SHARE_MAX,
+      keys: [],
+    },
     { name: 'min gap between bot lines (non-direct)', value: `${(minGap / 1000).toFixed(2)} s over ${sum('gap_pairs')} pairs`, ok: sum('gap_below_2500') === 0, keys: ['gap_below_2500'] },
     { name: 'active bots voted / fallback = no usable vote', value: `${sum('bot_votes_cast')}/${sum('bot_votes_expected')}, fallback ${sum('vote_fallbacks')} (needed ${sum('vote_fallbacks_needed')})`, ok: sum('bot_did_not_vote') + sum('vote_fallback_mismatch') === 0, keys: ['bot_did_not_vote', 'vote_fallback_mismatch'] },
     { name: 'bot answers outside question phase', value: `${sum('answer_outside_question') + sum('answer_unexplained')} of ${sum('bot_answers')}`, ok: sum('answer_outside_question') + sum('answer_unexplained') === 0, keys: ['answer_outside_question', 'answer_unexplained'] },

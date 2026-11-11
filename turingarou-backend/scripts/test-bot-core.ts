@@ -218,6 +218,64 @@ await test('dispose clears every timer and late results post nothing', async () 
   assert.equal(director.pendingTimers(), 0);
 });
 
+// ---- pace regulator: share of the talk vs 1/n, direct replies first ----
+function seedLines(state: GameRoomState, now: number, authors: string[]): void {
+  authors.forEach((id, i) => {
+    state.messages.push({ id: `pl${i}`, playerId: id, playerName: id === 'b1' ? 'lucas' : id === 'h1' ? 'emma' : 'hugo', content: `ligne ${i} de ${id}`, timestamp: now - 1000 * (authors.length - i), phase: 'discussion', round: 1 });
+  });
+}
+const decisions = (provider: DeferredProvider) => provider.pending.filter((p) => p.req.json);
+
+await test('pace: a bot under its 1/n share is asked at the tick, told it has barely spoken', async () => {
+  const { clock, provider, state, director, enter } = setup();
+  director.startQuestion(format);
+  enter('discussion');
+  director.startDiscussion();
+  seedLines(state, clock.now(), ['h1', 'h2', 'h1', 'h2', 'h1', 'h2']);
+  await clock.advance(5000);
+  assert.equal(decisions(provider).length, 1);
+  assert.ok(decisions(provider)[0].req.messages.some((m) => m.content.includes('barely spoken')));
+});
+
+await test('pace: a bot over its 1/n share skips the tick (same draw that makes a balanced bot talk)', async () => {
+  const balanced = setup();
+  balanced.director.startQuestion(format);
+  balanced.enter('discussion');
+  balanced.director.startDiscussion();
+  seedLines(balanced.state, balanced.clock.now(), ['b1', 'h1', 'b1', 'h2', 'h1', 'h2']);
+  await balanced.clock.advance(5000);
+  assert.equal(decisions(balanced.provider).length, 1, 'balanced bot talks at rng 0.5');
+  assert.ok(!decisions(balanced.provider)[0].req.messages.some((m) => m.content.includes('barely spoken') || m.content.includes('talking more than')));
+
+  const over = setup();
+  over.director.startQuestion(format);
+  over.enter('discussion');
+  over.director.startDiscussion();
+  seedLines(over.state, over.clock.now(), ['b1', 'h1', 'b1', 'h2', 'b1', 'h1']);
+  await over.clock.advance(5000);
+  assert.equal(decisions(over.provider).length, 0, 'over-share bot stays silent at rng 0.5');
+});
+
+await test('pace: a bot over its share still answers at once when a player names it', async () => {
+  const { clock, provider, state, director, posted, enter } = setup();
+  director.startQuestion(format);
+  enter('discussion');
+  director.startDiscussion();
+  seedLines(state, clock.now(), ['b1', 'h1', 'b1', 'h2', 'b1', 'h1']);
+  await clock.advance(5000);
+  assert.equal(decisions(provider).length, 0);
+  const msg: GameMessage = { id: 'h-name', playerId: 'h1', playerName: 'emma', content: 'lucas tu en penses quoi ?', timestamp: clock.now(), phase: 'discussion', round: 1 };
+  state.messages.push(msg);
+  director.onPlayerMessage(msg, true);
+  await clock.advance(800);
+  const idx = provider.pending.findIndex((p) => p.req.json && p.req.messages.some((m) => m.content.includes('just talked to you')));
+  assert.ok(idx >= 0, 'direct decision started within a second');
+  assert.ok(!provider.pending[idx].req.messages.some((m) => m.content.includes('talking more than')), 'no pace hint on a direct address');
+  provider.answer(idx, say('bah jsp trop'));
+  await clock.advance(6000);
+  assert.deepEqual(posted, ['bah jsp trop']);
+});
+
 // ---- context: deterministic forgetting ----
 const msgs: GameMessage[] = Array.from({ length: 60 }, (_, i) => ({
   id: `msg-${i}`,

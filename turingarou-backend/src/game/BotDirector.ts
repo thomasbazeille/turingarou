@@ -13,6 +13,9 @@ import {
   discussionDelay,
   firstMessageDelay,
   globalGapMs,
+  PACE_WINDOW_LINES,
+  Pace,
+  paceOf,
   skipProbability,
   voteDelay,
 } from './humanTiming.js';
@@ -31,7 +34,7 @@ const TICK_SPREAD_MS = 3000;
 const REACTION_MIN_MS = 2000;
 const REACTION_SPREAD_MS = 4000;
 const BURST_PROB = 0.15;
-/** At most this many bot lines in any 10 s window (direct replies excepted). */
+/** At most this many bot lines in any 10 s window (direct replies excepted); one more while the bots as a group are under their share. */
 const MAX_BOT_LINES_PER_10S = 2;
 
 const CANNED: Record<'fr' | 'en', { accusation: string[]; named: string[] }> = {
@@ -105,6 +108,8 @@ export class BotDirector {
   /** Trigger-to-chat delay of every posted bot line (analysis C, T12), summarised in the telemetry line. */
   private postDelays: { direct: boolean; ms: number }[] = [];
   private events: AIEventLog[] = [];
+  /** Regular decisions started per pace, for the telemetry line. */
+  private paceLaunches: Record<Pace, number> = { under: 0, balanced: 0, over: 0 };
 
   constructor(private readonly room: DirectorRoom, private readonly deps: DirectorDeps) {
     this.timers = new Timers(deps.clock);
@@ -289,17 +294,20 @@ export class BotDirector {
     const lastAt = discussion.length > 0 ? discussion[discussion.length - 1].timestamp : this.discussionStartedAt;
     const anyBusy = [...this.slots.values()].some((s) => s.job);
     const free = this.shuffle(this.activeSlots().filter((s) => !s.job && s.nextAllowedAt <= now));
-    // Nobody has said anything for 12 s: one bot (a quick one if possible) breaks the silence instead of everyone
-    // waiting for everyone.
+    // Nobody has said anything for 12 s: one bot breaks the silence instead of everyone waiting for everyone, the one
+    // that spoke least, a quick one on a tie.
     if (!anyBusy && free.length > 0 && now - lastAt > SILENCE_MS && now - this.discussionStartedAt > 8000) {
-      const quick = free.filter((s) => s.bot.responseStyle === 'quick');
-      const speaker = (quick.length > 0 ? quick : free)[0];
+      const lines = discussion.slice(-PACE_WINDOW_LINES);
+      const own = (s: Slot) => lines.filter((m) => m.playerId === s.bot.id).length * 2 + (s.bot.responseStyle === 'quick' ? 0 : 1);
+      const speaker = free.reduce((a, b) => (own(b) < own(a) ? b : a));
       this.logEvent(speaker.bot.name, 'watchdog');
       this.launch(speaker, epoch, { quiet: true });
     }
     for (const slot of free) {
-      if (slot.job || this.deps.rng() < skipProbability(slot.bot.responseStyle)) continue;
-      this.launch(slot, epoch, {});
+      const pace = this.paceFor(slot);
+      if (slot.job || this.deps.rng() < skipProbability(slot.bot.responseStyle, pace)) continue;
+      this.paceLaunches[pace]++;
+      this.launch(slot, epoch, { pace });
     }
   }
 
@@ -420,20 +428,23 @@ export class BotDirector {
       this.lastBotPostAt = now;
       this.recentBotPosts = [...this.recentBotPosts.filter((t) => now - t < 10000), now];
       const short = text.length < 50;
-      slot.nextAllowedAt = now + cooldownMs(slot.bot.responseStyle, short, this.deps.rng);
-      // ~15 % of short lines get a follow-up, like humans sending 2-3 lines in a row.
-      if (short && this.deps.rng() < BURST_PROB) this.scheduleBurst(slot, epoch);
+      const pace = this.paceFor(slot);
+      slot.nextAllowedAt = now + cooldownMs(slot.bot.responseStyle, short, this.deps.rng, pace);
+      // ~15 % of short lines get a follow-up, like humans sending 2-3 lines in a row; never from a bot already over its share.
+      if (short && pace !== 'over' && this.deps.rng() < BURST_PROB) this.scheduleBurst(slot, epoch);
     };
     job.timer = this.timers.after(delay, attempt);
   }
 
   private floorWait(now: number): number {
     const jitter = this.deps.rng() * 600;
-    const gap = globalGapMs(this.deps.rng);
+    const pace = this.groupPace();
+    const gap = globalGapMs(this.deps.rng) * (pace === 'over' ? 1.5 : 1);
+    const ceiling = MAX_BOT_LINES_PER_10S + (pace === 'under' ? 1 : 0);
     const sinceLast = now - this.lastBotPostAt;
     if (sinceLast < gap) return gap - sinceLast + jitter;
     const recent = this.recentBotPosts.filter((t) => now - t < 10000);
-    if (recent.length >= MAX_BOT_LINES_PER_10S) return recent[recent.length - MAX_BOT_LINES_PER_10S] + 10000 - now + jitter;
+    if (recent.length >= ceiling) return recent[recent.length - ceiling] + 10000 - now + jitter;
     return 0;
   }
 
@@ -499,6 +510,23 @@ export class BotDirector {
     return [...this.slots.values()].filter((s) => active.has(s.bot.id));
   }
 
+  /** All active bots together against their seats: paceOf(own, total, n / seats) compares own / total with seats / n. */
+  private groupPace(): Pace {
+    const ids = new Set(this.activeSlots().map((s) => s.bot.id));
+    const lines = this.discussionMessages().slice(-PACE_WINDOW_LINES);
+    const players = this.room.state().players.filter((p) => !p.isEliminated).length;
+    if (ids.size === 0) return 'balanced';
+    return paceOf(lines.filter((m) => ids.has(m.playerId)).length, lines.length, players / ids.size);
+  }
+
+  /** This bot's share of the current discussion against 1/n players still in the game. */
+  private paceFor(slot: Slot): Pace {
+    const lines = this.discussionMessages().slice(-PACE_WINDOW_LINES);
+    const own = lines.filter((m) => m.playerId === slot.bot.id).length;
+    const players = this.room.state().players.filter((p) => !p.isEliminated).length;
+    return paceOf(own, lines.length, players);
+  }
+
   private discussionMessages(): GameMessage[] {
     const s = this.room.state();
     return s.messages.filter((m) => m.phase === 'discussion' && m.round === s.currentRound && m.playerId !== 'system');
@@ -540,7 +568,7 @@ export class BotDirector {
   // ====== TELEMETRY ======
 
   /** LLM health per provider and bot events by kind, for the one-line game telemetry. */
-  telemetry(): { providers: Record<string, string>; llm: Record<string, unknown>; events: Record<string, number>; postDelayMs: Record<string, unknown> } {
+  telemetry(): { providers: Record<string, string>; llm: Record<string, unknown>; events: Record<string, number>; postDelayMs: Record<string, unknown>; paceLaunches: Record<Pace, number> } {
     const pct = (xs: number[], q: number) => {
       if (xs.length === 0) return null;
       const sorted = [...xs].sort((a, b) => a - b);
@@ -575,6 +603,6 @@ export class BotDirector {
       const xs = this.postDelays.filter((d) => d.direct === direct).map((d) => Math.round(d.ms));
       return { n: xs.length, p50: pct(xs, 0.5), p90: pct(xs, 0.9) };
     };
-    return { providers, llm, events, postDelayMs: { direct: delays(true), regular: delays(false) } };
+    return { providers, llm, events, postDelayMs: { direct: delays(true), regular: delays(false) }, paceLaunches: { ...this.paceLaunches } };
   }
 }
