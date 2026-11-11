@@ -26,6 +26,7 @@
     .setup-label { display: block; color: #94a3b8; font-size: 10px; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; }
     .setup-input { width: 100%; background: rgba(39,39,42,0.8); border: 1px solid rgba(6,182,212,0.3); color: #fff; padding: 9px; border-radius: 6px; font-size: 13px; margin-bottom: 12px; }
     .setup-input:focus { outline: none; border-color: #06b6d4; }
+    #invite-note, #room-code-display, #fresh-name-note, #launch-wrap { position: relative; z-index: 1; }
     .player-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 18px; max-width: 650px; width: 100%; }
     .player-card { background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 7px; padding: 10px; text-align: center; min-height: 75px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; }
     .player-card.local { border-color: #06b6d4; box-shadow: 0 0 12px rgba(6,182,212,0.3); }
@@ -499,7 +500,9 @@
       <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:10px;">
         <button type="button" class="return-home-btn" id="copy-link-btn" onclick="copyInviteLink()">Copy link</button>
         <button type="button" class="return-home-btn" id="share-link-btn" onclick="shareInviteLink()" style="display:none;">Share</button>
+        <button type="button" class="return-home-btn" id="qr-btn" onclick="toggleInviteQr()">QR code</button>
       </div>
+      <div id="qr-box" style="display:none;margin-top:10px;"></div>
       <div id="room-code-hint" style="color:#64748b;font-size:9px;margin-top:8px;">Share this code with your friends!</div>
     </div>
     <div id="fresh-name-note" style="display:none;background:rgba(168,85,247,0.1);border:1px solid rgba(168,85,247,0.35);border-radius:7px;padding:10px;margin-bottom:14px;max-width:420px;width:100%;text-align:center;color:#e2e8f0;font-size:13px;"></div>
@@ -755,6 +758,110 @@ function newRoomCode() {
 function inviteLink(code) {
   return window.location.origin + window.location.pathname + '?room=' + encodeURIComponent(code);
 }
+// QR code of the invite link, drawn without a library: byte mode, error correction M, versions 1 to 6 (106 bytes).
+function qrMatrix(text) {
+  const bytes = Array.from(new TextEncoder().encode(text));
+  const DATA = [16, 28, 44, 64, 86, 108], ECC = [10, 16, 26, 18, 24, 16], BLOCKS = [1, 1, 1, 2, 2, 4];
+  let v = 0;
+  while (v < 6 && 12 + 8 * bytes.length > DATA[v] * 8) v++;
+  if (v === 6) return null;
+  const size = 17 + 4 * (v + 1);
+  const bits = [];
+  const put = (val, len) => { for (let i = len - 1; i >= 0; i--) bits.push((val >>> i) & 1); };
+  put(4, 4); put(bytes.length, 8); bytes.forEach((b) => put(b, 8));
+  const cap = DATA[v] * 8;
+  put(0, Math.min(4, cap - bits.length));
+  while (bits.length % 8) bits.push(0);
+  for (let pad = 0xec; bits.length < cap; pad ^= 0xec ^ 0x11) put(pad, 8);
+  const data = [];
+  for (let i = 0; i < bits.length; i += 8) data.push(parseInt(bits.slice(i, i + 8).join(''), 2));
+  const mul = (x, y) => { let z = 0; for (let i = 7; i >= 0; i--) { z = (z << 1) ^ ((z >>> 7) * 0x11d); z ^= ((y >>> i) & 1) * x; } return z; };
+  const deg = ECC[v], div = new Array(deg).fill(0);
+  div[deg - 1] = 1;
+  for (let i = 0, root = 1; i < deg; i++, root = mul(root, 2)) {
+    for (let j = 0; j < deg; j++) { div[j] = mul(div[j], root); if (j + 1 < deg) div[j] ^= div[j + 1]; }
+  }
+  const per = DATA[v] / BLOCKS[v], blocks = [], eccs = [];
+  for (let b = 0; b < BLOCKS[v]; b++) {
+    const dat = data.slice(b * per, (b + 1) * per), rem = new Array(deg).fill(0);
+    for (const x of dat) { const f = x ^ rem.shift(); rem.push(0); div.forEach((d, i) => { rem[i] ^= mul(d, f); }); }
+    blocks.push(dat); eccs.push(rem);
+  }
+  const words = [];
+  for (let i = 0; i < per; i++) blocks.forEach((bl) => words.push(bl[i]));
+  for (let i = 0; i < deg; i++) eccs.forEach((ec) => words.push(ec[i]));
+  const m = [], fn = [];
+  for (let y = 0; y < size; y++) { m.push(new Array(size).fill(false)); fn.push(new Array(size).fill(false)); }
+  const set = (x, y, dark) => { m[y][x] = dark; fn[y][x] = true; };
+  for (let i = 0; i < size; i++) { set(6, i, i % 2 === 0); set(i, 6, i % 2 === 0); }
+  for (const [cx, cy] of [[3, 3], [size - 4, 3], [3, size - 4]]) {
+    for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) {
+      const d = Math.max(Math.abs(dx), Math.abs(dy)), x = cx + dx, y = cy + dy;
+      if (x >= 0 && x < size && y >= 0 && y < size) set(x, y, d !== 2 && d !== 4);
+    }
+  }
+  if (v > 0) for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) set(size - 7 + dx, size - 7 + dy, Math.max(Math.abs(dx), Math.abs(dy)) !== 1);
+  const format = (mask) => {
+    let rem = mask;
+    for (let i = 0; i < 10; i++) rem = (rem << 1) ^ ((rem >>> 9) * 0x537);
+    const f = ((mask << 10) | rem) ^ 0x5412, bit = (i) => ((f >>> i) & 1) === 1;
+    for (let i = 0; i <= 5; i++) set(8, i, bit(i));
+    set(8, 7, bit(6)); set(8, 8, bit(7)); set(7, 8, bit(8));
+    for (let i = 9; i < 15; i++) set(14 - i, 8, bit(i));
+    for (let i = 0; i < 8; i++) set(size - 1 - i, 8, bit(i));
+    for (let i = 8; i < 15; i++) set(8, size - 15 + i, bit(i));
+    set(8, size - 8, true);
+  };
+  format(0);
+  let k = 0;
+  for (let right = size - 1; right >= 1; right -= 2) {
+    if (right === 6) right = 5;
+    for (let vert = 0; vert < size; vert++) for (let j = 0; j < 2; j++) {
+      const x = right - j, y = ((right + 1) & 2) === 0 ? size - 1 - vert : vert;
+      if (!fn[y][x] && k < words.length * 8) { m[y][x] = ((words[k >>> 3] >>> (7 - (k & 7))) & 1) === 1; k++; }
+    }
+  }
+  const MASKS = [(x, y) => (x + y) % 2, (x, y) => y % 2, (x) => x % 3, (x, y) => (x + y) % 3, (x, y) => (Math.floor(x / 3) + Math.floor(y / 2)) % 2,
+    (x, y) => ((x * y) % 2) + ((x * y) % 3), (x, y) => (((x * y) % 2) + ((x * y) % 3)) % 2, (x, y) => (((x + y) % 2) + ((x * y) % 3)) % 2];
+  const flip = (mk) => { for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) if (!fn[y][x] && MASKS[mk](x, y) === 0) m[y][x] = !m[y][x]; };
+  const penalty = () => {
+    let p = 0, dark = 0;
+    const lines = [];
+    for (let i = 0; i < size; i++) { lines.push(m[i]); lines.push(m.map((row) => row[i])); }
+    for (const line of lines) {
+      for (let i = 0, run = 1; i < size; i++, run++) {
+        if (i === size - 1 || line[i] !== line[i + 1]) { if (run >= 5) p += run - 2; run = 0; }
+      }
+      const s = line.map((d) => (d ? 1 : 0)).join('');
+      for (const pat of ['10111010000', '00001011101']) for (let i = s.indexOf(pat); i >= 0; i = s.indexOf(pat, i + 1)) p += 40;
+    }
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+      if (m[y][x]) dark++;
+      if (x < size - 1 && y < size - 1 && m[y][x] === m[y][x + 1] && m[y][x] === m[y + 1][x] && m[y][x] === m[y + 1][x + 1]) p += 3;
+    }
+    return p + 10 * (Math.ceil(Math.abs(dark * 20 - size * size * 10) / (size * size)) - 1);
+  };
+  let best = 0, bestP = Infinity;
+  for (let mk = 0; mk < 8; mk++) {
+    flip(mk); format(mk);
+    const p = penalty();
+    if (p < bestP) { best = mk; bestP = p; }
+    flip(mk);
+  }
+  flip(best); format(best);
+  return m;
+}
+function qrSvg(text) {
+  const m = qrMatrix(text);
+  if (!m) return '';
+  const n = m.length + 8;
+  let d = '';
+  m.forEach(function (row, y) { row.forEach(function (dark, x) { if (dark) d += 'M' + (x + 4) + ' ' + (y + 4) + 'h1v1h-1z'; }); });
+  return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + n + ' ' + n + '" width="180" height="180" shape-rendering="crispEdges" role="img" aria-label="QR code">'
+    + '<rect width="' + n + '" height="' + n + '" fill="#fff"/><path fill="#000" d="' + d + '"/></svg>';
+}
+let qrShown = false;
+let qrFits = { link: '', ok: false };
 let inviteCode = roomCodeFromSearch(window.location.search);
 let rematchDeadline = 0;
 let rematchPending = false;
@@ -1578,6 +1685,7 @@ if(isPrivate){
   sh.textContent=fr?'Partager':'Share';
   document.getElementById('room-code-hint').textContent=fr?'Envoie le lien à tes amis : il ouvre directement cette salle.':'Send the link to your friends: it opens this room.';
 }
+renderInviteQr(isPrivate);
 const fresh=document.getElementById('fresh-name-note');
 const me=G.p.find(function(p){return p.isLocal;});
 if(fresh){
@@ -1594,6 +1702,26 @@ if(host&&lb){
     ?(fr?'LANCER MAINTENANT ('+G.p.length+' HUMAINS + '+lobby.launchAIs+' IA)':'LAUNCH NOW ('+G.p.length+' HUMANS + '+lobby.launchAIs+' AIS)')
     :(fr?'LANCER DÈS '+lobby.launchFrom+' HUMAINS':'LAUNCH FROM '+lobby.launchFrom+' HUMANS');
 }
+}
+
+/** The invite link as a QR code, for a friend sitting nearby; drawn only once asked, and only while it fits (106 bytes). */
+function renderInviteQr(isPrivate){
+const fr=G.lang==='fr';
+const link=isPrivate?inviteLink(roomId):'';
+if(link&&qrFits.link!==link)qrFits={link:link,ok:qrMatrix(link)!==null};
+const fits=!!link&&qrFits.ok;
+const btn=document.getElementById('qr-btn');
+const qb=document.getElementById('qr-box');
+if(!btn||!qb)return;
+btn.style.display=fits?'':'none';
+btn.textContent=qrShown?(fr?'Masquer le QR code':'Hide QR code'):'QR code';
+qb.style.display=fits&&qrShown?'block':'none';
+if(fits&&qrShown&&qb.dataset.link!==link){qb.innerHTML=qrSvg(link);qb.dataset.link=link;}
+}
+
+function toggleInviteQr(){
+qrShown=!qrShown;
+renderInviteQr(!!(G.lobby&&G.lobby.private&&playerId&&G.s==='waiting'));
 }
 
 function launchNow(){
@@ -2448,6 +2576,7 @@ function goHome(){
   if (socket.connected) socket.emit('leaveRoom');
   clearSession();
   playerId = null;
+  qrShown = false;
   socket.disconnect();
   G.p = [];
   G.e = [];

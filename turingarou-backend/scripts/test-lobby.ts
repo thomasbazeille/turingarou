@@ -7,7 +7,7 @@
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { webcrypto } from 'node:crypto';
+import { createHash, webcrypto } from 'node:crypto';
 import { GameRoom, MIN_LAUNCH_HUMANS, RoomEmitter, TableOptions, aiCountFor } from '../src/game/GameRoom.js';
 import { REMATCH_WINDOW_MS, ROOM_CODE_ALPHABET, newRoomCode, rematchTable, routeRematch } from '../src/game/rematch.js';
 import type { ChatProvider } from '../src/llm/chatClient.js';
@@ -188,6 +188,34 @@ await check('?room= pre-fills the code: upper case, letters and digits only; the
   assert.equal(parse('?room=' + encodeURIComponent(code)), code, 'a server code does not survive the link');
   const clientCode = new Function('crypto', `const ROOM_CODE_ALPHABET = '${alphabet}'; ${clientFn('newRoomCode')}; return newRoomCode();`)(webcrypto) as string;
   assert.equal(parse('?room=' + clientCode), clientCode, 'a client code does not survive the link');
+});
+
+await check('QR code of the link: right size, the three finders, null past 106 bytes', () => {
+  const qr = new Function(`${clientFn('qrMatrix')}; return qrMatrix;`)() as (text: string) => boolean[][] | null;
+  const link = 'https://turingarou.example.app/?room=Q7KX9P';
+  const m = qr(link);
+  assert.ok(m, 'no matrix for a short link');
+  assert.equal(m.length, 33, 'a 43-byte link needs version 4 (33 modules): version 3 holds 42 bytes at level M');
+  assert.ok(m.every((row) => row.length === 33));
+  assert.equal(qr(link.slice(0, 42))?.length, 29);
+  const finder = (x0: number, y0: number) => {
+    for (let y = 0; y < 7; y++) {
+      for (let x = 0; x < 7; x++) {
+        const d = Math.max(Math.abs(x - 3), Math.abs(y - 3));
+        assert.equal(m[y0 + y][x0 + x], d !== 2, `finder at ${x0},${y0} wrong at ${x},${y}`);
+      }
+    }
+  };
+  finder(0, 0);
+  finder(26, 0);
+  finder(0, 26);
+  assert.equal(m[25][8], true, 'dark module');
+  assert.deepEqual(qr(link), m, 'not deterministic');
+  const bits = m.map((row) => row.map((d) => (d ? '1' : '0')).join('')).join('\n');
+  // This exact matrix was decoded back to the link by OpenCV (QRCodeDetectorAruco) on 2026-11-11: any change to the encoder must be decoded again.
+  assert.equal(createHash('sha256').update(bits).digest('hex'), '9da1f63ee4851181a41dcd19b3adf9b96a3c765c105739fcdc0c4f646b9fd7ed');
+  assert.equal(qr('x'.repeat(106))?.length, 41);
+  assert.equal(qr('x'.repeat(107)), null);
 });
 
 await check('a code already taken is never handed out', () => {
