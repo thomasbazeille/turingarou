@@ -136,7 +136,8 @@ export function buildGameContext(view: BotView, self: { id: string; name: string
         round = m.round;
         context += `(round ${round})\n`;
       }
-      context += `[${m.playerName}]: ${m.content}\n`;
+      const quoted = m.replyToId ? view.messages.find((q) => q.id === m.replyToId) : undefined;
+      context += `[${m.playerName}]${quoted ? ` (replying to ${quoted.playerName}: "${quoted.content.slice(0, 60)}")` : ''}: ${m.content}\n`;
     }
   }
   return context;

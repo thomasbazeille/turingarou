@@ -36,6 +36,19 @@ const TICK_SPREAD_MS = 3000;
 const REACTION_MIN_MS = 2000;
 const REACTION_SPREAD_MS = 4000;
 const BURST_PROB = 0.15;
+/**
+ * Share of bot votes that are abstentions, drawn per bot and per vote. Humans can abstain, so bots must too, at a
+ * low rate until real games say otherwise: the game-telemetry line logs both sides (roundUx) to recalibrate it.
+ */
+export const BOT_ABSTAIN_PROB = 0.06;
+/**
+ * A bot line quotes a message (reply-to) at these rates, logged as `reply_quote` events and compared with the
+ * humans' rate in the game-telemetry line (roundUx): answering someone who named or accused it, naming another
+ * player (quotes that player's last line), any other line (quotes the line it reacts to).
+ */
+export const REPLY_QUOTE_DIRECT_PROB = 0.4;
+export const REPLY_QUOTE_NAMING_PROB = 0.25;
+export const REPLY_QUOTE_OTHER_PROB = 0.04;
 
 export const CANNED: Record<'fr' | 'en', { accusation: string[]; named: string[]; trap: string[] }> = {
   fr: {
@@ -53,9 +66,10 @@ export const CANNED: Record<'fr' | 'en', { accusation: string[]; named: string[]
 export interface DirectorRoom {
   state(): Readonly<GameRoomState>;
   history(): RoundRecord[];
-  postMessage(botId: string, text: string): boolean;
+  postMessage(botId: string, text: string, replyToId?: string): boolean;
   submitAnswer(botId: string, text: string): void;
-  castVote(botId: string, targetId: string): void;
+  /** null: abstain. */
+  castVote(botId: string, targetId: string | null): void;
 }
 
 export interface DirectorDeps {
@@ -82,6 +96,8 @@ interface Job {
   /** thinking = waiting for the model; scheduled = text ready, waiting for its posting time. */
   stage: 'thinking' | 'scheduled';
   timer: TimerHandle | null;
+  /** The message the line answers (the direct address, else the trigger line), a candidate for a reply quote. */
+  quote: GameMessage | null;
 }
 
 interface Slot {
@@ -205,6 +221,10 @@ export class BotDirector {
     for (const slot of this.activeSlots()) {
       const candidates = eligible.filter((p) => p.id !== slot.bot.id).map((p) => ({ id: p.id, username: p.username }));
       if (candidates.length === 0) continue;
+      if (this.deps.rng() < BOT_ABSTAIN_PROB) {
+        this.abstainLater(slot, voteStart, alive);
+        continue;
+      }
       let cast = false;
       const castVote = (targetId: string | null, reason: string | null) => {
         if (cast || !alive()) return;
@@ -255,10 +275,13 @@ export class BotDirector {
     const discussion = this.discussionMessages();
     const idx = discussion.findIndex((m) => m.id === message.id);
     const previous = idx > 0 ? discussion[idx - 1] : undefined;
+    const quotedAuthor = this.quotedAuthorOf(message);
     for (const slot of this.activeSlots()) {
       if (slot.bot.id === message.playerId || slot.job?.direct) continue;
-      const verdict = addressedTo(message.content, slot.bot.name, { repliesToPlayer: previous?.playerId === slot.bot.id });
-      if (!verdict.direct) continue;
+      // Quoting a bot's line is talking to it, like naming it.
+      const quoted = quotedAuthor === slot.bot.id;
+      const verdict = addressedTo(message.content, slot.bot.name, { repliesToPlayer: previous?.playerId === slot.bot.id || quoted });
+      if (!verdict.direct && !quoted) continue;
       if (slot.ignoredDirect === 0 && this.deps.rng() >= DIRECT_REPLY_PROB) {
         slot.ignoredDirect++;
         this.logEvent(slot.bot.name, 'direct_ignored', verdict.accusation ? 'accusation' : 'named', message.content.slice(0, 120));
@@ -270,7 +293,7 @@ export class BotDirector {
         this.logEvent(slot.bot.name, 'superseded', slot.job.stage);
       }
       const direct: DirectAddress = { from: message.playerName, content: message.content, accusation: verdict.accusation, at: message.timestamp, trap: detectHijack(message.content) };
-      const job: Job = { direct, triggerAt: direct.at, stage: 'thinking', timer: null };
+      const job: Job = { direct, triggerAt: direct.at, stage: 'thinking', timer: null, quote: message };
       slot.job = job;
       job.timer = this.timers.after(Math.floor(this.deps.rng() * 1000), () => {
         if (!this.isLive(epoch, 'discussion') || slot.job !== job) return;
@@ -316,7 +339,7 @@ export class BotDirector {
   private launch(slot: Slot, epoch: number, cue: DecisionCue): void {
     const others = this.discussionMessages().filter((m) => m.playerId !== slot.bot.id);
     const triggerAt = others.length > 0 ? others[others.length - 1].timestamp : this.discussionStartedAt;
-    const job: Job = { direct: null, triggerAt, stage: 'thinking', timer: null };
+    const job: Job = { direct: null, triggerAt, stage: 'thinking', timer: null, quote: others[others.length - 1] ?? null };
     slot.job = job;
     void this.runDecision(slot, job, epoch, cue);
   }
@@ -423,7 +446,7 @@ export class BotDirector {
           return;
         }
       }
-      const posted = this.room.postMessage(slot.bot.id, text);
+      const posted = this.room.postMessage(slot.bot.id, text, this.quoteFor(slot, job, text));
       this.release(slot, job);
       if (!posted) return;
       this.postDelays.push({ direct: job.direct !== null, ms: now - job.triggerAt });
@@ -448,6 +471,48 @@ export class BotDirector {
 
   private release(slot: Slot, job: Job): void {
     if (slot.job === job) slot.job = null;
+  }
+
+  // ====== REPLIES AND ABSTENTIONS ======
+
+  private quotedAuthorOf(message: GameMessage): string | null {
+    if (!message.replyToId) return null;
+    return this.room.state().messages.find((m) => m.id === message.replyToId)?.playerId ?? null;
+  }
+
+  /**
+   * Whether this line quotes a message, decided at posting time like a human tapping "reply": the line that
+   * addressed the bot, else the last line of a player the bot names, else (rarely) the line it reacts to.
+   */
+  private quoteFor(slot: Slot, job: Job, text: string): string | undefined {
+    let target: GameMessage | null = null;
+    let prob = 0;
+    let kind = '';
+    if (job.direct && job.quote) {
+      [target, prob, kind] = [job.quote, REPLY_QUOTE_DIRECT_PROB, 'direct'];
+    } else {
+      const lines = this.discussionMessages();
+      const named = this.room
+        .state()
+        .players.filter((p) => !p.isEliminated && p.id !== slot.bot.id && addressedTo(text, p.username).direct)
+        .map((p) => [...lines].reverse().find((m) => m.playerId === p.id))
+        .find((m): m is GameMessage => !!m);
+      if (named) [target, prob, kind] = [named, REPLY_QUOTE_NAMING_PROB, 'named'];
+      else if (job.quote) [target, prob, kind] = [job.quote, REPLY_QUOTE_OTHER_PROB, 'other'];
+    }
+    if (!target || target.playerId === slot.bot.id || target.playerId === 'system' || this.deps.rng() >= prob) return undefined;
+    this.logEvent(slot.bot.name, 'reply_quote', kind, target.content.slice(0, 80));
+    return target.id;
+  }
+
+  /** An abstention lands at a vote's human-plausible time, before the bots' deadline; no model call. */
+  private abstainLater(slot: Slot, voteStart: number, alive: () => boolean): void {
+    const at = Math.min(voteStart + voteDelay(this.deps.rng), voteStart + VOTE_DEADLINE_MS);
+    this.timers.after(Math.max(0, at - this.now()), () => {
+      if (!alive()) return;
+      this.logEvent(slot.bot.name, 'vote_abstain');
+      this.room.castVote(slot.bot.id, null);
+    });
   }
 
   // ====== VOTES ======

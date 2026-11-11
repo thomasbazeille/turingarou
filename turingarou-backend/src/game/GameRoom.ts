@@ -30,7 +30,14 @@ import { drawStyleProfile } from './aiSpeech.js';
 import { checkMessage } from './formGate.js';
 import { Bot } from './Bot.js';
 import { CastMember, drawCast, templatesFor } from './botCast.js';
-import { BotDirector, VOTE_DEADLINE_MS } from './BotDirector.js';
+import {
+  BOT_ABSTAIN_PROB,
+  BotDirector,
+  REPLY_QUOTE_DIRECT_PROB,
+  REPLY_QUOTE_NAMING_PROB,
+  REPLY_QUOTE_OTHER_PROB,
+  VOTE_DEADLINE_MS,
+} from './BotDirector.js';
 import { RoundRecord } from './botContext.js';
 import { Clock, systemClock, TimerHandle, Timers } from './clock.js';
 
@@ -92,9 +99,19 @@ const COLORS = [
 ];
 
 export const QUESTION_PHASE_MS = 20000;
+/**
+ * Everyone answered: the discussion starts then, never before this point of the question phase. A short question
+ * is read in about 3 s and a short answer typed in about 4 s: the transition never cuts anyone, and a bot that
+ * answers fast can never end the phase before humans plausibly could.
+ */
+export const QUESTION_MIN_MS = 8000;
 export const DISCUSSION_PHASE_MS = 100000;
 export const VOTE_PHASE_MS = 30000;
-export const ENDROUND_MS = 8000;
+/**
+ * Round-end screen: about 5 s of staged reveal (vote count, then the name, then human or AI), then 5 s to read who
+ * voted for whom and who is immune, as long as the old screen gave to read it all at once (it lasted 8 s).
+ */
+export const ENDROUND_MS = 10000;
 export const MAX_ROUNDS = 7;
 /** In the lobby a dropped player keeps their seat this long, then frees it so the room can still fill. */
 export const LOBBY_GRACE_MS = 10_000;
@@ -108,6 +125,7 @@ export const RECONNECT_GRACE_MS = 90_000;
 export const LOST_VOTE_CLOSE_MS = VOTE_DEADLINE_MS + 1000;
 
 if (VOTE_DEADLINE_MS >= VOTE_PHASE_MS) throw new Error('bot vote deadline must fall inside the vote phase');
+if (QUESTION_MIN_MS >= QUESTION_PHASE_MS) throw new Error('the early end floor must fall inside the question phase');
 if (LOST_VOTE_CLOSE_MS >= VOTE_PHASE_MS) throw new Error('the close without lost players must fall inside the vote phase');
 
 /** A private room's host may launch from this many humans: fewer leaves nothing to deduce. */
@@ -177,6 +195,19 @@ export class GameRoom {
   private eliminationsByRound = new Map<number, { name: string; isAI: boolean }>();
   private questionsByRound = new Map<number, string>();
   private eliminationOrder: string[] = [];
+  /**
+   * Votes of the finished round as every browser sees them: one entry per player who could vote, in seat order (never
+   * in casting order), a missing vote shown as an abstention. Bots always vote by the deadline, so a missing vote or
+   * the casting order would point at humans.
+   */
+  private revealedVotes: Vote[] = [];
+  private abstainersByRound = new Map<number, string[]>();
+  /** Votes, abstentions, chat lines and reply quotes by kind of player, for the game-telemetry line. */
+  private ux: Record<PlayerKind, { votes: number; abstain: number; noVote: number; lines: number; replies: number }> = {
+    human: { votes: 0, abstain: 0, noVote: 0, lines: 0, replies: 0 },
+    ai: { votes: 0, abstain: 0, noVote: 0, lines: 0, replies: 0 },
+    inspector: { votes: 0, abstain: 0, noVote: 0, lines: 0, replies: 0 },
+  };
   /** True once all humans have left: blocks every further timer, bot call and join. */
   private aborted = false;
   /** Bots are being created for a full room: no further join. */
@@ -201,7 +232,7 @@ export class GameRoom {
       {
         state: () => this.state,
         history: () => this.history(),
-        postMessage: (id, text) => this.addMessage(id, text),
+        postMessage: (id, text, replyToId) => this.addMessage(id, text, replyToId),
         submitAnswer: (id, text) => this.addAnswer(id, text),
         castVote: (id, target) => this.addVote(id, target),
       },
@@ -627,6 +658,8 @@ export class GameRoom {
     this.questionsByRound.set(round, this.state.currentQuestion ?? '');
     this.state.answers = [];
     this.state.votes = [];
+    this.revealedVotes = [];
+    this.state.endRoundEndTime = null;
     this.state.questionEndTime = this.now() + QUESTION_PHASE_MS;
     this.emitState();
     // The format (language, timings) reaches the bots with the question: round 1 of an English game used to be
@@ -670,8 +703,9 @@ export class GameRoom {
   private processVotes(): void {
     if (this.aborted || this.state.phase !== 'voting') return;
     this.director.stop();
+    this.revealedVotes = this.revealVotes();
     const voteCounts = new Map<string, number>();
-    for (const vote of this.state.votes) voteCounts.set(vote.targetId, (voteCounts.get(vote.targetId) ?? 0) + 1);
+    for (const vote of this.state.votes) if (vote.targetId) voteCounts.set(vote.targetId, (voteCounts.get(vote.targetId) ?? 0) + 1);
 
     // Most votes is eliminated; a tie eliminates nobody.
     let eliminatedId = '';
@@ -692,9 +726,10 @@ export class GameRoom {
 
     this.votesByRound.set(
       this.state.currentRound,
-      this.state.votes.map((v) => ({ voter: this.nameOf(v.voterId), target: this.nameOf(v.targetId) }))
+      this.state.votes.flatMap((v) => (v.targetId ? [{ voter: this.nameOf(v.voterId), target: this.nameOf(v.targetId) }] : []))
     );
-    this.voteHistory.push({ round: this.state.currentRound, votes: [...this.state.votes], eliminatedId: eliminatedId || null });
+    this.abstainersByRound.set(this.state.currentRound, this.revealedVotes.filter((v) => !v.targetId).map((v) => this.nameOf(v.voterId)));
+    this.voteHistory.push({ round: this.state.currentRound, votes: [...this.revealedVotes], eliminatedId: eliminatedId || null });
     if (eliminated) {
       this.eliminationsByRound.set(this.state.currentRound, { name: eliminated.username, isAI: eliminated.type !== 'human' });
       this.eliminationOrder.push(eliminated.id);
@@ -702,6 +737,7 @@ export class GameRoom {
 
     this.state.phase = 'endround';
     this.state.voteEndTime = null;
+    this.state.endRoundEndTime = this.now() + ENDROUND_MS;
     this.emitState();
     this.schedulePhase(ENDROUND_MS, () => this.nextRound());
   }
@@ -731,6 +767,7 @@ export class GameRoom {
     this.state.gameOverReason = remainingAI === 0 ? 'humans_win' : remainingHumans === 0 ? 'ai_win' : 'draw';
     this.state.phase = 'gameover';
     this.state.eliminatedPlayerId = null;
+    this.state.endRoundEndTime = null;
     this.phaseTimers.clearAll();
     this.phaseTimer = null;
     // The game is over: a player still away may come back to see the end, but nothing waits for anyone any more.
@@ -750,7 +787,7 @@ export class GameRoom {
         round: rd,
         question: this.questionsByRound.get(rd) ?? '',
         answers: this.state.answersByRound?.[rd] ?? [],
-        votes: this.votesByRound.get(rd) ?? [],
+        votes: [...(this.votesByRound.get(rd) ?? []), ...(this.abstainersByRound.get(rd) ?? []).map((voter) => ({ voter, target: 'nobody (abstained)' }))],
         eliminated: this.eliminationsByRound.get(rd) ?? null,
       });
     }
@@ -813,13 +850,16 @@ export class GameRoom {
 
   /** One JSON line per game: LLM health per provider and bot events by kind (`railway logs | grep game-telemetry`). */
   private logTelemetry(result: string): void {
-    this.deps.log(`[game-telemetry] ${JSON.stringify({ room: this.state.roomId, result, rounds: this.state.currentRound, ...this.director.telemetry() })}`);
+    this.deps.log(`[game-telemetry] ${JSON.stringify({ room: this.state.roomId, result, rounds: this.state.currentRound, ...this.director.telemetry(), roundUx: this.roundUxTelemetry() })}`);
   }
 
   // ====== ACTIONS ======
 
-  /** Returns true when the message was posted. Single exit to the chat for humans and bots alike. */
-  addMessage(playerId: string, content: string): boolean {
+  /**
+   * Returns true when the message was posted. Single exit to the chat for humans and bots alike. A reply-to that
+   * names no earlier message of this room is dropped, the line itself is still posted.
+   */
+  addMessage(playerId: string, content: string, replyToId?: unknown): boolean {
     if (this.aborted || this.state.phase !== 'discussion') return false;
     const player = this.state.players.find((p) => p.id === playerId);
     if (!player || player.isEliminated) return false;
@@ -842,6 +882,7 @@ export class GameRoom {
       }
     }
 
+    const quoted = this.quotableMessage(replyToId);
     const message: GameMessage = {
       id: this.newId('msg'),
       playerId,
@@ -850,11 +891,16 @@ export class GameRoom {
       timestamp: this.now(),
       phase: this.state.phase,
       round: this.state.currentRound,
+      ...(quoted ? { replyToId: quoted.id } : {}),
     };
     this.state.messages.push(message);
     this.emitState();
 
     const kind = this.kinds.get(playerId);
+    if (kind) {
+      this.ux[kind].lines++;
+      if (quoted) this.ux[kind].replies++;
+    }
     if (kind !== 'ai') this.director.onPlayerMessage(message, kind === 'human');
     return true;
   }
@@ -867,26 +913,65 @@ export class GameRoom {
     this.state.answers.push({ playerId, playerName: player.username, answer, timestamp: this.now() });
     this.emitState();
 
-    // Everyone answered: discussion starts now. A bot that skips keeps the phase open like a silent human would,
-    // otherwise an early close with one missing answer would point at a bot.
+    // Everyone answered: discussion starts now, or at QUESTION_MIN_MS if that is later. A bot that skips keeps the
+    // phase open like a silent human would, otherwise an early close with one missing answer would point at a bot.
     const answered = new Set(this.state.answers.map((a) => a.playerId));
     if (this.state.players.filter((p) => !p.isEliminated).every((p) => answered.has(p.id))) {
-      this.schedulePhase(0, () => this.startDiscussion());
+      const questionStart = (this.state.questionEndTime ?? this.now()) - QUESTION_PHASE_MS;
+      this.schedulePhase(Math.max(0, questionStart + QUESTION_MIN_MS - this.now()), () => this.startDiscussion());
     }
   }
 
-  addVote(voterId: string, targetId: string): void {
+  /**
+   * targetId null: an abstention, which counts as a vote rendered (the vote may close early) and eliminates nobody.
+   * Nothing says who voted before the round end: no system line, only an anonymous count in the state.
+   */
+  addVote(voterId: string, targetId: string | null): void {
     if (this.aborted || this.state.phase !== 'voting') return;
     if (voterId === targetId || this.state.votes.some((v) => v.voterId === voterId)) return;
-    const target = this.state.players.find((p) => p.id === targetId && !p.isEliminated);
-    if (!target || targetId === this.state.protectedPlayerId) return;
+    if (targetId !== null) {
+      const target = this.state.players.find((p) => p.id === targetId && !p.isEliminated);
+      if (!target || targetId === this.state.protectedPlayerId) return;
+    }
     const voter = this.state.players.find((p) => p.id === voterId);
     if (!voter || voter.isEliminated) return;
 
     this.state.votes.push({ voterId, targetId });
-    this.addSystemMessage(this.state.language === 'en' ? `${voter.username} has voted.` : `${voter.username} a voté.`);
     this.emitState();
     this.tryEndVotingEarly();
+  }
+
+  /** This player's own vote of the round, for their client only (never broadcast before the round end). */
+  voteOf(playerId: string): { round: number; targetId: string | null } | null {
+    const vote = this.state.votes.find((v) => v.voterId === playerId);
+    return vote ? { round: this.state.currentRound, targetId: vote.targetId } : null;
+  }
+
+  private revealVotes(): Vote[] {
+    const cast = new Map(this.state.votes.map((v) => [v.voterId, v.targetId]));
+    const out: Vote[] = [];
+    for (const p of this.state.players) {
+      if (p.isEliminated) continue;
+      const kind = this.kinds.get(p.id);
+      const targetId = cast.has(p.id) ? cast.get(p.id)! : null;
+      if (kind) this.ux[kind][!cast.has(p.id) ? 'noVote' : targetId ? 'votes' : 'abstain']++;
+      out.push({ voterId: p.id, targetId });
+    }
+    return out;
+  }
+
+  /** A message of this room a new line may quote: an existing player line, never a system line. */
+  private quotableMessage(id: unknown): GameMessage | null {
+    if (typeof id !== 'string' || !id) return null;
+    return this.state.messages.find((m) => m.id === id && m.playerId !== 'system') ?? null;
+  }
+
+  /** Observed rates on both sides and the bots' target rates, to recalibrate the bots on real games. */
+  private roundUxTelemetry(): Record<string, unknown> {
+    return {
+      ...this.ux,
+      botTargets: { abstain: BOT_ABSTAIN_PROB, replyDirect: REPLY_QUOTE_DIRECT_PROB, replyNaming: REPLY_QUOTE_NAMING_PROB, replyOther: REPLY_QUOTE_OTHER_PROB },
+    };
   }
 
   private tryEndVotingEarly(): void {
@@ -995,17 +1080,18 @@ export class GameRoom {
       })),
       eliminationOrder: [...this.eliminationOrder],
     };
+    // Votes stay hidden until the round end: each player gets their own through voteOf, everyone an anonymous count.
+    out.votes = this.state.phase === 'endround' || over ? [...this.revealedVotes] : [];
+    if (this.state.phase === 'voting') out.voteCount = this.state.votes.length;
     if (this.state.phase === 'endround') {
       out.eliminatedPlayerId = this.state.eliminatedPlayerId ?? null;
       out.eliminatedPlayerIsAI = this.state.eliminatedPlayerIsAI ?? null;
-      out.votes = this.state.votes;
       out.eliminatedAiCount = this.state.players.filter((p) => p.isEliminated && p.type === 'ai').length;
     }
     if (over) {
       out.gameOverReason = this.state.gameOverReason ?? null;
       out.voteHistory = this.voteHistory.map((r) => ({ ...r, votes: [...r.votes] }));
     }
-    if (this.state.phase === 'voting' || this.state.phase === 'discussion') out.votes = this.state.votes;
     out.language = this.state.language ?? 'fr';
     return out;
   }

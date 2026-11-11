@@ -193,6 +193,7 @@ io.on('connection', (socket) => {
     if (seat.previousSocketId && seat.previousSocketId !== socket.id) io.sockets.sockets.get(seat.previousSocketId)?.disconnect(true);
     socket.emit('resumeSuccess', { playerId: seat.playerId, roomId });
     socket.emit('gameState', room.publicState(socket.id));
+    socket.emit('myVote', room.voteOf(seat.playerId));
     console.log(`${seat.playerId} resumed in ${roomId}`);
   });
 
@@ -205,12 +206,12 @@ io.on('connection', (socket) => {
   });
 
   // Envoyer un message
-  socket.on('sendMessage', ({ message }: { message: string }) => {
+  socket.on('sendMessage', ({ message, replyToId }: { message: string; replyToId?: unknown }) => {
     const playerId = me();
     if (!currentRoom || !playerId) return;
 
     console.log(`Message from ${playerId}: ${message}`);
-    currentRoom.addMessage(playerId, message);
+    currentRoom.addMessage(playerId, message, replyToId);
   });
 
   // Répondre à la question
@@ -222,13 +223,16 @@ io.on('connection', (socket) => {
     currentRoom.addAnswer(playerId, answer);
   });
 
-  // Voter
-  socket.on('vote', ({ targetId }: { targetId: string }) => {
+  // Voter (ou s'abstenir) ; le vote n'est renvoyé qu'à son auteur, les autres ne voient qu'un compteur anonyme
+  socket.on('vote', (payload: { targetId?: unknown; abstain?: unknown } | undefined) => {
     const playerId = me();
     if (!currentRoom || !playerId) return;
+    const targetId = payload?.abstain === true ? null : typeof payload?.targetId === 'string' ? payload.targetId : undefined;
+    if (targetId === undefined) return;
 
-    console.log(`Vote from ${playerId} for ${targetId}`);
+    console.log(`Vote from ${playerId} for ${targetId ?? '(abstention)'}`);
     currentRoom.addVote(playerId, targetId);
+    socket.emit('myVote', currentRoom.voteOf(playerId));
   });
 
   // Flaguer un message comme suspicious
