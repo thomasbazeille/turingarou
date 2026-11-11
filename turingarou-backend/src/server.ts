@@ -13,7 +13,7 @@ import fs from 'fs';
 import { ChatProvider } from './llm/chatClient.js';
 import { buildProviderPool, describePool } from './llm/providerRegistry.js';
 import { registerVoiceRoutes } from './voice/routes.js';
-import { NO_CONSENT, parseConsent, StyleConsent } from './game/measures.js';
+import { NO_CONSENT, parseConsent, parseFeedback, parseVoteReason, StyleConsent } from './game/measures.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -242,6 +242,22 @@ io.on('connection', (socket) => {
     console.log(`Vote from ${playerId} for ${targetId ?? '(abstention)'}`);
     currentRoom.addVote(playerId, targetId);
     socket.emit('myVote', currentRoom.voteOf(playerId));
+  });
+
+  // Raison facultative de son propre vote, choisie après l'avoir envoyé : rien n'est renvoyé, personne ne la voit
+  socket.on('voteReason', (payload: { reason?: unknown } | undefined) => {
+    const playerId = me();
+    const reason = parseVoteReason(payload?.reason);
+    if (!currentRoom || !playerId || !reason) return;
+    currentRoom.setVoteReason(playerId, reason);
+  });
+
+  // Note de fin de partie (1 à 5) et indice libre facultatif : stockés, jamais renvoyés ni journalisés en clair
+  socket.on('gameFeedback', (payload: unknown) => {
+    const playerId = me();
+    const feedback = parseFeedback(payload);
+    if (!currentRoom || !playerId || !feedback) return;
+    currentRoom.setGameFeedback(playerId, feedback);
   });
 
   // Flaguer un message comme suspicious

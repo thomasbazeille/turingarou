@@ -66,7 +66,7 @@ async function started(roomId: string) {
     rng: makeSeededRng(11),
     names: { add: (n) => used.add(n), pick: (ex) => pool.find((n) => !used.has(n) && !ex.includes(n)) ?? 'zed' },
     strategies: { aiPlayer: async () => ({ name: 'test', content: 'play' }), inspector: async () => 'inspect' },
-    persistence: { saveGameLog: async () => {}, updateHumanProfiles: async () => {}, saveMessageFlag: async () => {}, getRandomHumanProfile: async () => null },
+    persistence: { saveGameLog: async () => {}, updateHumanProfiles: async () => {}, saveMessageFlag: async () => {}, saveGameFeedback: async () => {}, getRandomHumanProfile: async () => null },
     log: () => {},
   });
   for (let i = 0; i < 5; i++) await room.addHumanPlayer(`${roomId}-sock-${i}`, `h${i}`, 'fr');

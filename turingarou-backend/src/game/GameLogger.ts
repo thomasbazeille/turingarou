@@ -15,12 +15,14 @@
  *   human_profiles  — profil cumulé par username (seulement les humains qui ont donné leur accord)
  *   player_consents — accord de chaque humain pour que ses messages servent d'exemples de style aux IA
  *   player_voice    — voix active ou non dans la partie, et clips push-to-talk de chaque humain (A/B texte/voix)
+ *   vote_reasons    — raison facultative qu'un humain donne à son vote, après l'avoir envoyé
+ *   game_feedback   — note de 1 à 5 et indice libre d'un humain en fin de partie
  */
 
 import pg from 'pg';
 import { selectHumanPersona, type HumanPersona, type PersonaQuery } from '../history/persona.js';
 import { withReadOnly } from '../history/readonly.js';
-import type { StyleConsent } from './measures.js';
+import type { GameFeedback, StyleConsent, VoteReason } from './measures.js';
 
 export type { HumanPersona, PersonaQuery };
 
@@ -38,6 +40,8 @@ export interface RoundLog {
   votes: RoundVote[];
   /** Who named nobody: explicit = chose to abstain, otherwise no vote by the end (every client sees an abstention). */
   abstentions?: { voter: string; explicit: boolean }[];
+  /** Reasons humans gave to their vote naming someone (round_votes holds the target). */
+  reasons?: { voter: string; reason: VoteReason }[];
   eliminated?: { name: string; isAI: boolean } | null;
 }
 
@@ -238,6 +242,23 @@ export async function initDB(): Promise<void> {
       explicit  INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS vote_reasons (
+      id        SERIAL PRIMARY KEY,
+      game_id   TEXT NOT NULL REFERENCES games(game_id),
+      round     INTEGER NOT NULL,
+      voter     TEXT NOT NULL,
+      reason    TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS game_feedback (
+      id          SERIAL PRIMARY KEY,
+      game_id     TEXT NOT NULL,
+      player_name TEXT NOT NULL,
+      rating      INTEGER NOT NULL,
+      clue        TEXT,
+      ts          BIGINT NOT NULL
+    );
+
     CREATE UNIQUE INDEX IF NOT EXISTS idx_game_players_unique
       ON game_players(game_id, player_name);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_round_questions_unique
@@ -260,6 +281,10 @@ export async function initDB(): Promise<void> {
       ON player_voice(game_id, player_name);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_round_abstentions_unique
       ON round_abstentions(game_id, round, voter);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_vote_reasons_unique
+      ON vote_reasons(game_id, round, voter);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_game_feedback_unique
+      ON game_feedback(game_id, player_name);
 
     CREATE INDEX IF NOT EXISTS idx_messages_game_id      ON messages(game_id);
     CREATE INDEX IF NOT EXISTS idx_round_answers_game_id ON round_answers(game_id);
@@ -313,6 +338,30 @@ export async function saveMessageFlag(
     );
   } catch (err) {
     console.error('[GameLogger] saveMessageFlag error:', err);
+  }
+}
+
+// ─── Game feedback ────────────────────────────────────────────────────────────
+
+/**
+ * A human's note on a finished game. Written at the game over, possibly before saveGameLog commits the game row:
+ * no foreign key, like message_flags. A later note of the same player replaces the earlier one.
+ */
+export async function saveGameFeedback(gameId: string, playerName: string, feedback: GameFeedback): Promise<void> {
+  const pool = getPool();
+  if (!pool) return;
+  try {
+    await pool.query(
+      `INSERT INTO game_feedback (game_id, player_name, rating, clue, ts)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (game_id, player_name) DO UPDATE SET
+         rating = EXCLUDED.rating,
+         clue   = EXCLUDED.clue,
+         ts     = EXCLUDED.ts`,
+      [gameId, playerName, feedback.rating, feedback.clue, Date.now()]
+    );
+  } catch (err) {
+    console.error('[GameLogger] saveGameFeedback error:', err);
   }
 }
 
@@ -388,6 +437,12 @@ export async function saveGameLog(data: GameLogData): Promise<void> {
           await db.query(
             `INSERT INTO round_abstentions (game_id, round, voter, explicit) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
             [data.gameId, r.round, a.voter, a.explicit ? 1 : 0]
+          );
+        }
+        for (const v of r.reasons ?? []) {
+          await db.query(
+            `INSERT INTO vote_reasons (game_id, round, voter, reason) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+            [data.gameId, r.round, v.voter, v.reason]
           );
         }
         if (r.eliminated) {

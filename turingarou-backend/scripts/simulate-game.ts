@@ -32,7 +32,7 @@ import { makeSeededRng } from '../src/game/humanTiming.js';
 import { isTextureQuestion } from '../src/game/QuestionBank.js';
 import { getInspectorPromptContent, getRandomAIPlayerStrategy } from '../src/game/StrategyLoader.js';
 import type { GameLogData } from '../src/game/GameLogger.js';
-import { parseConsent, type LineInput } from '../src/game/measures.js';
+import { parseConsent, parseFeedback, VOTE_REASONS, type LineInput, type VoteReason } from '../src/game/measures.js';
 import type { GameMessage, GameRoomState, QuestionAnswer, Vote } from '../src/types/game.types.js';
 
 type Lang = 'fr' | 'en';
@@ -543,12 +543,14 @@ const PUBLIC_TOP_KEYS = new Set([
 /** Fields of a chat message; the same for every author, a reply quote included. */
 const MESSAGE_KEYS = new Set(['id', 'playerId', 'playerName', 'content', 'timestamp', 'phase', 'round', 'replyToId']);
 /**
- * What the room collects from humans (home-screen consent, typed or spoken lines) must reach no client, ever: not in any event to any socket,
- * before or after the game over. Fake humans send values carrying this sentinel, and the keys the room keeps them
- * under must never appear in a payload either.
+ * What the room collects from humans (home-screen consent, typed or spoken lines, vote reasons, game-over notes) must
+ * reach no client, ever: not in any event to any socket, before or after the game over, and giving it emits nothing.
+ * Fake humans send values carrying this sentinel or a reason code, and the keys the room keeps them under must never
+ * appear in a payload either.
  */
 const COLLECTED_SENTINEL = 'l6sentinel';
-const COLLECTED_KEYS = new Set(['consent', 'styleExamples', 'notice', 'styleConsent', 'via', 'pttClips']);
+const COLLECTED_KEYS = new Set(['consent', 'styleExamples', 'notice', 'styleConsent', 'via', 'pttClips', 'reason', 'reasons', 'rating', 'clue', 'feedback']);
+const COLLECTED_VALUES = [COLLECTED_SENTINEL, ...VOTE_REASONS.map((r) => `"${r}"`)];
 /** Every key of every object in a payload, at any depth. */
 function keysOf(x: unknown, out = new Set<string>()): Set<string> {
   if (Array.isArray(x)) x.forEach((v) => keysOf(v, out));
@@ -630,6 +632,10 @@ async function runGame(sc: Scenario): Promise<GameResult> {
   const sentVoice = new Map<string, number>();
   let humanLineSeq = 0;
   const voice = { tts: sc.seed % 2 === 0, stt: sc.seed % 2 === 0 };
+  const sentReasons: { round: number; voter: string; reason: VoteReason }[] = [];
+  let reasonSeq = 0;
+  const sentFeedback: { name: string; rating: number; clue: string | null }[] = [];
+  const savedFeedback: { gameId: string; name: string; rating: number; clue: string | null }[] = [];
   const publicEntry = (pl: Record<string, unknown>) => JSON.stringify(PUBLIC_PLAYER_KEYS.filter((k) => k !== 'isEliminated').map((k) => pl[k]));
   /** Calls the room and says whether a state went out to the browsers meanwhile. */
   const emitsDuring = (fn: () => void): number => {
@@ -736,6 +742,20 @@ async function runGame(sc: Scenario): Promise<GameResult> {
     }
   };
 
+  /** Every other vote, the voter then picks a reason: kept only when their vote of the round names someone. */
+  const giveReason = (seat: string, round: number) => {
+    if (reasonSeq++ % 2 !== 0) return;
+    const reason = VOTE_REASONS[Math.floor(reasonSeq / 2) % VOTE_REASONS.length];
+    const named = !!state().votes.find((v) => v.voterId === seat)?.targetId;
+    let kept = false as boolean;
+    const n = emitsDuring(() => (kept = room.setVoteReason(seat, reason)));
+    if (n > 0) offend('collected_leak', `${n} state emit(s) when a vote reason was given`);
+    if (kept !== named) offend('collected_persist', `r${round} vote reason ${kept ? 'kept' : 'refused'} for a vote ${named ? 'naming someone' : 'naming nobody'}`);
+    if (!kept) return;
+    inc('collected_sent:reason');
+    sentReasons.push({ round, voter: state().players.find((p) => p.id === seat)?.username ?? seat, reason });
+  };
+
   const botIdSet = () => new Set(state().players.filter((p) => p.type === 'ai' || (p.type === 'human' && p.socketId === '')).map((p) => p.id));
 
   const startChain = (h: FakeHuman, round: number, firstIn: number) => {
@@ -801,6 +821,11 @@ async function runGame(sc: Scenario): Promise<GameResult> {
     }
     if (phase === 'question') {
       questions.push(state().currentQuestion ?? '');
+      // Outside their moment, a vote reason and a game-over note are refused.
+      if (round === 2 && present[0]) {
+        inc('collected_refusal_checks');
+        if (room.setVoteReason(present[0].id, 'gut') || room.setGameFeedback(present[0].id, { rating: 3, clue: null })) offend('collected_persist', 'a vote reason or a note accepted in the question phase');
+      }
       // A third of the rounds, the table answers fast and fully: the early end and its floor get exercised.
       const fast = simRng() < 0.33;
       for (const h of present) {
@@ -836,16 +861,19 @@ async function runGame(sc: Scenario): Promise<GameResult> {
           if (againstGone) {
             votesAgainstGone.push({ round, voterId: seat, targetId: gone.id });
             room.addVote(seat, gone.id);
+            giveReason(seat, round);
             return;
           }
           if (simRng() < HUMAN_ABSTAIN_PROB) {
             room.addVote(seat, null);
+            giveReason(seat, round);
             return;
           }
           const candidates = st.players.filter((p) => !p.isEliminated && p.id !== seat && p.id !== st.protectedPlayerId);
           const ais = candidates.filter((p) => p.type === 'ai');
           if (sc.skill > 0 && ais.length > 0 && simRng() < sc.skill) room.addVote(seat, pick(ais).id);
           else if (candidates.length > 0) room.addVote(seat, pick(candidates).id);
+          giveReason(seat, round);
         }, 2000 + simRng() * 25000);
       });
     }
@@ -870,7 +898,9 @@ async function runGame(sc: Scenario): Promise<GameResult> {
   };
   const checkCollected = (event: string, target: string, payload: unknown) => {
     inc('collected_scanned');
-    if ((JSON.stringify(payload) ?? '').includes(COLLECTED_SENTINEL)) offend('collected_leak', `${event} to ${target}: a value a human sent the room`);
+    const json = JSON.stringify(payload) ?? '';
+    const values = COLLECTED_VALUES.filter((v) => json.includes(v));
+    if (values.length > 0) offend('collected_leak', `${event} to ${target}: values a human sent the room [${values.join(',')}]`);
     const keys = [...keysOf(payload)].filter((k) => COLLECTED_KEYS.has(k));
     if (keys.length > 0) offend('collected_leak', `${event} to ${target}: keys [${keys.join(',')}]`);
   };
@@ -1003,6 +1033,9 @@ async function runGame(sc: Scenario): Promise<GameResult> {
         },
         updateHumanProfiles: async () => {},
         saveMessageFlag: async () => {},
+        saveGameFeedback: async (gameId, name, fb) => {
+          savedFeedback.push({ gameId, name, ...fb });
+        },
         getRandomHumanProfile: async () => null,
       },
       log: (line) => {
@@ -1070,6 +1103,21 @@ async function runGame(sc: Scenario): Promise<GameResult> {
 
     const outcome = await clock.run(() => finished, clock.now() + 3 * 3600_000);
     if (outcome !== 'stopped') offend('game_not_finished', `run ended ${outcome} in phase ${state().phase}`);
+    // At the game over every human still seated rates the game, every other one with a clue.
+    if (state().phase === 'gameover') {
+      humans.forEach((h, i) => {
+        const seat = seatOf(h);
+        if (!seat) return;
+        const note = parseFeedback({ rating: 1 + (i % 5), clue: i % 2 === 0 ? `${COLLECTED_SENTINEL} clue ${i}` : undefined });
+        if (!note) return offend('collected_persist', `${h.name}'s note does not parse`);
+        let kept = false as boolean;
+        const n = emitsDuring(() => (kept = room.setGameFeedback(seat, note)));
+        if (n > 0) offend('collected_leak', `${n} state emit(s) when ${h.name} rated the game`);
+        if (!kept) return offend('collected_persist', `${h.name}'s note refused at the game over`);
+        inc('collected_sent:feedback');
+        sentFeedback.push({ name: state().players.find((p) => p.id === seat)?.username ?? h.name, ...note });
+      });
+    }
     lab.ended = true;
     const endAt = clock.now();
     const timersAtEnd = room.pendingTimers();
@@ -1448,6 +1496,12 @@ async function runGame(sc: Scenario): Promise<GameResult> {
         for (const a of got) inc(a.explicit ? 'persisted_abstain_explicit' : 'persisted_abstain_missing');
         if (JSON.stringify(got) !== JSON.stringify(expected)) offend('abstention_persist', `r${r.round} persisted ${JSON.stringify(got)}, the round showed ${JSON.stringify(expected)}`);
       }
+      const sorted = <T,>(xs: T[]) => xs.map((x) => JSON.stringify(x)).sort().join('|');
+      const keptReasons = log.rounds.flatMap((r) => (r.reasons ?? []).map((x) => ({ round: r.round, voter: x.voter, reason: x.reason })));
+      inc('persisted_reasons', keptReasons.length);
+      if (sorted(keptReasons) !== sorted(sentReasons)) offend('collected_persist', `vote reasons persisted ${keptReasons.length}, given ${sentReasons.length}`);
+      inc('persisted_feedback', savedFeedback.length);
+      if (sorted(savedFeedback) !== sorted(sentFeedback.map((f) => ({ gameId: state().roomId, ...f })))) offend('collected_persist', `notes written ${JSON.stringify(savedFeedback)}, sent ${JSON.stringify(sentFeedback)}`);
       if (JSON.stringify(log.voice) !== JSON.stringify(voice)) offend('collected_persist', `voice ${JSON.stringify(log.voice)} persisted, the room had ${JSON.stringify(voice)}`);
       for (const msg of log.messages) {
         const pid = nameToId.get(msg.player);
@@ -1541,7 +1595,7 @@ async function probeQuestionFloor(): Promise<FloorProbe> {
       clock,
       rng: makeSeededRng(answering),
       names: { add: () => {}, pick: () => 'zed' },
-      persistence: { saveGameLog: async () => {}, updateHumanProfiles: async () => {}, saveMessageFlag: async () => {}, getRandomHumanProfile: async () => null },
+      persistence: { saveGameLog: async () => {}, updateHumanProfiles: async () => {}, saveMessageFlag: async () => {}, saveGameFeedback: async () => {}, getRandomHumanProfile: async () => null },
       log: () => {},
     });
     for (let i = 0; i < 8; i++) await room.addHumanPlayer(`probe-${i}`, NAMES[i], 'fr');
@@ -1828,14 +1882,14 @@ function report(results: GameResult[], elapsed: number, games: number, probe: Fl
     },
     {
       name: 'data collected from humans never sent to a client',
-      value: `${sum('collected_leak')} leaks over ${sum('collected_scanned')} payloads (every event, every socket, game over included); sent: consents ${sum('collected_sent:consent')}, spoken lines ${sum('collected_sent:voice')}`,
-      ok: sum('collected_leak') === 0 && sum('collected_scanned') > 0 && sum('collected_sent:consent') > 0 && sum('collected_sent:voice') > 0,
+      value: `${sum('collected_leak')} leaks over ${sum('collected_scanned')} payloads (every event, every socket, game over included); sent: consents ${sum('collected_sent:consent')}, spoken lines ${sum('collected_sent:voice')}, vote reasons ${sum('collected_sent:reason')}, game-over notes ${sum('collected_sent:feedback')}`,
+      ok: sum('collected_leak') === 0 && sum('collected_scanned') > 0 && ['consent', 'voice', 'reason', 'feedback'].every((k) => sum(`collected_sent:${k}`) > 0),
       keys: ['collected_leak'],
     },
     {
       name: 'data collected from humans persisted as sent',
-      value: `${sum('collected_persist')} wrong; consents ${sum('persisted_consents')}, push-to-talk clips ${sum('persisted_ptt_clips')}`,
-      ok: sum('collected_persist') === 0 && sum('persisted_consents') > 0 && sum('persisted_ptt_clips') > 0,
+      value: `${sum('collected_persist')} wrong; consents ${sum('persisted_consents')}, push-to-talk clips ${sum('persisted_ptt_clips')}, vote reasons ${sum('persisted_reasons')}, notes ${sum('persisted_feedback')}; refused out of their moment ${sum('collected_refusal_checks')} checks`,
+      ok: sum('collected_persist') === 0 && ['persisted_consents', 'persisted_ptt_clips', 'persisted_reasons', 'persisted_feedback', 'collected_refusal_checks'].every((k) => sum(k) > 0),
       keys: ['collected_persist'],
     },
     {

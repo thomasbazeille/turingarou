@@ -4,7 +4,7 @@
  */
 
 import { strict as assert } from 'node:assert';
-import { NO_CONSENT, parseConsent } from '../src/game/measures.js';
+import { CLUE_MAX_CHARS, NO_CONSENT, parseConsent, parseFeedback, parseVoteReason, VOTE_REASONS } from '../src/game/measures.js';
 import { styleReferencePlayers, updateHumanProfiles, writeHumanProfiles, type GameLogData, type Queryable } from '../src/game/GameLogger.js';
 
 const failures: string[] = [];
@@ -65,6 +65,29 @@ async function main(): Promise<void> {
     assert.equal(parseConsent({ styleConsent: true, notice: 'x'.repeat(33) }).notice, null);
     assert.equal(parseConsent({ styleConsent: true, notice: '<script>' }).notice, null);
     assert.equal(parseConsent({ styleConsent: true, notice: 7 }).notice, null);
+  });
+
+  await test('parseVoteReason: the five chips pass, anything off the list is refused', () => {
+    for (const r of VOTE_REASONS) assert.equal(parseVoteReason(r), r);
+    for (const v of ['TOO_FAST', 'too fast', 'boring', '', ' gut', 'constructor', 'toString', 3, null, undefined, ['gut'], { reason: 'gut' }]) {
+      assert.equal(parseVoteReason(v), null, `reason ${JSON.stringify(v)}`);
+    }
+  });
+
+  await test('parseFeedback: note an integer from 1 to 5, clue optional and trimmed', () => {
+    for (const r of [1, 2, 3, 4, 5]) assert.deepEqual(parseFeedback({ rating: r }), { rating: r, clue: null });
+    assert.deepEqual(parseFeedback({ rating: 4, clue: '  il répondait trop vite  ' }), { rating: 4, clue: 'il répondait trop vite' });
+    assert.deepEqual(parseFeedback({ rating: 2, clue: '   ' }), { rating: 2, clue: null });
+    assert.deepEqual(parseFeedback({ rating: 2, clue: null }), { rating: 2, clue: null });
+    for (const r of [0, 6, -1, 2.5, NaN, Infinity, '3', null, undefined, true]) assert.equal(parseFeedback({ rating: r }), null, `rating ${String(r)}`);
+    for (const p of [null, undefined, 'x', 5]) assert.equal(parseFeedback(p), null);
+  });
+
+  await test('parseFeedback: a clue longer than the field allows is refused, not cut', () => {
+    assert.deepEqual(parseFeedback({ rating: 3, clue: 'a'.repeat(CLUE_MAX_CHARS) }), { rating: 3, clue: 'a'.repeat(CLUE_MAX_CHARS) });
+    assert.equal(parseFeedback({ rating: 3, clue: 'a'.repeat(CLUE_MAX_CHARS + 1) }), null);
+    assert.deepEqual(parseFeedback({ rating: 3, clue: ` ${'a'.repeat(CLUE_MAX_CHARS)} ` }), { rating: 3, clue: 'a'.repeat(CLUE_MAX_CHARS) }, 'spaces around do not count');
+    assert.equal(parseFeedback({ rating: 3, clue: 42 }), null, 'a clue that is not text');
   });
 
   await test('consent filter: only the human who ticked the box becomes a style reference', () => {

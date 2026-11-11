@@ -19,6 +19,7 @@ import {
   updateHumanProfiles,
   getRandomHumanProfile,
   saveMessageFlag,
+  saveGameFeedback,
   GameLogData,
   HumanPersona,
   PersonaQuery,
@@ -27,7 +28,7 @@ import {
   PlayerLog,
 } from './GameLogger.js';
 import { drawStyleProfile } from './aiSpeech.js';
-import { LineInput, NO_CONSENT, StyleConsent } from './measures.js';
+import { GameFeedback, LineInput, NO_CONSENT, StyleConsent, VoteReason } from './measures.js';
 import { checkMessage } from './formGate.js';
 import { Bot } from './Bot.js';
 import { CastMember, drawCast, templatesFor } from './botCast.js';
@@ -57,6 +58,7 @@ export interface GameRoomDeps {
     saveGameLog(data: GameLogData): Promise<void>;
     updateHumanProfiles(data: GameLogData): Promise<void>;
     saveMessageFlag(gameId: string, messageId: string, flaggedBy: string, round: number, reason?: string): Promise<void>;
+    saveGameFeedback(gameId: string, playerName: string, feedback: GameFeedback): Promise<void>;
     getRandomHumanProfile(opts?: PersonaQuery): Promise<HumanPersona | null>;
   };
   log: (line: string) => void;
@@ -71,7 +73,7 @@ const defaultDeps: GameRoomDeps = {
   rng: Math.random,
   names: { add: addPlayerName, pick: pickAIName },
   strategies: { aiPlayer: getRandomAIPlayerStrategy, inspector: getInspectorPromptContent },
-  persistence: { saveGameLog, updateHumanProfiles, saveMessageFlag, getRandomHumanProfile },
+  persistence: { saveGameLog, updateHumanProfiles, saveMessageFlag, saveGameFeedback, getRandomHumanProfile },
   log: (line) => console.log(line),
   onVacant: () => {},
   voice: { tts: false, stt: false },
@@ -131,6 +133,9 @@ export const LOST_VOTE_CLOSE_MS = VOTE_DEADLINE_MS + 1000;
 if (VOTE_DEADLINE_MS >= VOTE_PHASE_MS) throw new Error('bot vote deadline must fall inside the vote phase');
 if (QUESTION_MIN_MS >= QUESTION_PHASE_MS) throw new Error('the early end floor must fall inside the question phase');
 if (LOST_VOTE_CLOSE_MS >= VOTE_PHASE_MS) throw new Error('the close without lost players must fall inside the vote phase');
+
+/** Notes a human may send at the game over: each tap on a star is sent, then the clue; past this, a client is spamming. */
+export const FEEDBACK_MAX_SENDS = 10;
 
 /** A private room's host may launch from this many humans: fewer leaves nothing to deduce. */
 export const MIN_LAUNCH_HUMANS = 3;
@@ -194,6 +199,10 @@ export class GameRoom {
   private consents = new Map<string, StyleConsent>();
   /** Push-to-talk lines posted by each real human, by player id. Persisted only, never sent. */
   private pttClips = new Map<string, number>();
+  /** Reason each human gave to their vote, by "round|player id". Persisted only, never sent. */
+  private voteReasons = new Map<string, { round: number; voter: string; reason: VoteReason }>();
+  /** Game-over notes accepted per human, by player id. */
+  private feedbackSends = new Map<string, number>();
   private vacant = false;
   /** Kind of every player who ever joined, departed humans included (their messages stay in the log). */
   private kinds = new Map<string, PlayerKind>();
@@ -847,6 +856,7 @@ export class GameRoom {
           answers: (answersByRound[rd] ?? []).map((a) => ({ player: a.playerName, type: kindOf(a.playerId), answer: a.answer })),
           votes: this.votesByRound.get(rd) ?? [],
           abstentions: this.abstainersByRound.get(rd) ?? [],
+          reasons: [...this.voteReasons.values()].filter((v) => v.round === rd).map(({ voter, reason }) => ({ voter, reason })),
           eliminated: this.eliminationsByRound.get(rd) ?? null,
         });
       }
@@ -966,6 +976,29 @@ export class GameRoom {
     this.state.votes.push({ voterId, targetId });
     this.emitState();
     this.tryEndVotingEarly();
+  }
+
+  /**
+   * Why a human voted for someone, picked after sending the vote: their own vote of this round only, while the vote
+   * is open or its result on screen. Nothing is emitted and nobody sees it; the last pick counts.
+   */
+  setVoteReason(playerId: string, reason: VoteReason): boolean {
+    if (this.aborted || (this.state.phase !== 'voting' && this.state.phase !== 'endround')) return false;
+    if (this.kinds.get(playerId) !== 'human') return false;
+    if (!this.state.votes.find((v) => v.voterId === playerId)?.targetId) return false;
+    const round = this.state.currentRound;
+    this.voteReasons.set(`${round}|${playerId}`, { round, voter: this.nameOf(playerId), reason });
+    return true;
+  }
+
+  /** A human's note on the game, at the game over only: written at once, never emitted, at most FEEDBACK_MAX_SENDS. */
+  setGameFeedback(playerId: string, feedback: GameFeedback): boolean {
+    if (this.state.phase !== 'gameover' || this.kinds.get(playerId) !== 'human') return false;
+    const sends = this.feedbackSends.get(playerId) ?? 0;
+    if (sends >= FEEDBACK_MAX_SENDS) return false;
+    this.feedbackSends.set(playerId, sends + 1);
+    void this.deps.persistence.saveGameFeedback(this.state.roomId, this.nameOf(playerId), feedback);
+    return true;
   }
 
   /** This player's own vote of the round, for their client only (never broadcast before the round end). */

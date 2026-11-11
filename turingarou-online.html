@@ -436,6 +436,18 @@
     .vote-cancel { background: none; border: 1px solid rgba(255,255,255,0.22); color: #cbd5e1; border-radius: 5px; padding: 0 14px; min-height: 48px; cursor: pointer; font-size: 12px; }
     .vote-count { color: #94a3b8; font-size: 11px; text-align: center; margin-top: 5px; }
     .vote-done { color: #22c55e; font-size: 14px; font-weight: 600; padding: 8px 0 2px; text-align: center; }
+    .vote-reason { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; align-items: center; margin-top: 6px; }
+    .vote-reason-label { color: #94a3b8; font-size: 11px; }
+    .vote-reason-chip { background: #18181b; color: #cbd5e1; border: 1px solid rgba(255,255,255,0.15); border-radius: 999px; padding: 4px 10px; min-height: 32px; font-size: 12px; cursor: pointer; }
+    .vote-reason-chip.selected { border-color: #22c55e; background: rgba(34,197,94,0.15); color: #fff; }
+    .feedback-wrap { max-width: 420px; width: calc(100% - 30px); margin: 0 auto 6px; text-align: center; }
+    .feedback-label { color: #94a3b8; font-size: 12px; margin-bottom: 2px; }
+    .feedback-stars { display: flex; justify-content: center; gap: 2px; margin-bottom: 6px; }
+    .feedback-star { background: none; border: none; color: #3f3f46; font-size: 28px; line-height: 1; min-width: 40px; min-height: 40px; cursor: pointer; }
+    .feedback-star.on { color: #eab308; }
+    .feedback-clue { width: 100%; background: rgba(39,39,42,0.8); border: 1px solid rgba(6,182,212,0.3); color: #fff; padding: 8px; border-radius: 6px; font-size: 13px; font-family: inherit; resize: vertical; }
+    .feedback-send { margin-top: 6px; background: none; border: 1px solid #06b6d4; color: #06b6d4; border-radius: 6px; padding: 0 16px; min-height: 36px; font-size: 12px; cursor: pointer; }
+    .feedback-thanks { color: #22c55e; font-size: 13px; padding: 6px 0; }
     @media (max-width: 600px) { .vote-choice { flex-basis: 40%; font-size: 15px; } }
 
     /* ---- Staged elimination: vote count, then the name, then human or AI ---- */
@@ -755,6 +767,7 @@
           <div class="next-round-text" id="gameover-home-text">Retour à l'accueil</div>
         </button>
       </div>
+      <div class="feedback-wrap" id="gameover-feedback"></div>
       <div class="end-screen-history-wrap">
         <div class="end-screen-history-title" id="gameover-history-title">Historique</div>
         <div class="end-screen-history-scroll" id="gameover-history"></div>
@@ -2568,6 +2581,24 @@ function myVoteThisRound(){
   return G.myVote && G.myVote.round === G.r ? G.myVote : null;
 }
 
+// Optional, after the vote is sent: never delays it, seen by nobody (the server keeps it for analysis only).
+const VOTE_REASONS = [
+  ['too_fast', 'Trop rapide', 'Too fast'],
+  ['too_perfect', 'Trop parfait', 'Too perfect'],
+  ['dodges', 'Esquive', 'Dodges'],
+  ['odd_tone', 'Ton bizarre', 'Odd tone'],
+  ['gut', 'Intuition', 'Gut feeling'],
+];
+function myVoteReason(){
+  return G.voteReason && G.voteReason.round === G.r ? G.voteReason.reason : '';
+}
+function pickVoteReason(reason, ap){
+  if (reason === myVoteReason()) return;
+  G.voteReason = { round: G.r, reason: reason };
+  socket.emit('voteReason', { reason: reason });
+  renderVotePanel(ap);
+}
+
 /**
  * First step: pick a player or the abstention (tap again or Cancel to undo), then confirm. Only this player's own vote
  * and an anonymous count are known before the round end. Rebuilt only when the choice changes, so a vote landing
@@ -2583,7 +2614,7 @@ function renderVotePanel(ap){
   if (G.voteSel && G.voteSel !== 'abstain' && !cands.some(function(p){ return p.id === G.voteSel; })) G.voteSel = null;
   const count = Math.max(G.voteCount || 0, mine ? 1 : 0);
   const countTxt = fr ? count + ' sur ' + ap.length + ' ont voté' : count + ' of ' + ap.length + ' voted';
-  const key = [G.lang, G.r, mine ? 'v:' + mine.targetId : '', G.voteSel || '', cands.map(function(p){ return p.id; }).join(',')].join('|');
+  const key = [G.lang, G.r, mine ? 'v:' + mine.targetId + ':' + myVoteReason() : '', G.voteSel || '', cands.map(function(p){ return p.id; }).join(',')].join('|');
   if (panel.dataset.key === key) {
     const c = panel.querySelector('.vote-count');
     if (c) c.textContent = countTxt;
@@ -2594,6 +2625,14 @@ function renderVotePanel(ap){
   if (mine) {
     const t = mine.targetId ? G.p.find(function(p){ return p.id === mine.targetId; }) : null;
     h = '<div class="vote-done">' + (mine.targetId ? (fr ? '✓ Vote envoyé : ' : '✓ Vote sent: ') + escHtml(t ? t.username : '?') : (fr ? '✓ Abstention envoyée' : '✓ Abstention sent')) + '</div>';
+    if (mine.targetId) {
+      const picked = myVoteReason();
+      h += '<div class="vote-reason"><span class="vote-reason-label">' + (fr ? 'Pourquoi ?' : 'Why?') + '</span>';
+      VOTE_REASONS.forEach(function(r){
+        h += '<button type="button" class="vote-reason-chip' + (picked === r[0] ? ' selected' : '') + '" data-reason="' + r[0] + '" aria-pressed="' + (picked === r[0]) + '">' + (fr ? r[1] : r[2]) + '</button>';
+      });
+      h += '</div>';
+    }
   } else {
     const selP = G.voteSel && G.voteSel !== 'abstain' ? G.p.find(function(p){ return p.id === G.voteSel; }) : null;
     const confirm = G.voteSel === 'abstain' ? (fr ? "CONFIRMER L'ABSTENTION" : 'CONFIRM ABSTENTION')
@@ -2619,6 +2658,9 @@ function renderVotePanel(ap){
   if (vb) vb.onclick = confirmVote;
   const vc = document.getElementById('vote-cancel');
   if (vc) vc.onclick = function(){ G.voteSel = null; renderVotePanel(ap); };
+  panel.querySelectorAll('.vote-reason-chip').forEach(function(b){
+    b.onclick = function(){ pickVoteReason(b.dataset.reason, ap); };
+  });
 }
 
 // ── Reply to a message: button (hover on desktop, always faint on touch) or long press ──
@@ -3270,6 +3312,7 @@ if(gameoverHomeBtn) gameoverHomeBtn.textContent = G.lang === 'fr' ? "Retour à l
 if(rematchDeadline) tickRematch();
 else if(!rematchPending) setRematchButton(false, G.lang === 'fr' ? 'Rejouer avec ce groupe' : 'Play again, same group');
 renderEndScreenHistory('gameover-history', 'gameover-history-title');
+renderGameFeedback();
 var goScreen=document.getElementById('gameover-screen');
 if(reason==='humans_win'){
   startGearsAnimation();
@@ -3281,6 +3324,51 @@ if(reason==='humans_win'){
   startScaleAnimation();
   if(goScreen)goScreen.style.background='linear-gradient(135deg,#0f172a 0%,#1e1040 100%)';
 }
+}
+
+// End-of-game note, a block of its own: own box, own state, own event. A star is sent at once; the clue with Send.
+const FEEDBACK_TEXT = {
+  fr: { rate: 'Ta note pour cette partie', clue: "Qu'est-ce qui t'a mis sur la piste ? (facultatif)", send: 'Envoyer', thanks: 'Merci !' },
+  en: { rate: 'Rate this game', clue: 'What put you on the trail? (optional)', send: 'Send', thanks: 'Thanks!' },
+};
+let gameFeedback = { room: null, rating: 0, clue: '', sent: false };
+function sendGameFeedback(){
+  socket.emit('gameFeedback', { rating: gameFeedback.rating, clue: gameFeedback.clue.trim() || null });
+}
+function renderGameFeedback(){
+  const box = document.getElementById('gameover-feedback');
+  if (!box) return;
+  if (gameFeedback.room !== roomId) gameFeedback = { room: roomId, rating: 0, clue: '', sent: false };
+  const t = G.lang === 'fr' ? FEEDBACK_TEXT.fr : FEEDBACK_TEXT.en;
+  if (gameFeedback.sent) { box.innerHTML = '<div class="feedback-thanks">' + t.thanks + '</div>'; return; }
+  let h = '<div class="feedback-label">' + t.rate + '</div><div class="feedback-stars">';
+  for (let i = 1; i <= 5; i++) {
+    h += '<button type="button" class="feedback-star' + (i <= gameFeedback.rating ? ' on' : '') + '" data-rating="' + i + '" aria-label="' + i + '/5" aria-pressed="' + (i === gameFeedback.rating) + '">★</button>';
+  }
+  h += '</div>';
+  if (gameFeedback.rating) {
+    h += '<textarea class="feedback-clue" id="feedback-clue" rows="2" maxlength="500" placeholder="' + escHtml(t.clue) + '"></textarea>'
+      + '<button type="button" class="feedback-send" id="feedback-send">' + t.send + '</button>';
+  }
+  box.innerHTML = h;
+  box.querySelectorAll('.feedback-star').forEach(function(b){
+    b.onclick = function(){
+      gameFeedback.rating = Number(b.dataset.rating);
+      sendGameFeedback();
+      renderGameFeedback();
+    };
+  });
+  const clue = document.getElementById('feedback-clue');
+  if (clue) {
+    clue.value = gameFeedback.clue;
+    clue.oninput = function(){ gameFeedback.clue = clue.value; };
+  }
+  const send = document.getElementById('feedback-send');
+  if (send) send.onclick = function(){
+    sendGameFeedback();
+    gameFeedback.sent = true;
+    renderGameFeedback();
+  };
 }
 
 function setRematchButton(disabled, text){
