@@ -127,6 +127,8 @@ io.on('connection', (socket) => {
       const playerId = room.playerIdBySocket(socket.id);
       // The token goes to this socket only: it is how this client takes its seat back after a dropped connection.
       socket.emit('joinSuccess', { playerId, roomId: actualRoomId, token: playerId ? room.sessionToken(playerId) : null });
+      // The room broadcast its new state before this socket joined it: send it to the newcomer directly.
+      socket.emit('gameState', room.publicState());
       console.log(`${username} joined successfully in ${actualRoomId}`);
     } else {
       socket.emit('joinError', { message: 'Room is full or unavailable' });
