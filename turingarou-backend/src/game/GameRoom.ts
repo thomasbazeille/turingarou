@@ -13,7 +13,7 @@ import {
 } from '../types/game.types.js';
 import { ChatProvider } from '../llm/chatClient.js';
 import { modelLabel } from '../llm/providerRegistry.js';
-import { getQuestionsForLanguage } from './QuestionBank.js';
+import { drawQuestion } from './QuestionBank.js';
 import {
   saveGameLog,
   updateHumanProfiles,
@@ -29,6 +29,7 @@ import {
 import { drawStyleProfile } from './aiSpeech.js';
 import { checkMessage } from './formGate.js';
 import { Bot } from './Bot.js';
+import { CastMember, drawCast, templatesFor } from './botCast.js';
 import {
   BOT_ABSTAIN_PROB,
   BotDirector,
@@ -477,7 +478,8 @@ export class GameRoom {
 
   private async addAIPlayers(): Promise<void> {
     const usedPersonaNames = new Set<string>();
-    for (const personality of this.generateAIPersonalities(this.state.aiCount)) {
+    const cast = drawCast(this.state.aiCount, this.deps.rng);
+    for (const [i, personality] of this.generateAIPersonalities(cast).entries()) {
       const color = this.freeColor();
       if (!color) return;
       const player: AIPlayerData = {
@@ -499,7 +501,7 @@ export class GameRoom {
       if (persona) usedPersonaNames.add(persona.username);
 
       const provider = this.pickProvider();
-      const profile = drawStyleProfile(this.deps.rng);
+      const profile = cast[i].profile;
       this.director.addBot(
         new Bot(
           {
@@ -514,12 +516,13 @@ export class GameRoom {
             strategyName: strategy.name,
             personality: personality.systemPrompt,
             persona: persona ?? null,
+            conversationRole: cast[i].conversationRole,
           },
           { llm: this.director.llmSink, speech: this.director.speechSink, rng: this.deps.rng }
         )
       );
       this.deps.log(
-        `[GameRoom] AI ${personality.name} uses provider: ${provider.name}, style ${personality.responseStyle}, case ${profile.caseProfile}` +
+        `[GameRoom] AI ${personality.name} uses provider: ${provider.name}, style ${personality.responseStyle}, role ${cast[i].conversationRole}, case ${profile.caseProfile}` +
           (persona ? `, persona ${persona.username}` : '')
       );
     }
@@ -545,15 +548,15 @@ export class GameRoom {
     });
   }
 
-  private generateAIPersonalities(count: number): AIPersonality[] {
+  private generateAIPersonalities(cast: CastMember[]): AIPersonality[] {
     const used = this.state.players.filter((p) => p.type === 'human').map((p) => p.username);
-    const templates = this.shuffle(PERSONALITY_TEMPLATES);
+    const templates = templatesFor(PERSONALITY_TEMPLATES, cast, this.deps.rng);
     const result: AIPersonality[] = [];
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < cast.length; i++) {
       const name = this.deps.names.pick(used);
       used.push(name);
       this.deps.names.add(name);
-      const t = templates[i % templates.length];
+      const t = templates[i];
       result.push({ name, traits: t.traits, systemPrompt: t.systemPrompt.replace(/\{name\}/g, name), responseStyle: t.responseStyle, suspicionLevel: t.suspicionLevel });
     }
     return result;
@@ -938,8 +941,8 @@ export class GameRoom {
   }
 
   private getRandomQuestion(): string {
-    const questions = getQuestionsForLanguage(this.state.language === 'en' ? 'en' : 'fr');
-    return questions[Math.floor(this.deps.rng() * questions.length)];
+    const asked = Array.from({ length: this.state.currentRound - 1 }, (_, i) => this.questionsByRound.get(i + 1) ?? '');
+    return drawQuestion(this.state.language === 'en' ? 'en' : 'fr', asked, this.deps.rng);
   }
 
   private emitState(): void {

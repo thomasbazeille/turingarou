@@ -1,11 +1,14 @@
 import { strict as assert } from 'node:assert/strict';
 import {
   answerTarget,
+  botFloorWaitMs,
   cooldownMs,
   discussionDelay,
   firstMessageDelay,
   globalGapMs,
+  groupPaceOf,
   makeSeededRng,
+  paceOf,
   readingMs,
   reflectionMs,
   skipProbability,
@@ -309,6 +312,57 @@ test('cooldownMs random bounds [8000, 15000] over 2000 draws', () => {
   const rng = makeSeededRng(73);
   const values = draws(2000, rng, () => cooldownMs('random', false, rng));
   assert.ok(Math.min(...values) >= 8000 && Math.max(...values) < 15000, `[${Math.min(...values)}, ${Math.max(...values)}]`);
+});
+
+// --- pace regulator (share of the talk vs 1/n) ---
+
+test('paceOf: under 1/n → under, above → over, at 1/n → balanced (8 players, 20 lines)', () => {
+  assert.equal(paceOf(0, 20, 8), 'under');
+  assert.equal(paceOf(1, 20, 8), 'under');
+  assert.equal(paceOf(2, 20, 8), 'balanced');
+  assert.equal(paceOf(3, 20, 8), 'over');
+  assert.equal(paceOf(6, 20, 8), 'over');
+});
+
+test('paceOf: an empty or near-empty chat pushes nobody to talk, one line of four is already over', () => {
+  assert.equal(paceOf(0, 0, 8), 'balanced');
+  assert.equal(paceOf(0, 4, 8), 'balanced');
+  assert.equal(paceOf(1, 4, 8), 'over');
+});
+
+test('paceOf: the fair share grows when players are eliminated (3 lines of 20: over at 8 players, balanced at 6)', () => {
+  assert.equal(paceOf(3, 20, 8), 'over');
+  assert.equal(paceOf(3, 20, 6), 'balanced');
+});
+
+test('skipProbability and cooldownMs: under < balanced < over for every style', () => {
+  for (const style of ['quick', 'thoughtful', 'random'] as ResponseStyle[]) {
+    assert.ok(skipProbability(style, 'under') < skipProbability(style, 'balanced'), `${style} skip under`);
+    assert.ok(skipProbability(style, 'balanced') < skipProbability(style, 'over'), `${style} skip over`);
+    assert.ok(skipProbability(style, 'over') >= 0.85, `${style} over skips most ticks`);
+    for (const short of [true, false]) {
+      const at = (pace: 'under' | 'balanced' | 'over') => cooldownMs(style, short, () => 0.5, pace);
+      assert.ok(at('under') < at('balanced') && at('balanced') < at('over'), `${style} cooldown short=${short}`);
+    }
+  }
+});
+
+test('groupPaceOf: 3 bots of 8 players own 3/8 of the lines when balanced', () => {
+  assert.equal(groupPaceOf(7, 20, 8, 3), 'balanced');
+  assert.equal(groupPaceOf(4, 20, 8, 3), 'under');
+  assert.equal(groupPaceOf(10, 20, 8, 3), 'over');
+});
+
+test('botFloorWaitMs: 2 bot lines in 10 s hold a third, unless the bots as a group are under their share', () => {
+  const r = () => 0.5;
+  assert.equal(botFloorWaitMs(10000, 6000, [4000, 6000], 'under', r), 0);
+  assert.equal(botFloorWaitMs(10000, 6000, [4000, 6000], 'balanced', r), 4000 + 300);
+});
+
+test('botFloorWaitMs: the gap after any bot line is 1.5x longer while the bots are over their share', () => {
+  const r = () => 0.5;
+  assert.equal(botFloorWaitMs(10000, 6000, [6000], 'balanced', r), 0);
+  assert.equal(botFloorWaitMs(10000, 6000, [6000], 'over', r), 3250 * 1.5 - 4000 + 300);
 });
 
 // --- globalGapMs ---

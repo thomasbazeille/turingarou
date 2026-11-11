@@ -176,6 +176,57 @@
     ]
   },
   
+  "texture_questions": {
+    "effectiveness": 4,
+    "description": "Sensoriel, émotionnel, social, souvenirs concrets : une part garantie du tirage (QuestionBank.TEXTURE_MIN_SHARE)",
+    "sensoriel": [
+      "C'est quoi l'odeur qui te ramène direct en enfance ?",
+      "Un bruit que tu supportes vraiment pas ?",
+      "Un plat de cantine dont tu te souviens encore du goût ?",
+      "La dernière fois que t'as eu vraiment froid, t'étais où ?",
+      "Une texture de bouffe qui te dégoûte ?",
+      "Le bruit qui te fait sentir en vacances ?",
+      "Ça sentait quoi chez tes grands-parents ?",
+      "Un truc que t'aimes toucher sans raison ?",
+      "Un goût d'enfance qui te manque ?"
+    ],
+    "emotionnel": [
+      "Le dernier truc qui t'a fait rire tout seul ?",
+      "La dernière fois que t'as eu le trac, c'était pour quoi ?",
+      "Un petit truc qui t'a mis de bonne humeur aujourd'hui ?",
+      "Le dernier film ou la dernière série qui t'a fait pleurer ?",
+      "Un détail débile qui t'a gâché la journée récemment ?",
+      "T'as déjà eu un fou rire au pire moment ?",
+      "La dernière fois que t'étais fier de toi, c'était pour quoi ?",
+      "Un truc qui t'a fait flipper alors que c'était rien ?",
+      "Un truc qui t'énerve dans les transports ?"
+    ],
+    "social": [
+      "Ton dernier SMS, c'était pour dire quoi ?",
+      "Un pote qui t'a déjà mis la honte en public ?",
+      "T'es plutôt celui qui arrive en retard ou celui qui attend ?",
+      "Au dernier repas de famille, ça a parlé de quoi ?",
+      "Un truc sur lequel tes potes te chambrent tout le temps ?",
+      "Ta pire soirée, en une phrase ?",
+      "En soirée t'es plutôt cuisine, canapé ou piste de danse ?",
+      "La dernière personne avec qui t'as ri au téléphone ?",
+      "Un voisin bizarre que t'as eu ?"
+    ],
+    "souvenirs_concrets": [
+      "Ton premier portable, c'était lequel ?",
+      "Ton goûter préféré quand t'étais petit ?",
+      "Le pire prof que t'aies eu, il faisait quoi ?",
+      "Un souvenir de colo ou de vacances quand t'étais gamin ?",
+      "C'était quoi ton premier concert ?",
+      "Une connerie que t'as faite au collège ?",
+      "Ton dessin animé du mercredi ?",
+      "La dernière fois que t'as pris le train, t'allais où ?",
+      "Un jouet que t'as encore aujourd'hui ?",
+      "T'as fait quoi avec ta première paie ?",
+      "Le dernier plat que t'as complètement raté ?"
+    ]
+  },
+
   "meta_contextual": {
     "effectiveness": 4,
     "description": "Nécessitent conscience du contexte",
