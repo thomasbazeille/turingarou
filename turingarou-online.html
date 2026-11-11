@@ -581,6 +581,7 @@
       <div class="question-text">"What color are your socks right now?"</div>
       <input type="text" id="answer-input" class="answer-input" placeholder="Type your answer..." maxlength="200" onkeydown="if(event.key==='Enter'){event.preventDefault();submitAnswer();}">
       <button class="submit-btn" id="submit-answer-btn" onclick="submitAnswer()">SUBMIT</button>
+      <div id="answers-hidden-note" style="color:#64748b;font-size:11px;margin-top:10px;"></div>
     </div>
     <div class="players-status-grid" id="players-status-grid"></div>
   </div>
@@ -765,7 +766,7 @@
 const COLORS=[{n:'Red',h:'#ef4444'},{n:'Orange',h:'#f97316'},{n:'Gold',h:'#eab308'},{n:'Silver',h:'#94a3b8'},{n:'Purple',h:'#a855f7'},{n:'Turquoise',h:'#06b6d4'},{n:'Pink',h:'#ec4899'},{n:'Lime',h:'#84cc16'},{n:'Indigo',h:'#6366f1'}];
 const T=8,A=3;  // 8 joueurs total (5 humains + 3 IA)
 const HUMAN_NEEDED=5;
-let G={s:'waiting',r:1,mr:7,t:100,qt:15,p:[],m:[],e:[],eliminationOrder:[],l:null,im:null,a:{},v:{},h:{},vh:{},sh:false,sa:null,ui:false,eliminatedAiCount:0,lang:'fr',currentQuestion:null,questions:{},questionEndTime:null,singleChat:false,flagged:new Set(),colOrder:null,myVote:null,voteSel:null,voteCount:0,replyTo:null,endSeq:null,endRoundEndTime:null};
+let G={s:'waiting',r:1,mr:7,t:100,qt:15,p:[],m:[],e:[],eliminationOrder:[],l:null,im:null,a:{},v:{},h:{},vh:{},sh:false,sa:null,ui:false,eliminatedAiCount:0,lang:'fr',currentQuestion:null,questions:{},questionEndTime:null,singleChat:false,flagged:new Set(),colOrder:null,myVote:null,myAnswer:null,voteSel:null,voteCount:0,replyTo:null,endSeq:null,endRoundEndTime:null};
 
 // === SOCKET.IO SETUP ===
 // Configuration automatique selon environnement
@@ -1056,6 +1057,12 @@ socket.on('rematchError', ({ reason }) => {
 socket.on('gameState', (state) => {
   console.log('📊 Game state update:', state.phase);
   updateGameFromServer(state);
+});
+
+// The server sends each player their own answer only; everyone's shows once the question is over.
+socket.on('myAnswer', (a) => {
+  G.myAnswer = a && typeof a.round === 'number' ? a : null;
+  if (G.s === 'question') syncAnswerForm();
 });
 
 // The server sends each player their own vote only; the others' stay hidden until the round end.
@@ -1431,7 +1438,9 @@ function updateGameFromServer(state) {
   const hasVotedFor = (pid) => revealed
     ? !!(state.votes && state.votes.some(function(v){ return v.voterId === pid; }))
     : pid === playerId && !!myVoteThisRound();
-  const hasAnsweredFor = (pid) => state.answers && state.answers.some(function(a){ return a.playerId === pid; });
+  // During the question only this player's own answer is known (myAnswer); nobody else's, nor whether they answered.
+  if (state.phase !== 'question') G.myAnswer = null;
+  const hasAnsweredFor = (pid) => pid === playerId && !!myAnswerThisRound();
   // Mettre à jour les joueurs
   G.p = state.players.map((p, i) => ({
     id: p.id,
@@ -1537,10 +1546,7 @@ function updateGameFromServer(state) {
         if (inp) { inp.disabled = false; inp.value = ''; inp.placeholder = G.lang === 'fr' ? 'Ta réponse...' : 'Type your answer...'; }
         if (subBtn) { subBtn.disabled = false; subBtn.textContent = G.lang === 'fr' ? 'ENVOYER' : 'SUBMIT'; }
       } else {
-        // Pendant la phase : ne pas toucher au contenu du champ ; mettre à jour disabled/btn si le joueur a déjà répondu (state.answers)
-        var localHasAnswered = state.answers && state.answers.some(function(a){ return a.playerId === playerId; });
-        if (inp) { inp.disabled = !!localHasAnswered; if (!localHasAnswered) inp.placeholder = G.lang === 'fr' ? 'Ta réponse...' : 'Type your answer...'; }
-        if (subBtn) { subBtn.disabled = !!localHasAnswered; subBtn.textContent = localHasAnswered ? '✓ SUBMITTED' : (G.lang === 'fr' ? 'ENVOYER' : 'SUBMIT'); }
+        syncAnswerForm();
       }
       const questionText = document.querySelector('.question-text');
       if (questionText && state.currentQuestion) {
@@ -1989,20 +1995,24 @@ Voice.bindPtt();
 function renderQuestionScreen(){
 const g=document.getElementById('players-status-grid');
 g.innerHTML='';
+const note=document.getElementById('answers-hidden-note');
+if(note)note.textContent=G.lang==='fr'?'Les réponses s’affichent à la fin de la question.':'Answers show when the question ends.';
 playersWithLocalLast(G.p).forEach(p=>{
+// Only the local player's own card says whether they answered: nobody else's answer is known before the end.
+const done=p.isLocal&&p.hasAnswered;
 const c=document.createElement('div');
-c.className='player-status-card'+(p.hasAnswered?' answered':'');
+c.className='player-status-card'+(done?' answered':'');
 const av=document.createElement('div');
-av.className='status-avatar'+(p.hasAnswered?'':' waiting');
+av.className='status-avatar'+(p.isLocal&&!done?' waiting':'');
 av.style.background=p.color;
-av.style.boxShadow=p.hasAnswered?'0 0 12px '+p.color+'80':'none';
+av.style.boxShadow=done?'0 0 12px '+p.color+'80':'none';
 av.textContent=p.username.charAt(0);
 const tx=document.createElement('div');
 tx.style.flex='1';
-tx.innerHTML='<div style="color:'+(p.hasAnswered?'#fff':'#71717a')+';font-size:13px;font-weight:500;">'+p.username+'</div>';
+tx.innerHTML='<div style="color:'+(p.isLocal&&!done?'#71717a':'#fff')+';font-size:13px;font-weight:500;">'+p.username+'</div>';
 c.appendChild(av);
 c.appendChild(tx);
-if(p.hasAnswered){
+if(done){
 const ch=document.createElement('div');
 ch.className='status-check';
 ch.textContent='✓';
@@ -2026,13 +2036,29 @@ function submitAnswer(){
   
   inp.disabled = true;
   const btn = document.getElementById('submit-answer-btn');
-  if (btn) { btn.textContent = '✓ SUBMITTED'; btn.disabled = true; }
+  if (btn) { btn.textContent = G.lang === 'fr' ? '✓ ENVOYÉ' : '✓ SUBMITTED'; btn.disabled = true; }
   if (typeof playerId !== 'undefined' && G.a) {
     G.a[playerId] = ans;
     var me = G.p && G.p.find(function(p){ return p.id === playerId; });
     if (me) me.hasAnswered = true;
     renderQuestionScreen();
   }
+}
+
+function myAnswerThisRound(){
+  return G.myAnswer && G.myAnswer.round === G.r ? G.myAnswer : null;
+}
+
+/** Mid-question (a state, a resume, the server's myAnswer): lock the form once this player's answer is in, keep what they type otherwise. */
+function syncAnswerForm(){
+  var done = !!myAnswerThisRound();
+  var inp = document.getElementById('answer-input');
+  var btn = document.getElementById('submit-answer-btn');
+  if (inp) { inp.disabled = done; if (!done) inp.placeholder = G.lang === 'fr' ? 'Ta réponse...' : 'Type your answer...'; }
+  if (btn) { btn.disabled = done; btn.textContent = done ? (G.lang === 'fr' ? '✓ ENVOYÉ' : '✓ SUBMITTED') : (G.lang === 'fr' ? 'ENVOYER' : 'SUBMIT'); }
+  var me = G.p && G.p.find(function(p){ return p.id === playerId; });
+  if (me) me.hasAnswered = done;
+  renderQuestionScreen();
 }
 
 function startGameRound(){
@@ -2896,6 +2922,7 @@ function goHome(){
   G.eliminatedPlayerIsAI = null;
   G.flagged = new Set();
   G.myVote = null;
+  G.myAnswer = null;
   G.voteSel = null;
   G.replyTo = null;
   if (G.endSeq) { G.endSeq.timers.forEach(clearTimeout); G.endSeq = null; }

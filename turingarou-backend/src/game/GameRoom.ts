@@ -911,7 +911,7 @@ export class GameRoom {
     if (!player || player.isEliminated) return;
     this.state.answers = this.state.answers.filter((a) => a.playerId !== playerId);
     this.state.answers.push({ playerId, playerName: player.username, answer, timestamp: this.now() });
-    this.emitState();
+    // No broadcast: a state sent now would say that someone answered at this instant. The author gets answerOf.
 
     // Everyone answered: discussion starts now, or at QUESTION_MIN_MS if that is later. A bot that skips keeps the
     // phase open like a silent human would, otherwise an early close with one missing answer would point at a bot.
@@ -939,6 +939,21 @@ export class GameRoom {
     this.state.votes.push({ voterId, targetId });
     this.emitState();
     this.tryEndVotingEarly();
+  }
+
+  /** This player's own answer of the round, for their client only (never broadcast before the question ends). */
+  answerOf(playerId: string): { round: number; answer: string } | null {
+    const own = this.state.answers.find((a) => a.playerId === playerId);
+    return own ? { round: this.state.currentRound, answer: own.answer } : null;
+  }
+
+  /** Answers as browsers see them once the question is over: in seat order, without the time each one came in. */
+  private shownAnswers(answers: QuestionAnswer[]): Omit<QuestionAnswer, 'timestamp'>[] {
+    const byPlayer = new Map(answers.map((a) => [a.playerId, a]));
+    return this.state.players.flatMap((p) => {
+      const a = byPlayer.get(p.id);
+      return a ? [{ playerId: a.playerId, playerName: a.playerName, answer: a.answer }] : [];
+    });
   }
 
   /** This player's own vote of the round, for their client only (never broadcast before the round end). */
@@ -1080,6 +1095,13 @@ export class GameRoom {
       })),
       eliminationOrder: [...this.eliminationOrder],
     };
+    // Answers stay hidden until the question ends (each author gets their own through answerOf), then show in seat
+    // order without their time: who answered, when or in what order would point at the bots.
+    const answered = ['discussion', 'voting', 'endround', 'gameover'].includes(this.state.phase);
+    out.answers = answered ? this.shownAnswers(this.state.answers) : [];
+    if (this.state.answersByRound) {
+      out.answersByRound = Object.fromEntries(Object.entries(this.state.answersByRound).map(([rd, list]) => [rd, this.shownAnswers(list)]));
+    }
     // Votes stay hidden until the round end: each player gets their own through voteOf, everyone an anonymous count.
     out.votes = this.state.phase === 'endround' || over ? [...this.revealedVotes] : [];
     if (this.state.phase === 'voting') out.voteCount = this.state.votes.length;

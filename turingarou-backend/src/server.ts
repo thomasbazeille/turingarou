@@ -194,6 +194,7 @@ io.on('connection', (socket) => {
     socket.emit('resumeSuccess', { playerId: seat.playerId, roomId });
     socket.emit('gameState', room.publicState(socket.id));
     socket.emit('myVote', room.voteOf(seat.playerId));
+    socket.emit('myAnswer', room.answerOf(seat.playerId));
     console.log(`${seat.playerId} resumed in ${roomId}`);
   });
 
@@ -214,13 +215,14 @@ io.on('connection', (socket) => {
     currentRoom.addMessage(playerId, message, replyToId);
   });
 
-  // Répondre à la question
+  // Répondre à la question ; la réponse n'est renvoyée qu'à son auteur, les autres la voient à la fin de la question
   socket.on('answerQuestion', ({ answer }: { answer: string }) => {
     const playerId = me();
     if (!currentRoom || !playerId) return;
 
     console.log(`Answer from ${playerId}: ${answer}`);
     currentRoom.addAnswer(playerId, answer);
+    socket.emit('myAnswer', currentRoom.answerOf(playerId));
   });
 
   // Voter (ou s'abstenir) ; le vote n'est renvoyé qu'à son auteur, les autres ne voient qu'un compteur anonyme

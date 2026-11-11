@@ -883,6 +883,27 @@ async function runGame(sc: Scenario): Promise<GameResult> {
           const count = (p as { voteCount?: unknown }).voteCount;
           if (p.phase === 'voting' ? count !== state().votes.length : count !== undefined) offend('votes_visible', `${p.phase} r${p.currentRound}: voteCount ${String(count)} (room has ${state().votes.length})`);
         }
+        // Before the question ends, no browser learns who answered, what, or when: no answer in any state, and no state
+        // at all between the question's start and its end. Then every answer shows in seat order, without its time.
+        const prevPhase = phases[phases.length - 1];
+        const shownAnswers = (p as { answers?: Record<string, unknown>[] }).answers ?? [];
+        if (p.phase === 'question') {
+          inc('answers_hidden_checked');
+          if (shownAnswers.length > 0) offend('answers_visible', `question r${p.currentRound}: ${shownAnswers.length} answer(s) in the state, by ${shownAnswers.map((a) => String(a.playerName)).join(', ')}`);
+          if (prevPhase?.phase === 'question' && prevPhase.round === p.currentRound) offend('answers_visible', `question r${p.currentRound}: state broadcast ${((clock.now() - prevPhase.t) / 1000).toFixed(1)} s into the phase`);
+        } else if (p.phase === 'discussion' && !(prevPhase?.phase === 'discussion' && prevPhase.round === p.currentRound)) {
+          inc('answer_reveals');
+          const lists = [shownAnswers, ...Object.values((p as { answersByRound?: Record<string, Record<string, unknown>[]> }).answersByRound ?? {})];
+          const bad = lists.flatMap((list) => {
+            const order = list.map((a) => String(a.playerId));
+            const seatOrder = p.players.map((pl) => String(pl.id)).filter((pid) => order.includes(pid));
+            const extra = [...new Set(list.flatMap((a) => Object.keys(a).filter((k) => !['playerId', 'playerName', 'answer'].includes(k))))];
+            return [...(JSON.stringify(order) !== JSON.stringify(seatOrder) ? ['not in seat order'] : []), ...(extra.length ? [`carries [${extra.join(',')}]`] : [])];
+          });
+          if (shownAnswers.length !== state().answers.length) bad.push(`${shownAnswers.length} shown of ${state().answers.length}`);
+          if (bad.length) offend('answer_reveal', `r${p.currentRound} answers revealed ${[...new Set(bad)].join(', ')}`);
+          else inc('answer_reveals_ok');
+        }
         const names = p.players.map((pl) => String(pl.username).toLowerCase());
         for (const msg of (p as { messages?: GameMessage[] }).messages ?? []) {
           if (seenMessages.has(msg.id)) continue;
@@ -1721,6 +1742,12 @@ function report(results: GameResult[], elapsed: number, games: number, probe: Fl
       value: `${sum('votes_visible')} leaks over ${['waiting', 'question', 'discussion', 'voting'].map((ph) => `${ph} ${sum(`votes_hidden_checked:${ph}`)}`).join(', ')} states; reveal = one entry per voter in seat order ${sum('vote_reveals') - offenders('vote_reveal').length}/${sum('vote_reveals')} rounds`,
       ok: sum('votes_visible') + sum('vote_reveal') === 0 && sum('votes_hidden_checked:voting') > 0 && sum('vote_reveals') > 0,
       keys: ['votes_visible', 'vote_reveal'],
+    },
+    {
+      name: 'no answer nor answerer visible before the question ends',
+      value: `${sum('answers_visible')} leaks over ${sum('answers_hidden_checked')} question states; then seat order, no time ${sum('answer_reveals_ok')}/${sum('answer_reveals')} rounds`,
+      ok: sum('answers_visible') + sum('answer_reveal') === 0 && sum('answers_hidden_checked') > 0 && sum('answer_reveals') > 0,
+      keys: ['answers_visible', 'answer_reveal'],
     },
     {
       name: 'abstention: bots and humans, a vote rendered, eliminates nobody',

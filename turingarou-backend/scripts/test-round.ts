@@ -249,6 +249,26 @@ await check('everyone answered after the floor: the discussion starts at the las
   assert.equal(room.getState().discussionEndTime, clock.now() + DISCUSSION_PHASE_MS);
 });
 
+await check('answers stay hidden until the question ends: no broadcast per answer, none in the state, then seat order without time', async () => {
+  const { room, clock, emits, ids, last } = await started('Q4');
+  const seat = ids();
+  const before = emits.length;
+  // Answered in reverse seat order, one player never answers.
+  for (const [i, id] of [...seat].slice(1).reverse().entries()) {
+    clock.advance(500 + i * 100);
+    room.addAnswer(id, `rep ${id}`);
+  }
+  assert.equal(emits.length, before, 'an answer was broadcast during the question');
+  assert.deepEqual(room.publicState().answers, [], 'answers in the state sent to a client joining mid-question');
+  assert.deepEqual(room.answerOf(seat[1]), { round: 1, answer: `rep ${seat[1]}` });
+  assert.equal(room.answerOf(seat[0]), null);
+  clock.advance(QUESTION_PHASE_MS);
+  const reveal = last();
+  assert.equal(reveal.phase, 'discussion');
+  assert.deepEqual(reveal.answers.map((a: { playerId: string }) => a.playerId), seat.slice(1), 'answers not in seat order');
+  assert.ok(reveal.answers.every((a: Record<string, unknown>) => !('timestamp' in a)), 'answer times sent to the clients');
+});
+
 await check('one answer missing: no early end, the question runs its full time', async () => {
   const { room, clock, ids } = await started('Q3');
   answerAll(room, ids().slice(1));
