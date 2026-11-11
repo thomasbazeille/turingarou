@@ -5,7 +5,8 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { GameRoom } from './game/GameRoom.js';
+import { GameRoom, TableOptions } from './game/GameRoom.js';
+import { REMATCH_WINDOW_MS, RematchLink, newRoomCode, rematchTable, routeRematch } from './game/rematch.js';
 import { initDB, isDBEnabled } from './game/GameLogger.js';
 import { registerHistoryRoutes } from './history/routes.js';
 import fs from 'fs';
@@ -59,14 +60,14 @@ const VERSION = (() => {
 
 const gameRooms = new Map<string, GameRoom>();
 
-function createRoom(roomId: string, aiCount: number): GameRoom {
+function createRoom(roomId: string, aiCount: number, table: TableOptions = {}): GameRoom {
   const room: GameRoom = new GameRoom(roomId, io, llmProviders, aiCount, {
     onVacant: () => {
       if (gameRooms.get(roomId) !== room) return;
       gameRooms.delete(roomId);
       console.log(`Room ${roomId} deleted (no humans left)`);
     },
-  });
+  }, table);
   gameRooms.set(roomId, room);
   return room;
 }
@@ -98,11 +99,15 @@ function getOrCreateRoom(roomId: string): GameRoom {
   // Room privée avec code custom
   if (!gameRooms.has(roomId)) {
     const aiCount = parseInt(process.env.AI_COUNT || '3');
-    createRoom(roomId, aiCount);
+    // The host launches from 3 humans, with fewer AIs than a full table.
+    createRoom(roomId, aiCount, roomId.startsWith('public-') ? {} : { hostLaunch: true });
     console.log(`Created private room: ${roomId} with ${aiCount} AIs`);
   }
   return gameRooms.get(roomId)!;
 }
+
+/** The rematch room opened from each finished room, kept as long as some socket still holds the finished room. */
+const rematchLinks = new WeakMap<GameRoom, RematchLink>();
 
 // ====== SOCKET.IO EVENTS ======
 
@@ -113,11 +118,7 @@ io.on('connection', (socket) => {
   // Resolved on every action: once a resume moves the seat to another socket, this one plays for nobody.
   const me = (): string | null => (currentRoom ? currentRoom.playerIdBySocket(socket.id) : null);
 
-  // Rejoindre une room
-  socket.on('joinRoom', async ({ roomId, username, language }: { roomId: string; username: string; language?: 'fr' | 'en' }) => {
-    console.log(`${username} joining room ${roomId}`);
-
-    const room = getOrCreateRoom(roomId);
+  const joinInto = async (room: GameRoom, username: string, language?: 'fr' | 'en') => {
     const actualRoomId = room.getState().roomId;
     const success = await room.addHumanPlayer(socket.id, username, language);
 
@@ -128,11 +129,53 @@ io.on('connection', (socket) => {
       // The token goes to this socket only: it is how this client takes its seat back after a dropped connection.
       socket.emit('joinSuccess', { playerId, roomId: actualRoomId, token: playerId ? room.sessionToken(playerId) : null });
       // The room broadcast its new state before this socket joined it: send it to the newcomer directly.
-      socket.emit('gameState', room.publicState());
+      socket.emit('gameState', room.publicState(socket.id));
       console.log(`${username} joined successfully in ${actualRoomId}`);
     } else {
       socket.emit('joinError', { message: 'Room is full or unavailable' });
     }
+  };
+
+  // Rejoindre une room
+  socket.on('joinRoom', async ({ roomId, username, language }: { roomId: string; username: string; language?: 'fr' | 'en' }) => {
+    console.log(`${username} joining room ${roomId}`);
+    await joinInto(getOrCreateRoom(roomId), username, language);
+  });
+
+  // L'hôte d'une salle privée lance la partie avec les humains présents (3 au moins)
+  socket.on('launchGame', async () => {
+    const refusal = currentRoom ? await currentRoom.launch(socket.id) : 'not_waiting';
+    if (refusal) socket.emit('launchError', { reason: refusal });
+  });
+
+  // Rejouer avec le même groupe : le premier clic ouvre une salle privée liée, les suivants y entrent pendant REMATCH_WINDOW_MS
+  socket.on('rematch', async () => {
+    const old = currentRoom;
+    if (!old || !me() || old.getState().phase !== 'gameover') {
+      socket.emit('rematchError', { reason: 'not_over' });
+      return;
+    }
+    const link = rematchLinks.get(old) ?? null;
+    const linked = link ? gameRooms.get(link.roomId) ?? null : null;
+    const route = routeRematch(link, Date.now(), linked ? { joinable: linked.isJoinable() } : null);
+    if (route.kind === 'closed') {
+      socket.emit('rematchError', { reason: route.reason });
+      return;
+    }
+    const finished = old.getState();
+    let room = route.kind === 'join' ? gameRooms.get(route.roomId) : undefined;
+    if (!room) {
+      const roomId = newRoomCode((code) => gameRooms.has(code));
+      room = createRoom(roomId, parseInt(process.env.AI_COUNT || '3'), rematchTable(finished.players.map((p) => p.username)));
+      rematchLinks.set(old, { roomId, openedAt: Date.now() });
+      io.to(finished.roomId).emit('rematchOpen', { remainingMs: REMATCH_WINDOW_MS });
+      console.log(`Rematch room ${roomId} opened from ${finished.roomId}`);
+    }
+    // The finished seat is left for good: its token opens nothing any more, and the new room hands out its own.
+    old.leave(socket.id);
+    socket.leave(finished.roomId);
+    currentRoom = null;
+    await joinInto(room, '', finished.language);
   });
 
   // Reprendre sa place après une coupure (veille mobile, réseau) avec le jeton reçu à joinSuccess
@@ -149,7 +192,7 @@ io.on('connection', (socket) => {
     // A socket that never noticed its own drop (a second tab, a half-open connection) stops playing this seat.
     if (seat.previousSocketId && seat.previousSocketId !== socket.id) io.sockets.sockets.get(seat.previousSocketId)?.disconnect(true);
     socket.emit('resumeSuccess', { playerId: seat.playerId, roomId });
-    socket.emit('gameState', room.publicState());
+    socket.emit('gameState', room.publicState(socket.id));
     console.log(`${seat.playerId} resumed in ${roomId}`);
   });
 

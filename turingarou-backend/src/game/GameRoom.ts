@@ -109,6 +109,34 @@ export const LOST_VOTE_CLOSE_MS = VOTE_DEADLINE_MS + 1000;
 if (VOTE_DEADLINE_MS >= VOTE_PHASE_MS) throw new Error('bot vote deadline must fall inside the vote phase');
 if (LOST_VOTE_CLOSE_MS >= VOTE_PHASE_MS) throw new Error('the close without lost players must fall inside the vote phase');
 
+/** A private room's host may launch from this many humans: fewer leaves nothing to deduce. */
+export const MIN_LAUNCH_HUMANS = 3;
+
+/**
+ * AIs at a table of this many seats on the humans' side (an inspector sits there): close to the full game's 3 in 8,
+ * never topped up to 8 seats, where 6 AIs would outvote 2 humans every round. 4 humans get 3 AIs: in simulated games
+ * (scripts/simulate-game.ts --balance, 200 per table, humans voting an AI on purpose 0, 30 or 50 % of the time) 4 + 3
+ * ends like 5 + 3, while 4 + 2 lets the humans win about 20 points more often.
+ */
+export function aiCountFor(humanSide: number): number {
+  return humanSide >= 4 ? 3 : 2;
+}
+
+/** What kind of table a room is; the default is the public room. */
+export interface TableOptions {
+  /** Private room: its earliest human still seated is the host and may launch from MIN_LAUNCH_HUMANS humans. */
+  hostLaunch?: boolean;
+  /** Rematch: every human sits under a name drawn like the AIs', never one of these (the previous game's names). */
+  freshNames?: { reserved: string[] };
+  /** AIs of a launched table; aiCountFor, unless a simulation compares another scale. */
+  aiCountFor?: (humanSide: number) => number;
+}
+
+export type LaunchRefusal = 'not_private' | 'not_waiting' | 'not_host' | 'too_few';
+
+/** A lobby seat as the other humans see it: taken, nothing more. */
+const HIDDEN_SEAT = { id: '', username: '', color: '', colorName: '', isReady: true, isEliminated: false };
+
 function sameSecret(a: string, b: string): boolean {
   const digest = (x: string) => createHash('sha256').update(x).digest();
   return timingSafeEqual(digest(a), digest(b));
@@ -152,8 +180,17 @@ export class GameRoom {
   private aborted = false;
   /** Bots are being created for a full room: no further join. */
   private starting = false;
+  private table: TableOptions;
 
-  constructor(roomId: string, io: RoomEmitter, llmProvider: ChatProvider | ChatProvider[], aiCount: number = 1, deps: Partial<GameRoomDeps> = {}) {
+  constructor(
+    roomId: string,
+    io: RoomEmitter,
+    llmProvider: ChatProvider | ChatProvider[],
+    aiCount: number = 1,
+    deps: Partial<GameRoomDeps> = {},
+    table: TableOptions = {}
+  ) {
+    this.table = table;
     this.io = io;
     this.llmProviders = Array.isArray(llmProvider) ? llmProvider : [llmProvider];
     this.deps = { ...defaultDeps, ...deps };
@@ -234,12 +271,14 @@ export class GameRoom {
     if (language && !this.state.players.length) this.state.language = language;
     const color = this.freeColor();
     if (!color) return false;
+    // A rematch would hand the new AIs away if the humans kept the names everyone just saw revealed.
+    const name = this.table.freshNames ? this.deps.names.pick(this.takenNames()) : username;
 
     const player: HumanPlayer = {
       type: 'human',
       id: this.newPlayerId(),
       socketId,
-      username,
+      username: name,
       color: color.hex,
       colorName: color.name,
       isReady: true,
@@ -248,7 +287,7 @@ export class GameRoom {
     this.state.players.push(player);
     this.kinds.set(player.id, 'human');
     this.sessions.set(player.id, { token: randomBytes(24).toString('base64url'), connected: true, disconnectedAt: 0, timer: null, gone: false });
-    this.deps.names.add(username);
+    this.deps.names.add(name);
     this.emitState();
     await this.startIfFull();
     return true;
@@ -261,12 +300,11 @@ export class GameRoom {
     const color = this.freeColor();
     if (!color) return false;
 
-    const humanNames = this.state.players.filter((p) => p.type === 'human').map((p) => p.username);
     const player: HumanPlayer = {
       type: 'human',
       id: this.newPlayerId(),
       socketId: '',
-      username: this.deps.names.pick(humanNames),
+      username: this.deps.names.pick(this.takenNames()),
       color: color.hex,
       colorName: color.name,
       isReady: true,
@@ -292,11 +330,46 @@ export class GameRoom {
 
   private async startIfFull(): Promise<void> {
     if (this.starting || this.state.players.length !== this.state.maxPlayers - this.state.aiCount) return;
+    await this.start();
+  }
+
+  private async start(): Promise<void> {
     this.starting = true;
     await this.addAIPlayers();
     if (this.aborted) return;
     this.shufflePlayers();
     this.startGame();
+  }
+
+  /** Names no newly drawn player may take: everyone seated, and in a rematch every name of the previous game. */
+  private takenNames(): string[] {
+    return [...this.state.players.map((p) => p.username), ...(this.table.freshNames?.reserved ?? [])];
+  }
+
+  private humanSeats(): number {
+    return this.state.players.filter((p) => this.kinds.get(p.id) === 'human').length;
+  }
+
+  /** The earliest human still seated in a private room's lobby. */
+  private hostId(): string | null {
+    if (!this.table.hostLaunch) return null;
+    return this.state.players.find((p) => this.kinds.get(p.id) === 'human')?.id ?? null;
+  }
+
+  /**
+   * The host of a private room starts now with the humans present; the AIs added follow the table size instead of
+   * filling it to 8. Refused to anyone else, below MIN_LAUNCH_HUMANS humans, and once the room no longer waits.
+   */
+  async launch(socketId: string): Promise<LaunchRefusal | null> {
+    if (!this.table.hostLaunch) return 'not_private';
+    if (!this.isJoinable()) return 'not_waiting';
+    const id = this.playerIdBySocket(socketId);
+    if (!id || id !== this.hostId()) return 'not_host';
+    if (this.humanSeats() < MIN_LAUNCH_HUMANS) return 'too_few';
+    this.state.aiCount = (this.table.aiCountFor ?? aiCountFor)(this.state.players.length);
+    this.state.maxPlayers = this.state.players.length + this.state.aiCount;
+    await this.start();
+    return null;
   }
 
   /** Secret of a human's seat, for their own client only (joinSuccess); never in the game state. */
@@ -515,7 +588,7 @@ export class GameRoom {
   }
 
   private generateAIPersonalities(count: number): AIPersonality[] {
-    const used = this.state.players.filter((p) => p.type === 'human').map((p) => p.username);
+    const used = this.takenNames();
     const templates = this.shuffle(PERSONALITY_TEMPLATES);
     const result: AIPersonality[] = [];
     for (let i = 0; i < count; i++) {
@@ -858,12 +931,43 @@ export class GameRoom {
   }
 
   private emitState(): void {
+    if (this.inLobby()) {
+      for (const p of this.state.players) {
+        if (p.type === 'human' && p.socketId) this.io.to(p.socketId).emit('gameState', this.lobbyState(p.id));
+      }
+      return;
+    }
     this.io.to(this.state.roomId).emit('gameState', this.sanitizeState());
   }
 
-  /** What every browser of the room was last sent, for a client that just took its seat back. */
-  publicState(): Record<string, unknown> {
+  /**
+   * What the browser of this socket was last sent, for a client that just joined or took its seat back. Mid-game every
+   * browser gets the same state; in the lobby each one gets its own.
+   */
+  publicState(socketId?: string): Record<string, unknown> {
+    if (this.inLobby()) return this.lobbyState(socketId ? this.playerIdBySocket(socketId) : null);
     return this.sanitizeState();
+  }
+
+  /** Before the game starts only humans sit here: anyone listed now would be known human once the AIs join. */
+  private inLobby(): boolean {
+    return this.state.phase === 'waiting' && !this.aborted;
+  }
+
+  /** The lobby as one human sees it: their own seat, how many other seats are taken, whether they may launch. */
+  private lobbyState(viewerId: string | null): Record<string, unknown> {
+    const out = this.sanitizeState();
+    out.players = (out.players as { id: string }[]).map((p) => (p.id === viewerId ? p : { ...HIDDEN_SEAT }));
+    const host = viewerId !== null && viewerId === this.hostId();
+    out.lobby = {
+      private: !!this.table.hostLaunch,
+      host,
+      launchFrom: this.table.hostLaunch ? MIN_LAUNCH_HUMANS : null,
+      launchAIs: this.table.hostLaunch ? (this.table.aiCountFor ?? aiCountFor)(this.state.players.length) : null,
+      canLaunch: host && this.isJoinable() && this.humanSeats() >= MIN_LAUNCH_HUMANS,
+      freshName: !!this.table.freshNames,
+    };
+    return out;
   }
 
   /** Who each player was, and the model behind each bot (inspectors are bots on the humans' side). Game over only. */

@@ -492,16 +492,26 @@
     </div>
     
     <div class="player-grid" id="player-grid"></div>
+    <div id="invite-note" style="display:none;color:#94a3b8;font-size:12px;margin-bottom:12px;max-width:420px;width:100%;text-align:center;"></div>
     <div id="room-code-display" style="display:none;background:rgba(6,182,212,0.1);border:1px solid rgba(6,182,212,0.3);border-radius:7px;padding:12px;margin-bottom:18px;max-width:420px;width:100%;text-align:center;">
-      <div style="color:#94a3b8;font-size:10px;margin-bottom:5px;">🔗 ROOM CODE</div>
+      <div id="room-code-label" style="color:#94a3b8;font-size:10px;margin-bottom:5px;">🔗 ROOM CODE</div>
       <div id="room-code-text" style="color:#06b6d4;font-size:18px;font-weight:bold;font-family:monospace;letter-spacing:2px;"></div>
-      <div style="color:#64748b;font-size:9px;margin-top:5px;">Share this code with your friends!</div>
+      <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:10px;">
+        <button type="button" class="return-home-btn" id="copy-link-btn" onclick="copyInviteLink()">Copy link</button>
+        <button type="button" class="return-home-btn" id="share-link-btn" onclick="shareInviteLink()" style="display:none;">Share</button>
+      </div>
+      <div id="room-code-hint" style="color:#64748b;font-size:9px;margin-top:8px;">Share this code with your friends!</div>
+    </div>
+    <div id="fresh-name-note" style="display:none;background:rgba(168,85,247,0.1);border:1px solid rgba(168,85,247,0.35);border-radius:7px;padding:10px;margin-bottom:14px;max-width:420px;width:100%;text-align:center;color:#e2e8f0;font-size:13px;"></div>
+    <div id="launch-wrap" style="display:none;margin-bottom:12px;max-width:420px;width:100%;text-align:center;">
+      <button type="button" class="start-btn" id="launch-btn" onclick="launchNow()" style="width:100%;" disabled>LAUNCH NOW</button>
     </div>
     <div id="inspector-btn-wrap" style="display:none;margin-bottom:12px;">
       <button type="button" class="return-home-btn" onclick="addAIInspector()" style="width:100%;max-width:420px;">Add AI Inspector (fills last slot)</button>
       <p style="font-size:10px;color:#64748b;margin-top:6px;">One bot will join as a human and try to catch the AIs.</p>
     </div>
     <button class="start-btn" id="start-btn" onclick="startGame()" disabled>ENTER YOUR USERNAME TO START</button>
+    <button type="button" class="return-home-btn" id="private-btn" onclick="createPrivateRoom()" style="width:100%;max-width:420px;margin-top:12px;" disabled>CREATE A PRIVATE ROOM</button>
   </div>
 
   <!-- QUESTION -->
@@ -670,9 +680,12 @@
         <div class="reveal-grid" id="gameover-reveal"></div>
         <div class="reveal-votes" id="gameover-votes"></div>
       </div>
-      <div class="next-round-container">
+      <div class="next-round-container" style="gap:12px;flex-wrap:wrap;">
+        <button class="next-round-btn" id="rematch-btn" onclick="requestRematch()" style="width:250px;">
+          <div class="next-round-text" id="rematch-text">Rejouer avec ce groupe</div>
+        </button>
         <button class="next-round-btn" onclick="goHome()">
-          <div class="next-round-text">Retour à l'accueil</div>
+          <div class="next-round-text" id="gameover-home-text">Retour à l'accueil</div>
         </button>
       </div>
       <div class="end-screen-history-wrap">
@@ -728,6 +741,26 @@ let playerId = null;
 let roomId = 'game-' + Math.random().toString(36).substr(2, 9);
 let isConnected = false;
 
+// Private room code of an invite link (?room=CODE): letters and digits, upper case.
+function roomCodeFromSearch(search) {
+  const raw = new URLSearchParams(search || '').get('room') || '';
+  return raw.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
+}
+const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+function newRoomCode() {
+  const r = new Uint32Array(6);
+  crypto.getRandomValues(r);
+  return Array.from(r, function (x) { return ROOM_CODE_ALPHABET[x % ROOM_CODE_ALPHABET.length]; }).join('');
+}
+function inviteLink(code) {
+  return window.location.origin + window.location.pathname + '?room=' + encodeURIComponent(code);
+}
+let inviteCode = roomCodeFromSearch(window.location.search);
+let rematchDeadline = 0;
+let rematchPending = false;
+let rematchTimer = null;
+let joinTimers = [];
+
 // Seat token from joinSuccess, per tab: a dropped connection (phone asleep, network) or a reload takes the seat back.
 const SESSION_KEY = 'turingarou.session';
 function saveSession(rid, token) {
@@ -767,7 +800,7 @@ socket.on('connect', () => {
   // Holding a seat: a reconnect must not offer a second join.
   if (btn && btn.textContent.includes('CONNECTING') && !session) {
     btn.disabled = false;
-    btn.textContent = 'START SESSION';
+    btn.textContent = startLabel();
   }
   if (session) socket.emit('resumeSession', session);
 });
@@ -793,6 +826,8 @@ socket.on('connect_error', (error) => {
 
 socket.on('joinSuccess', ({ playerId: id, roomId: actualRoomId, token }) => {
   playerId = id;
+  rematchDeadline = 0;
+  rematchPending = false;
   // Mettre à jour le roomId avec celui retourné par le serveur (important pour public lobby)
   if (actualRoomId) {
     roomId = actualRoomId;
@@ -822,7 +857,35 @@ socket.on('resumeError', () => {
 
 socket.on('joinError', ({ message }) => {
   console.error('❌ Join error:', message);
-  alert('Could not join game: ' + message);
+  joinTimers.forEach(clearTimeout);
+  // A refused join (room started or full) leaves the home screen usable again.
+  if (!playerId) refreshHome();
+  alert(inviteCode && !playerId
+    ? (homeFr() ? 'La salle ' + inviteCode + ' a déjà commencé ou est complète.' : 'Room ' + inviteCode + ' has already started or is full.')
+    : 'Could not join game: ' + message);
+});
+
+socket.on('launchError', ({ reason }) => {
+  const fr = G.lang === 'fr';
+  const lb = document.getElementById('launch-btn');
+  if (lb) lb.disabled = false;
+  showConnToast(reason === 'too_few' ? (fr ? 'Il faut au moins 3 humains' : 'At least 3 humans needed')
+    : reason === 'not_host' ? (fr ? "Seul l'hôte peut lancer" : 'Only the host can launch')
+    : (fr ? 'Lancement impossible' : 'Cannot launch'), true);
+});
+
+socket.on('rematchOpen', ({ remainingMs }) => {
+  rematchDeadline = Date.now() + (remainingMs || 0);
+  tickRematch();
+});
+
+socket.on('rematchError', ({ reason }) => {
+  const fr = G.lang === 'fr';
+  rematchPending = false;
+  rematchDeadline = 0;
+  setRematchButton(true, reason === 'started' ? (fr ? 'La revanche a commencé' : 'Rematch already started')
+    : reason === 'window' ? (fr ? 'Revanche fermée' : 'Rematch closed')
+    : (fr ? 'Revanche impossible' : 'Rematch unavailable'));
 });
 
 socket.on('gameState', (state) => {
@@ -1237,6 +1300,8 @@ function updateGameFromServer(state) {
     state.votes.forEach(function(v) { G.v[v.voterId] = v.targetId; });
   }
   if (state.aiCount != null) G.aiCount = state.aiCount;
+  G.lobby = state.lobby || null;
+  if (state.phase === 'waiting' && state.maxPlayers) G.humanSlots = state.maxPlayers - (state.aiCount || 0);
   if (state.phase === 'endround' && state.eliminatedAiCount != null) {
     G.eliminatedAiCount = state.eliminatedAiCount;
     G.eliminatedPlayerIsAI = state.eliminatedPlayerIsAI ?? null;
@@ -1381,14 +1446,40 @@ window.addEventListener('beforeunload', () => {
 function init(){
 document.getElementById('username-input').oninput=updateLocalPlayer;
 document.getElementById('username-input').onkeydown=function(e){if(e.key==='Enter'){e.preventDefault();startGame();}};
+document.getElementById('lang-select').onchange=refreshHome;
+if(inviteCode)document.getElementById('room-input').value=inviteCode;
+refreshHome();
 renderWaitingRoom();
+}
+
+function homeFr(){
+const sel=document.getElementById('lang-select');
+return !sel||sel.value!=='en';
+}
+
+function startLabel(){
+const fr=homeFr();
+if(!G.ui)return fr?'ENTRE TON PSEUDO POUR JOUER':'ENTER YOUR USERNAME TO START';
+if(inviteCode)return (fr?'REJOINDRE LA SALLE ':'JOIN ROOM ')+inviteCode;
+return fr?'SALLE PUBLIQUE (5 HUMAINS + 3 IA)':'PUBLIC ROOM (5 HUMANS + 3 AIS)';
+}
+
+/** Home screen before joining: public room, or the room of the invite link, or a new private room. */
+function refreshHome(){
+const fr=homeFr();
+const sb=document.getElementById('start-btn');
+if(sb&&!playerId){sb.disabled=!G.ui;sb.textContent=startLabel();}
+const pb=document.getElementById('private-btn');
+if(pb){pb.disabled=!G.ui;pb.textContent=fr?'CRÉER UNE SALLE PRIVÉE (DÈS 3 AMIS)':'CREATE A PRIVATE ROOM (FROM 3 FRIENDS)';}
+const note=document.getElementById('invite-note');
+if(note)note.textContent=inviteCode?(fr?'Invitation à la salle '+inviteCode+' : choisis ton pseudo.':'Invited to room '+inviteCode+': pick a username.'):'';
+renderLobbyPanel();
 }
 
 function updateLocalPlayer(){
 const u=document.getElementById('username-input').value.trim();
 G.ui=u.length>0;
-document.getElementById('start-btn').disabled=!G.ui;
-document.getElementById('start-btn').textContent=G.ui?'START SESSION (3 Humans + 2 AIs)':'ENTER YOUR USERNAME TO START';
+refreshHome();
 if(G.p.length===0||!G.p[0])return;
 G.p[0].username=u||'YOU';
 renderWaitingRoom();
@@ -1399,7 +1490,7 @@ const g=document.getElementById('player-grid');
 g.innerHTML='';
 // Autres joueurs puis joueur local à droite
 const sortedPlayers=playersWithLocalLast(G.p);
-const maxSlots = T;  // Maximum de slots à afficher
+const maxSlots = G.humanSlots || HUMAN_NEEDED;  // places humaines : les IA arrivent au lancement
 for(let i=0;i<maxSlots;i++){
 const c=document.createElement('div');
 const hasPlayer = sortedPlayers[i];
@@ -1426,10 +1517,17 @@ g.appendChild(c);
 }
 
 // Afficher un message de statut + bouton AI Inspector si 2 humains
-const humanCount = G.p.filter(p => p.isLocal || (!p.isAI && p.username)).length;
+// In the lobby every seat is a human's, the others' shown blank: count seats, not names.
+const humanCount = G.p.length;
 const statusMsg = document.createElement('div');
 statusMsg.style.cssText = 'text-align:center;color:#94a3b8;font-size:12px;margin-top:10px;';
-statusMsg.textContent = humanCount < HUMAN_NEEDED 
+const lobbyInfo = playerId ? G.lobby : null;
+statusMsg.textContent = !playerId ? ''
+  : lobbyInfo && lobbyInfo.private && humanCount < HUMAN_NEEDED
+  ? (G.lang === 'fr'
+    ? `${humanCount}/${HUMAN_NEEDED} humains. ` + (lobbyInfo.host ? `Lance dès ${lobbyInfo.launchFrom}, ou attends ${HUMAN_NEEDED} pour une table complète.` : `L'hôte lance la partie dès ${lobbyInfo.launchFrom}.`)
+    : `${humanCount}/${HUMAN_NEEDED} humans. ` + (lobbyInfo.host ? `Launch from ${lobbyInfo.launchFrom}, or wait for ${HUMAN_NEEDED} for a full table.` : `The host launches from ${lobbyInfo.launchFrom}.`))
+  : humanCount < HUMAN_NEEDED
   ? (G.lang === 'fr' ? `⏳ En attente de ${HUMAN_NEEDED - humanCount} joueur(s)...` : `⏳ Waiting for ${HUMAN_NEEDED - humanCount} more player(s)...`)
   : '✅ Ready to start!';
 const existingStatus = document.querySelector('.waiting-status');
@@ -1452,6 +1550,84 @@ if (inspectorWrap) {
     inspectorWrap.style.display = 'none';
   }
 }
+renderLobbyPanel();
+}
+
+/** Inside a lobby: the setup is done, the private room shows its link, its host the launch button. */
+function renderLobbyPanel(){
+const fr=G.lang==='fr';
+const inRoom=!!playerId&&G.s==='waiting';
+const lobby=inRoom?G.lobby:null;
+const setup=document.querySelector('.player-setup');
+if(setup)setup.style.display=inRoom?'none':'';
+const sb=document.getElementById('start-btn');
+if(sb)sb.style.display=inRoom?'none':'';
+const pb=document.getElementById('private-btn');
+if(pb)pb.style.display=inRoom||inviteCode?'none':'';
+const note=document.getElementById('invite-note');
+if(note)note.style.display=!inRoom&&inviteCode?'block':'none';
+const isPrivate=!!(lobby&&lobby.private);
+const box=document.getElementById('room-code-display');
+if(box)box.style.display=isPrivate?'block':'none';
+if(isPrivate){
+  document.getElementById('room-code-label').textContent=fr?'🔗 CODE DE LA SALLE':'🔗 ROOM CODE';
+  document.getElementById('room-code-text').textContent=roomId;
+  document.getElementById('copy-link-btn').textContent=fr?'Copier le lien':'Copy link';
+  const sh=document.getElementById('share-link-btn');
+  sh.style.display=navigator.share?'':'none';
+  sh.textContent=fr?'Partager':'Share';
+  document.getElementById('room-code-hint').textContent=fr?'Envoie le lien à tes amis : il ouvre directement cette salle.':'Send the link to your friends: it opens this room.';
+}
+const fresh=document.getElementById('fresh-name-note');
+const me=G.p.find(function(p){return p.isLocal;});
+if(fresh){
+  fresh.style.display=lobby&&lobby.freshName&&me?'block':'none';
+  if(lobby&&lobby.freshName&&me)fresh.innerHTML=(fr?'Revanche : ton nouveau pseudo est ':'Rematch: your new name is ')+'<b style="color:'+escHtml(me.color)+'">'+escHtml(me.username)+'</b>.<br>'+(fr?'Tout le monde a changé de pseudo. Garde le tien pour toi.':'Everyone got a new name. Keep yours to yourself.');
+}
+const lw=document.getElementById('launch-wrap');
+const lb=document.getElementById('launch-btn');
+const host=!!(lobby&&lobby.private&&lobby.host);
+if(lw)lw.style.display=host?'block':'none';
+if(host&&lb){
+  lb.disabled=!lobby.canLaunch;
+  lb.textContent=lobby.canLaunch
+    ?(fr?'LANCER MAINTENANT ('+G.p.length+' HUMAINS + '+lobby.launchAIs+' IA)':'LAUNCH NOW ('+G.p.length+' HUMANS + '+lobby.launchAIs+' AIS)')
+    :(fr?'LANCER DÈS '+lobby.launchFrom+' HUMAINS':'LAUNCH FROM '+lobby.launchFrom+' HUMANS');
+}
+}
+
+function launchNow(){
+const lb=document.getElementById('launch-btn');
+if(lb)lb.disabled=true;
+socket.emit('launchGame');
+}
+
+function copyInviteLink(){
+const link=inviteLink(roomId);
+const fr=G.lang==='fr';
+const fallback=function(){
+  const ta=document.createElement('textarea');
+  ta.value=link;ta.style.position='fixed';ta.style.opacity='0';
+  document.body.appendChild(ta);ta.select();
+  let ok=false;try{ok=document.execCommand('copy');}catch(e){}
+  ta.remove();
+  showConnToast(ok?(fr?'Lien copié':'Link copied'):link,!ok);
+};
+if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(link).then(function(){showConnToast(fr?'Lien copié':'Link copied');},fallback);
+else fallback();
+}
+
+function shareInviteLink(){
+if(!navigator.share)return copyInviteLink();
+navigator.share({title:'Turingarou',text:G.lang==='fr'?'Rejoins ma partie de Turingarou':'Join my Turingarou game',url:inviteLink(roomId)}).catch(function(){});
+}
+
+function createPrivateRoom(){
+if(!G.ui)return;
+inviteCode=newRoomCode();
+document.getElementById('room-input').value=inviteCode;
+try{history.replaceState(null,'',inviteLink(inviteCode));}catch(e){}
+startGame();
 }
 
 function startGame(){
@@ -1472,6 +1648,7 @@ function startGame(){
   btn.textContent = 'CONNECTING TO SERVER...';
   btn.disabled = true;
   
+  joinTimers.forEach(clearTimeout);
   let connectTimeout = setTimeout(() => {
     btn.textContent = 'SERVER WAKING UP... (wait up to 90s)';
   }, 5000);
@@ -1483,6 +1660,7 @@ function startGame(){
       btn.onclick = () => { btn.onclick = startGame; btn.textContent = 'START SESSION'; startGame(); };
     }
   }, 90000);
+  joinTimers = [connectTimeout, longTimeout];
   
   const lang = (document.getElementById('lang-select') && document.getElementById('lang-select').value) || 'fr';
   socket.emit('joinRoom', { 
@@ -1501,20 +1679,8 @@ function startGame(){
       roomId = actualRoomId;
     }
     
-    // Afficher le room code seulement si c'est une room personnalisée
-    if (customRoom) {
-      const roomDisplay = document.getElementById('room-code-display');
-      const roomText = document.getElementById('room-code-text');
-      if (roomDisplay && roomText) {
-        roomDisplay.style.display = 'block';
-        roomText.textContent = roomId;
-      }
-      console.log('📋 Private Room Code:', roomId);
-      console.log('💡 Share this code with friends!');
-    } else {
-      console.log('📋 Joined public lobby:', roomId);
-      console.log('⏳ Waiting for another player...');
-    }
+    // Le panneau de salle privée (code, lien, lancement) suit l'état reçu : renderLobbyPanel()
+    console.log(customRoom ? '📋 Private room: ' + roomId : '📋 Joined public lobby: ' + roomId);
   });
   
   // L'état viendra via l'event 'gameState'
@@ -2315,14 +2481,18 @@ function goHome(){
   if(lir){lir.innerHTML='';lir.dataset.mode='';}
   const ctb=document.getElementById('chat-toggle-btn');
   if(ctb)ctb.classList.remove('active');
+  G.lobby = null;
+  inviteCode = '';
+  rematchDeadline = 0;
+  rematchPending = false;
+  const ri = document.getElementById('room-input');
+  if (ri) ri.value = '';
+  try { if (window.location.search) history.replaceState(null, '', window.location.pathname); } catch (e) {}
   showScreen('waiting');
   renderWaitingRoom();
   var btn = document.getElementById('start-btn');
-  if (btn) {
-    btn.disabled = !G.ui;
-    btn.textContent = G.ui ? 'START SESSION (3 Humans + 2 AIs)' : 'ENTER YOUR USERNAME TO START';
-    btn.onclick = startGame;
-  }
+  if (btn) btn.onclick = startGame;
+  refreshHome();
   if (!socket.connected) socket.connect();
 }
 
@@ -2619,7 +2789,7 @@ if(aiBg)aiBg.style.display='none';
 const title=document.getElementById('gameover-title');
 const msg=document.getElementById('gameover-message');
 const detail=document.getElementById('gameover-detail');
-const gameoverHomeBtn = document.querySelector('#gameover-screen .next-round-text');
+const gameoverHomeBtn = document.getElementById('gameover-home-text');
 if(title) title.textContent='GAME OVER';
 if(msg){
 if(reason==='humans_win'){ msg.textContent='Humans win!'; if(detail) detail.textContent='You found the AI.'; }
@@ -2627,6 +2797,8 @@ else if(reason==='ai_win'){ msg.textContent='AI wins!'; if(detail) detail.textCo
 else { msg.textContent='Draw'; if(detail) detail.textContent='Game ended.'; }
 }
 if(gameoverHomeBtn) gameoverHomeBtn.textContent = G.lang === 'fr' ? "Retour à l'accueil" : 'Return home';
+if(rematchDeadline) tickRematch();
+else if(!rematchPending) setRematchButton(false, G.lang === 'fr' ? 'Rejouer avec ce groupe' : 'Play again, same group');
 renderEndScreenHistory('gameover-history', 'gameover-history-title');
 var goScreen=document.getElementById('gameover-screen');
 if(reason==='humans_win'){
@@ -2639,6 +2811,33 @@ if(reason==='humans_win'){
   startScaleAnimation();
   if(goScreen)goScreen.style.background='linear-gradient(135deg,#0f172a 0%,#1e1040 100%)';
 }
+}
+
+function setRematchButton(disabled, text){
+  const b = document.getElementById('rematch-btn');
+  const t = document.getElementById('rematch-text');
+  if (b) b.disabled = disabled;
+  if (t) t.textContent = text;
+}
+
+/** Same group, new room: the first click opens it, the others have REMATCH_WINDOW_MS (server) to follow. */
+function requestRematch(){
+  const b = document.getElementById('rematch-btn');
+  if (!b || b.disabled || rematchPending) return;
+  rematchPending = true;
+  setRematchButton(true, G.lang === 'fr' ? 'Ouverture…' : 'Opening…');
+  socket.emit('rematch');
+}
+
+function tickRematch(){
+  clearTimeout(rematchTimer);
+  if (G.s !== 'gameover' || rematchPending) return;
+  const fr = G.lang === 'fr';
+  const left = Math.ceil((rematchDeadline - Date.now()) / 1000);
+  if (left > 0) {
+    setRematchButton(false, fr ? 'Rejoindre la revanche (' + left + ' s)' : 'Join the rematch (' + left + ' s)');
+    rematchTimer = setTimeout(tickRematch, 500);
+  } else setRematchButton(true, fr ? 'Revanche fermée' : 'Rematch closed');
 }
 
 function escHtml(s){

@@ -4,14 +4,16 @@
  * accusations). Every invariant is measured from the outside: posted messages, answers, votes, emitted phases,
  * logged events, and the fake provider's own record of which call produced which text.
  *
- *   npm run test:sim                       # 6 seeds x fr/en
+ *   npm run test:sim                       # 6 seeds x fr/en, tables of 3 and 4 humans, rematches
  *   npx tsx scripts/simulate-game.ts --seeds 10 --verbose
+ *   npx tsx scripts/simulate-game.ts --balance 100 [--skill 0.3]   # win rates per table size (random votes by default)
  *
  * The LLM layer (src/llm) uses the global timers for its retry backoff, so the run swaps setTimeout, clearTimeout,
  * Date.now and Math.random for the virtual clock and a seeded generator during each game.
  */
 import { performance } from 'node:perf_hooks';
-import { GameRoom, GameRoomDeps, RoomEmitter, DISCUSSION_PHASE_MS, RECONNECT_GRACE_MS, VOTE_PHASE_MS } from '../src/game/GameRoom.js';
+import { GameRoom, GameRoomDeps, RoomEmitter, TableOptions, DISCUSSION_PHASE_MS, MAX_ROUNDS, RECONNECT_GRACE_MS, VOTE_PHASE_MS } from '../src/game/GameRoom.js';
+import { rematchTable } from '../src/game/rematch.js';
 import { DISCUSSION_LOCK_MS, VOTE_DEADLINE_MS } from '../src/game/BotDirector.js';
 import { ChatProvider, ChatRequest, ChatResult, ProviderError } from '../src/llm/chatClient.js';
 import { modelLabel } from '../src/llm/providerRegistry.js';
@@ -171,6 +173,8 @@ const HUMAN_LINES: Record<Lang, { casual: string[]; accuse: string[]; ask: strin
 };
 
 const NAMES = ['lucas', 'emma', 'hugo', 'ines', 'jules', 'manon', 'nora', 'theo', 'zoe', 'axel', 'lina', 'sacha', 'yanis', 'louise'];
+/** A rematch draws 8 names none of which the previous game used: the pool must hold 16. */
+const MORE_NAMES = ['camille', 'leo', 'jade', 'noah', 'alice', 'gabin', 'rose', 'nael', 'mila', 'enzo'];
 
 interface Counters {
   [key: string]: number;
@@ -398,6 +402,12 @@ interface GameResult {
   lang: Lang;
   inspector: boolean;
   aborted: boolean;
+  /** "humans+AIs" as launched. */
+  table: string;
+  reason: string | null;
+  rounds: number;
+  /** What a rematch of this game needs; null unless it reached its game over. */
+  handoff: Previous | null;
   m: Counters;
   offenders: Record<string, Offender[]>;
   telemetry: Telemetry | null;
@@ -422,7 +432,31 @@ interface Scenario {
   inspector: boolean;
   drops: Drops | null;
   dropRound: number;
+  /** Real humans joining (the inspector comes on top). */
+  humans: number;
+  /** Private room launched by its host instead of filling up. */
+  launch: boolean;
+  /** AIs of a launched table when comparing another scale than aiCountFor. */
+  aiScale?: (humanSide: number) => number;
+  /** Chance a fake human votes for an AI on purpose instead of a random player; 0 = random votes. */
+  skill: number;
+  /** "Play again with this group": the first `humans` humans of that game click, in order. */
+  rematchOf?: Previous;
 }
+
+/** A finished game as its humans leave it for a rematch. */
+interface Previous {
+  id: string;
+  room: GameRoom;
+  names: string[];
+  humans: { socketId: string; name: string; token: string; color: string }[];
+}
+
+/** AIs per seats on the humans' side, written here independently of aiCountFor: about 3 in 8, never filled to 8. */
+const EXPECTED_AIS: Record<number, number> = { 3: 2, 4: 3, 5: 3 };
+
+/** What a lobby seat of another human looks like (GameRoom HIDDEN_SEAT). */
+const HIDDEN_SEAT: Record<string, unknown> = { id: '', username: '', color: '', colorName: '', isReady: true, isEliminated: false };
 
 /** Fields of a player every browser may see before the game over; anything else is a leak. */
 const PUBLIC_PLAYER_KEYS = ['color', 'colorName', 'id', 'isEliminated', 'isReady', 'username'];
@@ -438,7 +472,7 @@ const unhandled: string[] = [];
 process.on('unhandledRejection', (reason) => unhandled.push(String(reason).slice(0, 200)));
 
 async function runGame(sc: Scenario): Promise<GameResult> {
-  const id = `${sc.lang}-s${sc.seed}${sc.inspector ? '-insp' : ''}${sc.drops ? `-${sc.drops}` : ''}`;
+  const id = `${sc.lang}-s${sc.seed}${sc.humans !== 5 && !sc.inspector ? `-h${sc.humans}` : ''}${sc.inspector ? '-insp' : ''}${sc.drops ? `-${sc.drops}` : ''}${sc.rematchOf ? '-rematch' : ''}${sc.aiScale ? `-ai${sc.aiScale(sc.humans)}` : ''}${sc.skill ? `-skill${sc.skill}` : ''}`;
   const roomRng = makeSeededRng(sc.seed * 1000 + (sc.lang === 'en' ? 1 : 0));
   const simRng = makeSeededRng(sc.seed * 7919 + (sc.lang === 'en' ? 17 : 3));
   const clock = new VirtualClock(1_800_000_000_000);
@@ -493,11 +527,12 @@ async function runGame(sc: Scenario): Promise<GameResult> {
   };
 
   const usedNames = new Set<string>();
+  const pool = sc.rematchOf ? [...NAMES, ...MORE_NAMES] : NAMES;
   const names: GameRoomDeps['names'] = {
     add: (n) => usedNames.add(n),
     pick: (exclude) => {
       const ex = new Set([...exclude, ...usedNames].map((x) => x.toLowerCase()));
-      return pick(NAMES.filter((n) => !ex.has(n)));
+      return pick(pool.filter((n) => !ex.has(n)));
     },
   };
 
@@ -601,6 +636,14 @@ async function runGame(sc: Scenario): Promise<GameResult> {
   const onPhase = (phase: string, round: number) => {
     if (finished) return;
     const present = humans.filter((h) => h.connected && isActive(h.id));
+    if (phase === 'question' && round > 1) {
+      // The game only goes on while both sides have someone left, more than 2 players, and rounds remain.
+      const active = state().players.filter((p) => !p.isEliminated);
+      const ais = active.filter((p) => p.type === 'ai').length;
+      const realHumans = active.filter((p) => p.type === 'human' && p.socketId !== '').length;
+      inc('end_checks');
+      if (ais === 0 || realHumans === 0 || active.length <= 2 || round - 1 >= MAX_ROUNDS) offend('end_coherent', `r${round} started with ${ais} AIs, ${realHumans} humans, ${active.length} players`);
+    }
     if (phase === 'question') {
       for (const h of present) {
         if (simRng() < 0.08) continue;
@@ -638,23 +681,47 @@ async function runGame(sc: Scenario): Promise<GameResult> {
             return;
           }
           const candidates = st.players.filter((p) => !p.isEliminated && p.id !== seat && p.id !== st.protectedPlayerId);
-          if (candidates.length > 0) room.addVote(seat, pick(candidates).id);
+          const ais = candidates.filter((p) => p.type === 'ai');
+          if (sc.skill > 0 && ais.length > 0 && simRng() < sc.skill) room.addVote(seat, pick(ais).id);
+          else if (candidates.length > 0) room.addVote(seat, pick(candidates).id);
         }, 2000 + simRng() * 25000);
       });
     }
   };
 
   let gameoverPayload: Record<string, unknown> | null = null;
+  /** A lobby state goes to one socket: its own seat in full, every other seat hidden, nothing that names them. */
+  const checkLobbyPayload = (target: string, p: { phase: string; players?: Record<string, unknown>[]; lobby?: unknown } & Record<string, unknown>) => {
+    inc('lobby_payloads');
+    inc('reveal_checked:waiting');
+    const seat = room.playerIdBySocket(target);
+    const own = state().players.find((x) => x.id === seat);
+    if (p.phase !== 'waiting') offend('lobby_leak', `${p.phase} state sent to socket ${target} alone`);
+    if (!p.lobby) offend('lobby_leak', `lobby state to ${target} without its lobby block`);
+    for (const k of Object.keys(p)) if (!PUBLIC_TOP_KEYS.has(k) && k !== 'lobby') offend('lobby_leak', `lobby state to ${target}: top-level field "${k}"`);
+    for (const pl of p.players ?? []) {
+      if (Object.keys(pl).some((k) => !PUBLIC_PLAYER_KEYS.includes(k))) offend('lobby_leak', `lobby seat with fields [${Object.keys(pl).join(',')}]`);
+      if (PUBLIC_PLAYER_KEYS.every((k) => pl[k] === HIDDEN_SEAT[k])) continue;
+      if (!seat || pl.id !== seat || pl.username !== own?.username) offend('lobby_leak', `socket ${target} received seat ${String(pl.id)} "${String(pl.username)}" (its own: ${seat})`);
+      else inc('lobby_own_seat');
+    }
+  };
   const io: RoomEmitter = {
-    to: () => ({
+    to: (target: string) => ({
       emit: (event: string, payload: unknown) => {
         if (event !== 'gameState') return true;
+        if (target !== `sim-${id}`) {
+          if (!finished) checkLobbyPayload(target, JSON.parse(JSON.stringify(payload)));
+          return true;
+        }
         emitsTotal++;
         if (finished) {
           emitsAfterEnd++;
           return true;
         }
         const json = JSON.stringify(payload);
+        // Before the start, the room channel must hear nothing: one list of who waits names the humans.
+        if ((payload as { phase?: string }).phase === 'waiting' && !phases.some((x) => x.phase !== 'waiting')) offend('lobby_leak', 'lobby state broadcast to the whole room');
         // A state identical to the previous one says nothing but "something happened now": a drop, a grace ending.
         if (json === lastJson) offend('dropped_seen', `state re-sent unchanged at ${phases[phases.length - 1]?.phase} r${state().currentRound}`);
         lastJson = json;
@@ -686,6 +753,13 @@ async function runGame(sc: Scenario): Promise<GameResult> {
           const voteStart = last?.phase === 'voting' ? last.t : null;
           phases.push({ t: clock.now(), phase: p.phase, round: p.currentRound });
           if (p.phase === 'endround') {
+            // Immunity for the next round: drawn among the survivors while more than 4 remain, never otherwise.
+            const survivors = p.players.filter((pl) => !pl.isEliminated);
+            const prot = (p as { protectedPlayerId?: string | null }).protectedPlayerId ?? null;
+            inc('immunity_checks');
+            if ((survivors.length > 4) !== (prot !== null) || (prot !== null && !survivors.some((pl) => pl.id === prot))) {
+              offend('immunity', `r${p.currentRound}: ${survivors.length} survivors, protected ${prot}`);
+            }
             endroundVotes.set(p.currentRound, [...(p.votes ?? [])]);
             eliminatedIn.set(p.currentRound, p.eliminatedPlayerId ?? null);
             // A vote closed before its deadline with a vote missing: only allowed once every bot must have voted.
@@ -706,6 +780,10 @@ async function runGame(sc: Scenario): Promise<GameResult> {
     }),
   };
 
+  const table: TableOptions = sc.rematchOf ? rematchTable(sc.rematchOf.names) : sc.launch ? { hostLaunch: true } : {};
+  if (sc.aiScale) table.aiCountFor = sc.aiScale;
+  const humanSide = sc.humans + (sc.inspector ? 1 : 0);
+  const expectedAI = sc.aiScale ? sc.aiScale(humanSide) : EXPECTED_AIS[humanSide];
   try {
     room = new GameRoom(`sim-${id}`, io, lab.providers(), 3, {
       clock,
@@ -722,18 +800,60 @@ async function runGame(sc: Scenario): Promise<GameResult> {
       log: (line) => {
         if (line.startsWith('[ai-event]') || line.startsWith('[game-telemetry]')) logLines.push(line);
       },
-    });
+    }, table);
 
-    const humanCount = sc.inspector ? 4 : 5;
-    for (let i = 0; i < humanCount; i++) {
-      const name = names.pick([]);
-      const socketId = `sock-${i}`;
+    const prev = sc.rematchOf;
+    for (let i = 0; i < sc.humans; i++) {
+      const from = prev?.humans[i];
+      // A rematch passes the old name on purpose: the room must not use it.
+      const name = from ? from.name : names.pick([]);
+      const socketId = from ? from.socketId : `sock-${i}`;
+      // As server.ts: the finished seat is left for good before joining the rematch.
+      if (prev && from) prev.room.leave(socketId);
+      if (sc.launch && i === 2) {
+        const early = await room.launch(humans[0].socketId);
+        inc('launch_checks');
+        if (early !== 'too_few') offend('launch', `host launch with 2 humans gave ${early}`);
+      }
       await room.addHumanPlayer(socketId, name, sc.lang);
       const pid = room.playerIdBySocket(socketId)!;
-      humans.push({ socketId, name, id: pid, token: room.sessionToken(pid) ?? '', connected: true });
+      const seated = state().players.find((x) => x.id === pid)?.username ?? name;
+      humans.push({ socketId, name: seated, id: pid, token: room.sessionToken(pid) ?? '', connected: true });
     }
     if (humans.some((h) => !h.token || lastJson.includes(h.token))) offend('resume', 'session token missing or present in the game state');
     if (sc.inspector) await room.addInspectorPlayer();
+    if (sc.launch) {
+      const notHost = await room.launch(humans[1].socketId);
+      inc('launch_checks');
+      if (notHost !== 'not_host') offend('launch', `launch by a non-host gave ${notHost}`);
+      const refusal = await room.launch(humans[0].socketId);
+      if (refusal !== null) offend('launch', `host launch with ${sc.humans} humans refused: ${refusal}`);
+    }
+    {
+      const st = state();
+      const aiSeats = st.players.filter((p) => p.type === 'ai').length;
+      inc('tables');
+      if (st.phase !== 'question' || st.aiCount !== expectedAI || aiSeats !== expectedAI || st.maxPlayers !== humanSide + expectedAI || st.players.length !== st.maxPlayers) {
+        offend('table_size', `${sc.humans} humans${sc.inspector ? ' + inspector' : ''}: phase ${st.phase}, aiCount ${st.aiCount}, ${aiSeats} AI seats, ${st.players.length}/${st.maxPlayers} players (expected ${expectedAI} AIs)`);
+      } else inc(`table:${humanSide}+${expectedAI}`);
+    }
+    if (prev) {
+      // Nobody keeps a name of the game just revealed; old tokens open neither room.
+      const reserved = new Set(prev.names);
+      for (const p of state().players) {
+        inc('rematch_seats');
+        if (reserved.has(p.username)) offend('rematch', `${p.type} seat "${p.username}" reuses a name of ${prev.id}`);
+      }
+      for (const [i, h] of humans.entries()) {
+        const from = prev.humans[i];
+        if (h.name === from.name) offend('rematch', `${h.name} kept their name`);
+        if (room.resume(`${h.socketId}-oldtoken`, from.token)) offend('rematch', `${from.name}'s token of ${prev.id} opened the rematch`);
+        if (prev.room.resume(`${h.socketId}-oldtoken`, from.token)) offend('rematch', `${from.name}'s token reopened the finished game after the rematch`);
+        inc('rematch_token_checks');
+        inc('rematch_color_seats');
+        if (state().players.find((p) => p.id === h.id)?.color === from.color) inc('rematch_color_kept');
+      }
+    }
 
     const outcome = await clock.run(() => finished, clock.now() + 3 * 3600_000);
     if (outcome !== 'stopped') offend('game_not_finished', `run ended ${outcome} in phase ${state().phase}`);
@@ -1008,7 +1128,41 @@ async function runGame(sc: Scenario): Promise<GameResult> {
     }
   }
 
-  return { id, lang: sc.lang, inspector: sc.inspector, aborted, m, offenders, telemetry, lab: lab.counters, events: eventCounts };
+  // Game over: the reason follows the seats left (humans_win iff no AI, ai_win iff no human, draw otherwise).
+  if (!aborted && s.phase === 'gameover') {
+    const active = s.players.filter((p) => !p.isEliminated);
+    const ais = active.filter((p) => p.type === 'ai').length;
+    const realHumans = active.filter((p) => !botIds.has(p.id)).length;
+    const expected = ais === 0 ? 'humans_win' : realHumans === 0 ? 'ai_win' : 'draw';
+    inc('end_checks');
+    if (s.gameOverReason !== expected || (expected === 'draw' && active.length > 2 && s.currentRound < MAX_ROUNDS)) {
+      offend('end_coherent', `game over "${s.gameOverReason}" with ${ais} AIs, ${realHumans} humans, ${active.length} players at r${s.currentRound}`);
+    }
+  }
+  const handoff: Previous | null =
+    !aborted && s.phase === 'gameover'
+      ? {
+          id,
+          room,
+          names: s.players.map((p) => p.username),
+          humans: humans.map((h) => ({ socketId: h.socketId, name: h.name, token: h.token, color: s.players.find((p) => p.id === h.id)?.color ?? '' })),
+        }
+      : null;
+  return {
+    id,
+    lang: sc.lang,
+    inspector: sc.inspector,
+    aborted,
+    table: `${humanSide}+${expectedAI}`,
+    reason: aborted ? null : s.gameOverReason ?? null,
+    rounds: s.currentRound,
+    handoff,
+    m,
+    offenders,
+    telemetry,
+    lab: lab.counters,
+    events: eventCounts,
+  };
 }
 
 // ====== MAIN ======
@@ -1027,27 +1181,102 @@ async function main(): Promise<void> {
   await getInspectorPromptContent();
   console.log = quiet;
 
-  const scenarios: Scenario[] = [];
-  for (let seed = 1; seed <= seeds; seed++) {
-    for (const lang of ['fr', 'en'] as Lang[]) {
-      const drops: Drops | null = (['one-back', 'one-gone', 'all-gone', 'all-one-back', 'one-gone', null] as (Drops | null)[])[(seed - 1) % 6];
-      scenarios.push({ seed, lang, inspector: seed % 2 === 0, drops, dropRound: drops === 'one-gone' && seed % 6 === 2 ? 1 : 2 });
+  const balanceArg = args.indexOf('--balance');
+  const balance = balanceArg >= 0 ? Number(args[balanceArg + 1]) : 0;
+  const skillArg = args.indexOf('--skill');
+  const skill = skillArg >= 0 ? Number(args[skillArg + 1]) : 0;
+
+  /** Each scenario, then, when `rematch` is set and it reached its game over, a rematch of its first humans. */
+  const plan: { sc: Scenario; rematch?: number }[] = [];
+  if (balance > 0) {
+    // Same seeds for every table: only the size differs. No drops, no inspector.
+    const tables: { label: string; humans: number; launch: boolean; aiScale?: (n: number) => number }[] = [
+      { label: '3+2', humans: 3, launch: true },
+      { label: '4+2', humans: 4, launch: true, aiScale: () => 2 },
+      { label: '4+3', humans: 4, launch: true },
+      { label: '5+3', humans: 5, launch: false },
+    ];
+    for (const t of tables) {
+      for (let seed = 1; seed <= balance; seed++) {
+        plan.push({ sc: { seed, lang: seed % 2 ? 'fr' : 'en', inspector: false, drops: null, dropRound: 2, humans: t.humans, launch: t.launch, aiScale: t.aiScale, skill } });
+      }
     }
+  } else {
+    for (let seed = 1; seed <= seeds; seed++) {
+      for (const lang of ['fr', 'en'] as Lang[]) {
+        const drops: Drops | null = (['one-back', 'one-gone', 'all-gone', 'all-one-back', 'one-gone', null] as (Drops | null)[])[(seed - 1) % 6];
+        const inspector = seed % 2 === 0;
+        plan.push({ sc: { seed, lang, inspector, drops, dropRound: drops === 'one-gone' && seed % 6 === 2 ? 1 : 2, humans: inspector ? 4 : 5, launch: false, skill: 0 } });
+      }
+    }
+    // Private tables launched by their host at 3 and 4 humans, with and without drops.
+    for (let seed = 1; seed <= Math.min(seeds, 3); seed++) {
+      for (const humans of [3, 4]) {
+        const drops: Drops | null = ([null, 'one-back', 'one-gone'] as (Drops | null)[])[(seed - 1) % 3];
+        plan.push({ sc: { seed, lang: (seed + humans) % 2 ? 'fr' : 'en', inspector: false, drops, dropRound: 2, humans, launch: true, skill: 0 } });
+      }
+    }
+    // Rematches: the whole group (5, the room fills and starts), then 3 of 4 (the host launches).
+    plan.push({ sc: { seed: 7, lang: 'fr', inspector: false, drops: null, dropRound: 2, humans: 5, launch: false, skill: 0 }, rematch: 5 });
+    plan.push({ sc: { seed: 8, lang: 'en', inspector: false, drops: null, dropRound: 2, humans: 4, launch: true, skill: 0 }, rematch: 3 });
   }
 
   const started = performance.now();
   const results: GameResult[] = [];
-  for (const sc of scenarios) {
+  const show = (r: GameResult) => {
+    if (!verbose) return;
+    console.log(
+      `${r.id.padEnd(26)} ${r.table} ${r.aborted ? 'aborted ' : (r.telemetry?.result ?? '?').padEnd(10)} r${r.rounds} lines=${r.m.bot_lines ?? 0} direct=${(r.m.bot_lines_direct ?? 0) + (r.m.bot_lines_canned ?? 0)} acc=${r.m.named_accusations_replied ?? 0}/${r.m.named_accusations ?? 0} votes=${r.m.bot_votes_cast ?? 0}/${r.m.bot_votes_expected ?? 0} fb=${r.m.vote_fallbacks ?? 0} tasks=${r.m.llm_tasks ?? 0}`
+    );
+  };
+  for (const { sc, rematch } of plan) {
     const r = await runGame(sc);
     results.push(r);
-    if (verbose) {
-      console.log(
-        `${r.id.padEnd(18)} ${r.aborted ? 'aborted ' : (r.telemetry?.result ?? '?').padEnd(10)} lines=${r.m.bot_lines ?? 0} direct=${(r.m.bot_lines_direct ?? 0) + (r.m.bot_lines_canned ?? 0)} acc=${r.m.named_accusations_replied ?? 0}/${r.m.named_accusations ?? 0} votes=${r.m.bot_votes_cast ?? 0}/${r.m.bot_votes_expected ?? 0} fb=${r.m.vote_fallbacks ?? 0} tasks=${r.m.llm_tasks ?? 0}`
-      );
+    show(r);
+    // The handoff holds the whole finished room: keep it only as long as a rematch needs it.
+    const handoff = r.handoff;
+    r.handoff = null;
+    if (rematch === undefined) continue;
+    if (!handoff) {
+      (r.offenders.rematch ??= []).push({ game: r.id, what: 'no game over to rematch from' });
+      r.m.rematch = (r.m.rematch ?? 0) + 1;
+      continue;
     }
+    const again = await runGame({ ...sc, seed: sc.seed + 100, humans: rematch, launch: rematch < 5, rematchOf: handoff });
+    again.handoff = null;
+    results.push(again);
+    show(again);
   }
   const elapsed = (performance.now() - started) / 1000;
-  report(results, elapsed, scenarios.length);
+  if (balance > 0) {
+    balanceReport(results, balance, skill);
+    // No drops, no rematch here: the invariants that need them are not measured, only offences are counted.
+    // Rate-based invariants keep their tolerance (accusations replied >= 80 %, last-net drops <= 0.5 %).
+    const offences = results.flatMap((r) => Object.entries(r.offenders).filter(([k]) => k !== 'unanswered_accusation' && k !== 'final_net_drop').flatMap(([k, list]) => list.map((o) => `${k}: [${o.game}] ${o.what}`)));
+    const sum = (k: string) => results.reduce((n, r) => n + (r.m[k] ?? 0), 0);
+    const netRate = sum('final_net_drop') / Math.max(1, sum('bot_lines') + sum('final_net_drop'));
+    const accRate = sum('named_accusations_replied') / Math.max(1, sum('named_accusations'));
+    if (netRate > 0.005) offences.push(`final_net_drop: ${(netRate * 100).toFixed(2)} % of bot lines > 0.5 %`);
+    if (accRate < 0.8) offences.push(`unanswered_accusation: ${(accRate * 100).toFixed(1)} % replied < 80 %`);
+    console.log(`\n${results.length} games in ${elapsed.toFixed(1)} s; last-net drops ${(netRate * 100).toFixed(2)} %, named accusations replied ${(accRate * 100).toFixed(1)} %; invariant offences ${offences.length}${offences.length ? `:\n      ${offences.slice(0, 10).join('\n      ')}` : ''}`);
+    console.log('drops, resumes, aborts and rematches: not measured in --balance (npm run test:sim measures them)');
+    process.exit(offences.length === 0 ? 0 : 1);
+  }
+  report(results, elapsed, results.length);
+}
+
+/** Win rates per table size over the same seeds. Fake humans and models vote at random (--skill biases humans). */
+function balanceReport(results: GameResult[], perTable: number, skill: number): void {
+  console.log(`\nbalance: ${perTable} games per table, ${skill ? `humans vote an AI on purpose ${skill * 100} % of the time` : 'random votes'} (fake humans and models, no real deduction)`);
+  console.log('table  humans_win  ai_win  draw   aborted  mean rounds  ended at round 7');
+  for (const table of [...new Set(results.map((r) => r.table))]) {
+    const rs = results.filter((r) => r.table === table);
+    const done = rs.filter((r) => !r.aborted);
+    const pct = (k: string) => `${((100 * done.filter((r) => r.reason === k).length) / Math.max(1, done.length)).toFixed(0)} %`.padEnd(6);
+    const meanRounds = done.reduce((n, r) => n + r.rounds, 0) / Math.max(1, done.length);
+    const atMax = done.filter((r) => r.rounds >= MAX_ROUNDS).length;
+    console.log(`${table.padEnd(6)} ${pct('humans_win').padEnd(11)} ${pct('ai_win').padEnd(7)} ${pct('draw')} ${String(rs.length - done.length).padEnd(8)} ${meanRounds.toFixed(1).padEnd(12)} ${((100 * atMax) / Math.max(1, done.length)).toFixed(0)} %`);
+  }
 }
 
 function report(results: GameResult[], elapsed: number, games: number): void {
@@ -1106,6 +1335,30 @@ function report(results: GameResult[], elapsed: number, games: number): void {
       keys: ['abort_timing'],
     },
     { name: 'persisted player kinds', value: `${sum('persisted_kind') + sum('not_persisted')} wrong`, ok: sum('persisted_kind') + sum('not_persisted') === 0, keys: ['persisted_kind', 'not_persisted'] },
+    {
+      name: 'lobby: each human sees only their own seat',
+      value: `${sum('lobby_leak')} leaks over ${sum('lobby_payloads')} lobby states (own seat shown ${sum('lobby_own_seat')})`,
+      ok: sum('lobby_leak') === 0 && sum('lobby_payloads') > 0 && sum('lobby_own_seat') === sum('lobby_payloads'),
+      keys: ['lobby_leak'],
+    },
+    {
+      name: 'table size follows the humans (host launch from 3)',
+      value: `${sum('tables') - sum('table_size')}/${sum('tables')} right: ${Object.keys(results.reduce((o, r) => ({ ...o, ...r.m }), {} as Counters)).filter((k) => k.startsWith('table:')).sort().map((k) => `${k.slice(6)} ${sum(k)}`).join(', ')}; launch refusals checked ${sum('launch_checks')}`,
+      ok: sum('table_size') + sum('launch') === 0 && sum('table:3+2') > 0 && sum('table:4+2') + sum('table:4+3') > 0 && sum('launch_checks') > 0,
+      keys: ['table_size', 'launch'],
+    },
+    {
+      name: 'game end and immunity follow the seats left',
+      value: `${sum('end_coherent')} wrong ends over ${sum('end_checks')} checks; ${sum('immunity')} wrong immunities over ${sum('immunity_checks')} round ends`,
+      ok: sum('end_coherent') + sum('immunity') === 0 && sum('end_checks') > 0 && sum('immunity_checks') > 0,
+      keys: ['end_coherent', 'immunity'],
+    },
+    {
+      name: 'rematch: new names for every seat, old tokens refused',
+      value: `${sum('rematch')} failures over ${sum('rematch_seats')} seats, ${sum('rematch_token_checks')} old tokens tried; colors redrawn for all (a human's previous color drawn again ${sum('rematch_color_kept')}/${sum('rematch_color_seats')}, chance 1/8)`,
+      ok: sum('rematch') === 0 && sum('rematch_seats') > 0 && sum('rematch_token_checks') > 0,
+      keys: ['rematch'],
+    },
   ];
 
   // A failure mode never drawn proves nothing about its handling.
@@ -1129,7 +1382,7 @@ function report(results: GameResult[], elapsed: number, games: number): void {
   const missing = exercised.filter(([, n]) => n === 0).map(([k]) => k);
   rows.push({ name: 'failure modes exercised', value: exercised.map(([k, n]) => `${k} ${n}`).join(', '), ok: missing.length === 0, keys: [] });
 
-  console.log(`\nsimulate-game: ${games} games (${completed} complete, ${aborted} aborted; fr+en; inspector on even seeds) in ${elapsed.toFixed(1)} s real time`);
+  console.log(`\nsimulate-game: ${games} games (${completed} complete, ${aborted} aborted; fr+en; inspector on even seeds; tables ${[...new Set(results.map((r) => r.table))].join(', ')}) in ${elapsed.toFixed(1)} s real time`);
   const width = Math.max(...rows.map((r) => r.name.length));
   for (const r of rows) {
     console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name.padEnd(width)}  ${r.value}`);

@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "test:unit": "tsx scripts/test-direct-address.ts && tsx scripts/test-form-gate.ts && tsx scripts/test-human-timing.ts && tsx scripts/test-bot-core.ts && tsx scripts/test-provider-registry.ts && tsx scripts/test-voice.ts && tsx scripts/test-history.ts && tsx scripts/test-reconnect.ts",
+    "test:unit": "tsx scripts/test-direct-address.ts && tsx scripts/test-form-gate.ts && tsx scripts/test-human-timing.ts && tsx scripts/test-bot-core.ts && tsx scripts/test-provider-registry.ts && tsx scripts/test-voice.ts && tsx scripts/test-history.ts && tsx scripts/test-reconnect.ts && tsx scripts/test-lobby.ts",
     "test:sim": "tsx scripts/simulate-game.ts",
     "build": "tsc",
     "start": "node dist/server.js",
