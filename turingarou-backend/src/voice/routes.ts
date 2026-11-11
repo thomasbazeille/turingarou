@@ -2,10 +2,10 @@ import express from 'express';
 import type { Express, Request, Response } from 'express';
 import { createHash } from 'crypto';
 import { AudioCache, RateWindow } from './cache.js';
-import { providersFromEnv } from './providers.js';
+import { GradiumTts, providersFromEnv } from './providers.js';
 import type { Lang, SttProvider, TtsProvider, TtsResult } from './providers.js';
 import { normalizeTranscript, spokenText } from './text.js';
-import { VoiceBook, voicePool } from './voices.js';
+import { loadGradiumVoices, VoiceBook, voicePool } from './voices.js';
 
 /** The slice of GameRoom the voice routes need; GameRoom satisfies it structurally. */
 export interface VoiceRoom {
@@ -47,7 +47,7 @@ const DEFAULTS = {
   globalCharsPerHour: 200_000,
   memberTtsPerMin: 120,
   sttPerMin: 10,
-  maxClipBytes: 600 * 1024,
+  maxClipBytes: 800 * 1024,
   maxClipSec: 15,
 };
 
@@ -78,6 +78,20 @@ export function registerVoiceRoutes(app: Express, rooms: ReadonlyMap<string, Voi
   const memberStt = new RateWindow(cfg.sttPerMin, 60_000, now);
   const sttBusy = new Set<string>();
 
+  if (tts instanceof GradiumTts) {
+    const apiKey = tts.apiKey;
+    const load = (attempt: number): void => {
+      loadGradiumVoices(apiKey)
+        .then((n) => {
+          if (n.fr === 0 || n.en === 0) throw new Error('empty catalogue');
+        })
+        .catch(() => {
+          if (attempt < 3) setTimeout(() => load(attempt + 1), 30_000).unref();
+        });
+    };
+    load(1);
+  }
+
   console.log(tts ? `[voice] TTS ${tts.name}/${tts.model}, STT ${stt ? `${stt.name}/${stt.model}` : 'off'}` : '[voice] off');
 
   // The socket id is known only to its own client (never broadcast in the game state): it proves room membership,
@@ -107,7 +121,7 @@ export function registerVoiceRoutes(app: Express, rooms: ReadonlyMap<string, Voi
   }
 
   app.get('/api/voice/config', (_req, res) => {
-    res.json({ tts: !!tts, stt: !!stt, maxClipSec: cfg.maxClipSec, maxClipBytes: cfg.maxClipBytes });
+    res.json({ tts: !!tts, stt: !!stt, sttFormat: stt?.name === 'gradium' ? 'wav' : 'any', maxClipSec: cfg.maxClipSec, maxClipBytes: cfg.maxClipBytes });
   });
 
   // The client names a message, never a text: only lines that exist in the room get spoken.

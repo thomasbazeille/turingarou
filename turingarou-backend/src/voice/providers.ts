@@ -156,6 +156,93 @@ export class OpenAIStt implements SttProvider {
   }
 }
 
+const GRADIUM_STT_MIME: Record<string, string> = {
+  'audio/wav': 'audio/wav',
+  'audio/x-wav': 'audio/wav',
+  'audio/wave': 'audio/wav',
+  'audio/pcm': 'audio/pcm',
+  'audio/ogg': 'audio/ogg',
+  'audio/opus': 'audio/opus',
+};
+
+/** Duration of a PCM WAV from its header: byteRate at offset 28, `data` chunk found by walking the chunk list. */
+export function wavDurationSec(wav: Buffer): number | null {
+  if (wav.length < 44 || wav.toString('ascii', 0, 4) !== 'RIFF' || wav.toString('ascii', 8, 12) !== 'WAVE') return null;
+  const byteRate = wav.readUInt32LE(28);
+  if (byteRate === 0) return null;
+  let pos = 12;
+  while (pos + 8 <= wav.length) {
+    const id = wav.toString('ascii', pos, pos + 4);
+    const size = wav.readUInt32LE(pos + 4);
+    if (id === 'data') {
+      const available = wav.length - (pos + 8);
+      const bytes = size === 0 || size === 0xffffffff || size > available ? available : size;
+      return bytes / byteRate;
+    }
+    pos += 8 + size + (size % 2);
+  }
+  return null;
+}
+
+export class GradiumTts implements TtsProvider {
+  readonly name = 'gradium';
+  constructor(readonly apiKey: string, readonly model = 'default') {}
+
+  async synthesize(text: string, voiceId: string, lang: Lang): Promise<TtsResult> {
+    const res = await fetch('https://api.gradium.ai/api/post/speech/tts', {
+      method: 'POST',
+      headers: { 'x-api-key': this.apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text,
+        voice_id: voiceId,
+        output_format: 'wav',
+        only_audio: true,
+        model_name: this.model,
+        json_config: JSON.stringify({ rewrite_rules: lang }),
+      }),
+      signal: AbortSignal.timeout(TTS_TIMEOUT_MS),
+    });
+    return { audio: await okBytes(res, 'gradium-tts'), mime: 'audio/wav' };
+  }
+}
+
+export class GradiumStt implements SttProvider {
+  readonly name = 'gradium';
+  constructor(private readonly apiKey: string, readonly model = 'default') {}
+
+  async transcribe(audio: Buffer, mime: string, lang: Lang): Promise<SttResult> {
+    const sent = GRADIUM_STT_MIME[mime.split(';')[0].trim().toLowerCase()];
+    if (!sent) throw new Error(`gradium-stt accepts wav, pcm, ogg or opus audio, not ${mime || 'unknown'}`);
+    const qs = new URLSearchParams({ json_config: JSON.stringify({ language: lang }), model: this.model });
+    const res = await fetch(`https://api.gradium.ai/api/post/speech/asr?${qs}`, {
+      method: 'POST',
+      headers: { 'x-api-key': this.apiKey, 'Content-Type': sent },
+      body: new Uint8Array(audio),
+      signal: AbortSignal.timeout(STT_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`gradium-stt HTTP ${res.status}: ${body.slice(0, 200)}`);
+    }
+    const parts: string[] = [];
+    let stop: number | null = null;
+    for (const line of (await res.text()).split('\n')) {
+      if (!line.trim()) continue;
+      let msg: any;
+      try {
+        msg = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (msg?.type === 'error') throw new Error(`gradium-stt: ${String(msg.message ?? 'error').slice(0, 200)}`);
+      if (msg?.type === 'text' && typeof msg.text === 'string') parts.push(msg.text.trim());
+      if (typeof msg?.stop_s === 'number' && (stop === null || msg.stop_s > stop)) stop = msg.stop_s;
+    }
+    const wav = sent === 'audio/wav' ? wavDurationSec(audio) : null;
+    return { text: parts.filter(Boolean).join(' '), durationSec: wav ?? stop };
+  }
+}
+
 type Env = Record<string, string | undefined>;
 
 function clean(value: string | undefined): string {
@@ -167,6 +254,7 @@ export function makeTts(name: string, env: Env): TtsProvider | null {
   if (name === 'cartesia' && clean(env.CARTESIA_API_KEY)) return new CartesiaTts(clean(env.CARTESIA_API_KEY), model);
   if (name === 'elevenlabs' && clean(env.ELEVENLABS_API_KEY)) return new ElevenLabsTts(clean(env.ELEVENLABS_API_KEY), model);
   if (name === 'openai' && clean(env.OPENAI_API_KEY)) return new OpenAITts(clean(env.OPENAI_API_KEY), model);
+  if (name === 'gradium' && clean(env.GRADIUM_API_KEY)) return new GradiumTts(clean(env.GRADIUM_API_KEY), model);
   return null;
 }
 
@@ -174,6 +262,7 @@ export function makeStt(name: string, env: Env): SttProvider | null {
   const model = clean(env.VOICE_STT_MODEL) || undefined;
   if (name === 'deepgram' && clean(env.DEEPGRAM_API_KEY)) return new DeepgramStt(clean(env.DEEPGRAM_API_KEY), model);
   if (name === 'openai' && clean(env.OPENAI_API_KEY)) return new OpenAIStt(clean(env.OPENAI_API_KEY), model);
+  if (name === 'gradium' && clean(env.GRADIUM_API_KEY)) return new GradiumStt(clean(env.GRADIUM_API_KEY), model);
   return null;
 }
 

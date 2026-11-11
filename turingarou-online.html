@@ -893,7 +893,9 @@ const Voice = (() => {
   // --- push-to-talk ---
 
   function canSpeak() {
-    return !!(cfg.tts && cfg.stt && navigator.mediaDevices && navigator.mediaDevices.getUserMedia && typeof MediaRecorder !== 'undefined');
+    const wav = cfg.sttFormat === 'wav';
+    return !!(cfg.tts && cfg.stt && navigator.mediaDevices && navigator.mediaDevices.getUserMedia
+      && (wav ? !!(window.AudioContext || window.webkitAudioContext) : typeof MediaRecorder !== 'undefined'));
   }
 
   function pttHtml(col) {
@@ -933,6 +935,61 @@ const Voice = (() => {
     b.onkeyup = (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); stopRec(); } };
   }
 
+  function floatsToWav(parts, inRate) {
+    const outRate = 24000;
+    let n = 0;
+    parts.forEach((p) => { n += p.length; });
+    const pcm = new Float32Array(n);
+    let o = 0;
+    parts.forEach((p) => { pcm.set(p, o); o += p.length; });
+    const outLen = Math.floor(n * outRate / inRate);
+    const buf = new ArrayBuffer(44 + outLen * 2);
+    const v = new DataView(buf);
+    const str = (at, t) => { for (let i = 0; i < t.length; i++) v.setUint8(at + i, t.charCodeAt(i)); };
+    str(0, 'RIFF'); v.setUint32(4, 36 + outLen * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, outRate, true); v.setUint32(28, outRate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+    str(36, 'data'); v.setUint32(40, outLen * 2, true);
+    for (let i = 0; i < outLen; i++) {
+      const pos = i * inRate / outRate;
+      const i0 = Math.floor(pos);
+      const a = pcm[i0] || 0;
+      const b = i0 + 1 < n ? pcm[i0 + 1] : a;
+      const x = Math.max(-1, Math.min(1, a + (b - a) * (pos - i0)));
+      v.setInt16(44 + i * 2, x < 0 ? x * 0x8000 : x * 0x7fff, true);
+    }
+    return new Blob([buf], { type: 'audio/wav' });
+  }
+
+  function wavRecorder(stream, r) {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (ctx.resume) ctx.resume();
+    const src = ctx.createMediaStreamSource(stream);
+    const proc = ctx.createScriptProcessor(4096, 1, 1);
+    const mute = ctx.createGain();
+    mute.gain.value = 0;
+    const parts = [];
+    proc.onaudioprocess = (ev) => { parts.push(new Float32Array(ev.inputBuffer.getChannelData(0))); };
+    src.connect(proc);
+    proc.connect(mute);
+    mute.connect(ctx.destination);
+    const out = {
+      state: 'recording',
+      mimeType: 'audio/wav',
+      start() {},
+      stop() {
+        out.state = 'inactive';
+        proc.onaudioprocess = null;
+        try { src.disconnect(); proc.disconnect(); mute.disconnect(); } catch (_) {}
+        const rate = ctx.sampleRate;
+        if (ctx.close) ctx.close().catch(() => {});
+        r.chunks.push(floatsToWav(parts, rate));
+        if (out.onstop) out.onstop();
+      },
+    };
+    return out;
+  }
+
   async function startRec() {
     if (rec || G.s !== 'discussion') return;
     const r = (rec = { released: false, chunks: [] });
@@ -954,9 +1011,11 @@ const Voice = (() => {
       return;
     }
     const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
-    const mimeType = types.find((t) => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t));
+    const mimeType = cfg.sttFormat === 'wav' ? null : types.find((t) => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t));
     try {
-      r.recorder = new MediaRecorder(stream, mimeType ? { mimeType, audioBitsPerSecond: 32000 } : { audioBitsPerSecond: 32000 });
+      r.recorder = cfg.sttFormat === 'wav'
+        ? wavRecorder(stream, r)
+        : new MediaRecorder(stream, mimeType ? { mimeType, audioBitsPerSecond: 32000 } : { audioBitsPerSecond: 32000 });
     } catch (_) {
       stream.getTracks().forEach((t) => t.stop());
       rec = null;

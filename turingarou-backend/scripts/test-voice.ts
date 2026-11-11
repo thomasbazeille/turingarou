@@ -2,11 +2,11 @@ import { strict as assert } from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
 import express from 'express';
 import { AudioCache, RateWindow } from '../src/voice/cache.js';
-import { providersFromEnv } from '../src/voice/providers.js';
+import { GradiumStt, GradiumTts, providersFromEnv, wavDurationSec } from '../src/voice/providers.js';
 import type { Lang, SttProvider, SttResult, TtsProvider, TtsResult } from '../src/voice/providers.js';
 import { registerVoiceRoutes, type VoiceOptions, type VoiceRoom } from '../src/voice/routes.js';
 import { normalizeTranscript, spokenText, wordSimilarity } from '../src/voice/text.js';
-import { assignVoices, VoiceBook, voicePool, type VoiceDef } from '../src/voice/voices.js';
+import { assignVoices, loadGradiumVoices, VoiceBook, voicePool, type VoiceDef } from '../src/voice/voices.js';
 
 const failures: string[] = [];
 let passed = 0;
@@ -235,7 +235,7 @@ function stt(base: string, bytes: number, opts: { room?: string; socket?: string
 test('config reflects providers; everything answers 503 when voice is off', async () => {
   const { map } = makeRooms();
   await withServer({ tts: new FakeTts(), stt: new FakeStt() }, map, async (base) => {
-    assert.deepEqual(await (await fetch(`${base}/api/voice/config`)).json(), { tts: true, stt: true, maxClipSec: 15, maxClipBytes: 600 * 1024 });
+    assert.deepEqual(await (await fetch(`${base}/api/voice/config`)).json(), { tts: true, stt: true, sttFormat: 'any', maxClipSec: 15, maxClipBytes: 800 * 1024 });
   });
   await withServer({ tts: null, stt: null }, map, async (base) => {
     const cfg = await (await fetch(`${base}/api/voice/config`)).json();
@@ -361,6 +361,165 @@ test('STT rate limit per member', async () => {
     assert.equal((await stt(base, 100)).status, 200);
     assert.equal((await stt(base, 100)).status, 429);
     assert.equal((await stt(base, 100, { socket: 'sock-h2' })).status, 200);
+  });
+});
+
+// --- gradium ---
+
+type Call = { url: string; init: RequestInit };
+
+async function withFetch<T>(reply: (url: string) => Response, fn: (calls: Call[]) => Promise<T>): Promise<T> {
+  const real = globalThis.fetch;
+  const calls: Call[] = [];
+  globalThis.fetch = (async (input: any, init: RequestInit = {}) => {
+    const url = String(input);
+    calls.push({ url, init });
+    return reply(url);
+  }) as typeof fetch;
+  try {
+    return await fn(calls);
+  } finally {
+    globalThis.fetch = real;
+  }
+}
+
+function wavBytes(seconds: number, opts: { listChunk?: boolean; rate?: number } = {}): Buffer {
+  const rate = opts.rate ?? 24000;
+  const data = Buffer.alloc(Math.round(seconds * rate * 2));
+  const list = opts.listChunk ? Buffer.concat([Buffer.from('LIST'), Buffer.from([4, 0, 0, 0]), Buffer.from('INFO')]) : Buffer.alloc(0);
+  const head = Buffer.alloc(36);
+  head.write('RIFF', 0);
+  head.writeUInt32LE(36 + list.length + 8 + data.length, 4);
+  head.write('WAVE', 8);
+  head.write('fmt ', 12);
+  head.writeUInt32LE(16, 16);
+  head.writeUInt16LE(1, 20);
+  head.writeUInt16LE(1, 22);
+  head.writeUInt32LE(rate, 24);
+  head.writeUInt32LE(rate * 2, 28);
+  head.writeUInt16LE(2, 32);
+  head.writeUInt16LE(16, 34);
+  const dataHead = Buffer.alloc(8);
+  dataHead.write('data', 0);
+  dataHead.writeUInt32LE(data.length, 4);
+  return Buffer.concat([head, list, dataHead, data]);
+}
+
+const ndjson = (...lines: object[]) => new Response(lines.map((l) => JSON.stringify(l)).join('\n') + '\n', { headers: { 'Content-Type': 'application/x-ndjson' } });
+
+test('gradium TTS: URL, x-api-key, JSON body, wav result', async () => {
+  await withFetch(() => new Response(wavBytes(1), { headers: { 'Content-Type': 'audio/wav' } }), async (calls) => {
+    const out = await new GradiumTts('k-test', 'm1').synthesize('salut', 'voice-uid', 'fr');
+    assert.equal(out.mime, 'audio/wav');
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, 'https://api.gradium.ai/api/post/speech/tts');
+    assert.equal(calls[0].init.method, 'POST');
+    assert.equal((calls[0].init.headers as Record<string, string>)['x-api-key'], 'k-test');
+    const body = JSON.parse(calls[0].init.body as string);
+    assert.deepEqual(body, { text: 'salut', voice_id: 'voice-uid', output_format: 'wav', only_audio: true, model_name: 'm1', json_config: '{"rewrite_rules":"fr"}' });
+  });
+  await withFetch(() => new Response('boom', { status: 500 }), async () => {
+    await assert.rejects(new GradiumTts('k').synthesize('x', 'v', 'en'), /gradium-tts HTTP 500: boom/);
+  });
+});
+
+test('gradium STT: request shape, texts joined, ndjson without text lines', async () => {
+  const reply = () => ndjson({ type: 'text', text: 'je pense', start_s: 0 }, { type: 'text', text: 'que c’est Paul', start_s: 1 }, { type: 'end_text', stop_s: 2.5 });
+  await withFetch(reply, async (calls) => {
+    const out = await new GradiumStt('k-test').transcribe(Buffer.from('OggS-fake'), 'audio/ogg;codecs=opus', 'fr');
+    assert.deepEqual(out, { text: 'je pense que c’est Paul', durationSec: 2.5 });
+    const u = new URL(calls[0].url);
+    assert.equal(u.origin + u.pathname, 'https://api.gradium.ai/api/post/speech/asr');
+    assert.equal(u.searchParams.get('json_config'), '{"language":"fr"}');
+    assert.equal(u.searchParams.get('model'), 'default');
+    const h = calls[0].init.headers as Record<string, string>;
+    assert.equal(h['x-api-key'], 'k-test');
+    assert.equal(h['Content-Type'], 'audio/ogg');
+  });
+  await withFetch(() => ndjson({ type: 'end_text', stop_s: 1 }), async () => {
+    assert.deepEqual(await new GradiumStt('k').transcribe(Buffer.from('x'), 'audio/pcm', 'en'), { text: '', durationSec: 1 });
+  });
+});
+
+test('gradium STT: error line throws, HTTP error throws', async () => {
+  await withFetch(() => ndjson({ type: 'text', text: 'début' }, { type: 'error', message: 'bad audio' }), async () => {
+    await assert.rejects(new GradiumStt('k').transcribe(Buffer.from('x'), 'audio/wav', 'fr'), /bad audio/);
+  });
+  await withFetch(() => new Response('nope', { status: 401 }), async () => {
+    await assert.rejects(new GradiumStt('k').transcribe(Buffer.from('x'), 'audio/wav', 'fr'), /HTTP 401/);
+  });
+});
+
+test('gradium STT refuses webm, mp4, mp3 before any request', async () => {
+  await withFetch(() => ndjson(), async (calls) => {
+    for (const mime of ['audio/webm;codecs=opus', 'audio/mp4', 'audio/mpeg', 'video/webm']) {
+      await assert.rejects(new GradiumStt('k').transcribe(Buffer.from('x'), mime, 'fr'), /accepts wav, pcm, ogg or opus/, mime);
+    }
+    assert.equal(calls.length, 0);
+  });
+});
+
+test('WAV duration from the header: data chunk found past an extra chunk, WAV beats stop_s', async () => {
+  assert.equal(wavDurationSec(wavBytes(3)), 3);
+  assert.equal(wavDurationSec(wavBytes(2, { listChunk: true })), 2);
+  assert.equal(wavDurationSec(wavBytes(1.5, { rate: 16000 })), 1.5);
+  assert.equal(wavDurationSec(Buffer.from('not a wav at all, just text padding to pass 44 bytes....')), null);
+  await withFetch(() => ndjson({ type: 'text', text: 'a', start_s: 0 }, { type: 'end_text', stop_s: 9 }), async () => {
+    const out = await new GradiumStt('k').transcribe(wavBytes(4, { listChunk: true }), 'audio/wav', 'fr');
+    assert.equal(out.durationSec, 4);
+  });
+});
+
+test('providersFromEnv picks gradium for both directions, only with its key', () => {
+  const env = { VOICE_ENABLED: '1', VOICE_TTS_PROVIDER: 'gradium', VOICE_STT_PROVIDER: 'gradium', GRADIUM_API_KEY: "'dummy'" };
+  const on = providersFromEnv(env);
+  assert.equal(on.tts?.name, 'gradium');
+  assert.equal(on.stt?.name, 'gradium');
+  assert.equal(providersFromEnv({ ...env, GRADIUM_API_KEY: '' }).tts, null);
+  assert.equal(providersFromEnv({ VOICE_ENABLED: '1', CARTESIA_API_KEY: 'k', DEEPGRAM_API_KEY: 'k' }).tts?.name, 'cartesia', 'default changed');
+});
+
+test('gradium catalogue loader: is_catalog only, sorted by rank, per-language pool, warns under 8', async () => {
+  const fr = [
+    { uid: 'c', name: 'C', is_catalog: true, rank: 3 },
+    { uid: 'mine', name: 'Mine', is_catalog: false, rank: 0 },
+    { uid: 'a', name: 'A', is_catalog: true, rank: 1 },
+    { uid: 'b', name: 'B', is_catalog: true, rank: 2 },
+  ];
+  const en = Array.from({ length: 9 }, (_, i) => ({ uid: `e${8 - i}`, name: `E${i}`, is_catalog: true, rank: 8 - i }));
+  const warns: string[] = [];
+  const realWarn = console.warn;
+  console.warn = (m: string) => void warns.push(String(m));
+  const urls: string[] = [];
+  try {
+    assert.deepEqual(voicePool('gradium', 'fr'), [], 'not empty before loading');
+    const fakeFetch = (async (url: any, init: any) => {
+      urls.push(String(url));
+      assert.equal(init.headers['x-api-key'], 'k-test');
+      return new Response(JSON.stringify(String(url).includes('fr-fr') ? fr : en));
+    }) as typeof fetch;
+    const counts = await loadGradiumVoices('k-test', fakeFetch);
+    assert.deepEqual(counts, { fr: 3, en: 9 });
+  } finally {
+    console.warn = realWarn;
+  }
+  assert.ok(urls[0].includes('include_catalog=true') && urls[0].includes('locale=fr-fr') && urls[1].includes('locale=en-us'));
+  assert.deepEqual(voicePool('gradium', 'fr').map((v) => v.id), ['a', 'b', 'c']);
+  assert.deepEqual(voicePool('gradium', 'en').map((v) => v.id), Array.from({ length: 9 }, (_, i) => `e${i}`));
+  assert.equal(warns.length, 1);
+  assert.match(warns[0], /3 fr voices/);
+  assert.ok(!warns[0].includes('k-test'));
+  const map = assignVoices('seed', PLAYERS, voicePool('gradium', 'en'));
+  assert.equal(new Set([...map.values()].map((v) => v.id)).size, 8);
+});
+
+test('config says sttFormat wav for a gradium STT', async () => {
+  const { map } = makeRooms();
+  const g = new GradiumStt('k');
+  await withServer({ tts: new FakeTts(), stt: g }, map, async (base) => {
+    const cfg = await (await fetch(`${base}/api/voice/config`)).json();
+    assert.equal(cfg.sttFormat, 'wav');
+    assert.equal(cfg.maxClipBytes, 800 * 1024);
   });
 });
 

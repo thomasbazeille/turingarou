@@ -76,7 +76,40 @@ const POOLS: Record<string, Record<Lang, VoiceDef[]>> = {
   openai: { fr: OPENAI, en: OPENAI },
 };
 
+const GRADIUM_LOCALE: Record<Lang, string> = { fr: 'fr-fr', en: 'en-us' };
+const GRADIUM_POOL: Record<Lang, VoiceDef[]> = { fr: [], en: [] };
+
+export function parseGradiumCatalog(json: unknown): VoiceDef[] {
+  if (!Array.isArray(json)) return [];
+  const seen = new Set<string>();
+  return json
+    .filter((v) => v && v.is_catalog === true && typeof v.uid === 'string' && v.uid && !seen.has(v.uid) && seen.add(v.uid))
+    .sort((a, b) => (typeof a.rank === 'number' ? a.rank : Infinity) - (typeof b.rank === 'number' ? b.rank : Infinity))
+    .map((v) => ({ id: v.uid as string, label: typeof v.name === 'string' && v.name ? v.name : v.uid, gender: 'n' as const }));
+}
+
+/** Gradium ids are only readable with a key, so the pool is read from its catalogue: once at boot, never hard-coded. */
+export async function loadGradiumVoices(apiKey: string, fetchFn: typeof fetch = fetch): Promise<Record<Lang, number>> {
+  const counts: Record<Lang, number> = { fr: 0, en: 0 };
+  for (const lang of ['fr', 'en'] as Lang[]) {
+    try {
+      const res = await fetchFn(`https://api.gradium.ai/api/voices/?include_catalog=true&locale=${GRADIUM_LOCALE[lang]}`, {
+        headers: { 'x-api-key': apiKey },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      GRADIUM_POOL[lang] = parseGradiumCatalog(await res.json());
+    } catch (err) {
+      console.warn(`[voice] gradium voice catalogue ${lang} failed: ${(err as Error).message}`);
+    }
+    counts[lang] = GRADIUM_POOL[lang].length;
+    if (counts[lang] < 8) console.warn(`[voice] gradium has ${counts[lang]} ${lang} voices, 8 players need 8 distinct ones`);
+  }
+  return counts;
+}
+
 export function voicePool(provider: string, lang: Lang): readonly VoiceDef[] {
+  if (provider === 'gradium') return GRADIUM_POOL[lang];
   return POOLS[provider]?.[lang] ?? [];
 }
 
