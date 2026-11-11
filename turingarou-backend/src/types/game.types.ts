@@ -39,6 +39,8 @@ export interface GameMessage {
   timestamp: number;
   phase: GamePhase;
   round: number; // round when the message was sent (for scroll history)
+  /** Earlier message of the same room this one answers (validated by the room, never a system line). */
+  replyToId?: string;
 }
 
 export interface QuestionAnswer {
@@ -50,7 +52,8 @@ export interface QuestionAnswer {
 
 export interface Vote {
   voterId: string;
-  targetId: string;
+  /** null: an abstention, a vote rendered that eliminates nobody. */
+  targetId: string | null;
 }
 
 export interface GameRoomState {
@@ -68,6 +71,8 @@ export interface GameRoomState {
   discussionEndTime: number | null;
   questionEndTime: number | null;
   voteEndTime: number | null;
+  /** End of the round-end screen, so every client stages the elimination within the same window. */
+  endRoundEndTime?: number | null;
   maxPlayers: number;
   minPlayers: number;
   aiCount: number; // Nombre d'IA dans la partie

@@ -16,7 +16,7 @@ export interface VoiceRoom {
     players: ReadonlyArray<{ id: string; type: 'human' | 'ai'; isEliminated: boolean; socketId?: string }>;
     messages: ReadonlyArray<{ id: string; playerId: string; content: string }>;
   };
-  addMessage(playerId: string, content: string): boolean;
+  addMessage(playerId: string, content: string, replyToId?: unknown): boolean;
 }
 
 export interface VoiceOptions {
@@ -199,7 +199,8 @@ export function registerVoiceRoutes(app: Express, rooms: ReadonlyMap<string, Voi
       const lower = parseInt(sha(`${m.room.getState().roomId}|case|${m.player.id}`).slice(0, 8), 16) / 0xffffffff < 0.55;
       const { text, truncated } = normalizeTranscript(result.text, { casing: lower ? 'lower' : 'sentence' });
       if (!text) return void res.status(422).json({ error: 'empty' });
-      if (!m.room.addMessage(m.player.id, text)) return void res.status(409).json({ error: 'not_posted', text });
+      // A spoken line may answer a message like a typed one (the client sends the quoted id in ?replyTo=).
+      if (!m.room.addMessage(m.player.id, text, req.query.replyTo)) return void res.status(409).json({ error: 'not_posted', text });
       res.json({ ok: true, text, truncated });
     } catch (err) {
       console.warn(`[voice] STT failed: ${(err as Error).message}`);

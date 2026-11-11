@@ -11,14 +11,23 @@
  * Date.now and Math.random for the virtual clock and a seeded generator during each game.
  */
 import { performance } from 'node:perf_hooks';
-import { GameRoom, GameRoomDeps, RoomEmitter, DISCUSSION_PHASE_MS, RECONNECT_GRACE_MS, VOTE_PHASE_MS } from '../src/game/GameRoom.js';
-import { DISCUSSION_LOCK_MS, VOTE_DEADLINE_MS } from '../src/game/BotDirector.js';
+import {
+  GameRoom,
+  GameRoomDeps,
+  RoomEmitter,
+  DISCUSSION_PHASE_MS,
+  QUESTION_MIN_MS,
+  QUESTION_PHASE_MS,
+  RECONNECT_GRACE_MS,
+  VOTE_PHASE_MS,
+} from '../src/game/GameRoom.js';
+import { BOT_ABSTAIN_PROB, DISCUSSION_LOCK_MS, VOTE_DEADLINE_MS } from '../src/game/BotDirector.js';
 import { ChatProvider, ChatRequest, ChatResult, ProviderError } from '../src/llm/chatClient.js';
 import { modelLabel } from '../src/llm/providerRegistry.js';
 import { makeSeededRng } from '../src/game/humanTiming.js';
 import { getInspectorPromptContent, getRandomAIPlayerStrategy } from '../src/game/StrategyLoader.js';
 import type { GameLogData } from '../src/game/GameLogger.js';
-import type { GameMessage, GameRoomState, QuestionAnswer } from '../src/types/game.types.js';
+import type { GameMessage, GameRoomState, QuestionAnswer, Vote } from '../src/types/game.types.js';
 
 type Lang = 'fr' | 'en';
 type Kind = 'decision' | 'answer' | 'vote';
@@ -376,6 +385,8 @@ interface Accusation {
   remaining: number;
   named: boolean;
   accusation: boolean;
+  /** The line quoted the target's message (reply-to) instead of naming them. */
+  quoted: boolean;
 }
 
 interface AIEvent {
@@ -405,9 +416,18 @@ interface GameResult {
   events: Counters;
 }
 
+interface UxCounts {
+  votes: number;
+  abstain: number;
+  noVote: number;
+  lines: number;
+  replies: number;
+}
+
 interface Telemetry {
   result?: string;
   postDelayMs?: { direct: { n: number; p50: number | null }; regular: { n: number; p50: number | null } };
+  roundUx?: { human: UxCounts; ai: UxCounts; inspector: UxCounts };
 }
 
 /**
@@ -431,7 +451,13 @@ const PUBLIC_TOP_KEYS = new Set([
   'roomId', 'phase', 'currentRound', 'players', 'messages', 'currentQuestion', 'answers', 'answersByRound', 'votes',
   'protectedPlayerId', 'discussionEndTime', 'questionEndTime', 'voteEndTime', 'maxPlayers', 'minPlayers', 'aiCount',
   'eliminatedPlayerId', 'eliminatedPlayerIsAI', 'gameOverReason', 'language', 'eliminationOrder', 'eliminatedAiCount',
+  'voteCount', 'endRoundEndTime',
 ]);
+/** Fields of a chat message; the same for every author, a reply quote included. */
+const MESSAGE_KEYS = new Set(['id', 'playerId', 'playerName', 'content', 'timestamp', 'phase', 'round', 'replyToId']);
+/** Fake humans abstain at this rate; quote a message (reply-to) at these rates; send an unknown reply id at this rate. */
+const HUMAN_ABSTAIN_PROB = 0.06;
+const HUMAN_INVALID_REPLY_PROB = 0.02;
 
 const realTimers = { setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout, now: Date.now, random: Math.random };
 const unhandled: string[] = [];
@@ -470,8 +496,13 @@ async function runGame(sc: Scenario): Promise<GameResult> {
   const lab = new FakeLab(clock, simRng, () => room);
   lab.cautiousRound1 = sc.seed % 2 === 1;
   const phases: { t: number; phase: string; round: number }[] = [];
-  const endroundVotes = new Map<number, { voterId: string; targetId: string }[]>();
+  const endroundVotes = new Map<number, Vote[]>();
+  /** The room's own votes at each round end: explicit votes and abstentions, before missing votes are filled in. */
+  const explicitVotes = new Map<number, Vote[]>();
   const eliminatedIn = new Map<number, string | null>();
+  const seenMessages = new Set<string>();
+  /** Lines a fake human posted with an unknown reply id: the room must post them without a quote. */
+  const invalidReplies: string[] = [];
   let finished = false;
   let emitsAfterEnd = 0;
   let emitsTotal = 0;
@@ -517,32 +548,52 @@ async function runGame(sc: Scenario): Promise<GameResult> {
     const others = s.players.filter((p) => !p.isEliminated && p.id !== h.id);
     const discussion = s.messages.filter((x) => x.phase === 'discussion' && x.round === round && x.playerId !== 'system');
     const last = discussion[discussion.length - 1];
+    const lastOf = (pid: string) => [...discussion].reverse().find((x) => x.playerId === pid);
+    // An older line of another active player, for a quoted accusation that does not answer the last line.
+    const older = discussion.slice(0, -1).filter((x) => x.playerId !== h.id && isActive(x.playerId));
     const r = simRng();
     let text: string;
     let target: { id: string; username: string } | null = null;
     let named = false;
     let accusation = false;
+    let quote: GameMessage | undefined;
     if (r < 0.28 && others.length > 0) {
       target = pick(others);
       text = pick(L.accuse).replace('{n}', target.username);
       named = true;
       accusation = true;
+      if (simRng() < 0.25) quote = lastOf(target.id);
     } else if (r < 0.35 && others.length > 0) {
       target = pick(others);
       text = pick(L.ask).replace('{n}', target.username);
       named = true;
-    } else if (r < 0.41 && last && last.playerId !== h.id && isActive(last.playerId)) {
+      if (simRng() < 0.3) quote = lastOf(target.id);
+    } else if (r < 0.39 && older.length > 0) {
+      quote = pick(older);
+      target = { id: quote.playerId, username: quote.playerName };
+      text = pick(L.replyAccuse);
+      accusation = true;
+    } else if (r < 0.43 && last && last.playerId !== h.id && isActive(last.playerId)) {
       target = { id: last.playerId, username: last.playerName };
       text = pick(L.replyAccuse);
       accusation = true;
+      if (simRng() < 0.7) quote = last;
     } else {
       text = pick(L.casual);
+      if (last && last.playerId !== h.id && simRng() < 0.05) quote = last;
     }
+    const invalid = simRng() < HUMAN_INVALID_REPLY_PROB ? `msg-unknown-${clock.now()}` : null;
     const remainingAtSend = remaining();
-    const posted = room.addMessage(seat, text);
+    const posted = room.addMessage(seat, text, invalid ?? quote?.id);
+    if (posted) {
+      const mine = state().messages[state().messages.length - 1];
+      if (invalid) invalidReplies.push(mine.id);
+      else if (mine.replyToId !== quote?.id) offend('reply_wrong', `${h.name} quoted ${quote?.id ?? 'nothing'}, the room kept ${mine.replyToId ?? 'nothing'}`);
+    }
     if (posted && target) {
       const botIds = botIdSet();
-      accusations.push({ t: clock.now(), round, targetId: target.id, targetName: target.username, targetIsBot: botIds.has(target.id), remaining: remainingAtSend, named, accusation });
+      const quoted = !!quote && !named && !invalid;
+      accusations.push({ t: clock.now(), round, targetId: target.id, targetName: target.username, targetIsBot: botIds.has(target.id), remaining: remainingAtSend, named, accusation, quoted });
     }
   };
 
@@ -602,12 +653,14 @@ async function runGame(sc: Scenario): Promise<GameResult> {
     if (finished) return;
     const present = humans.filter((h) => h.connected && isActive(h.id));
     if (phase === 'question') {
+      // A third of the rounds, the table answers fast and fully: the early end and its floor get exercised.
+      const fast = simRng() < 0.33;
       for (const h of present) {
-        if (simRng() < 0.08) continue;
+        if (!fast && simRng() < 0.08) continue;
         clock.setTimeout(() => {
           const seat = seatOf(h);
           if (seat && state().phase === 'question' && state().currentRound === round) room.addAnswer(seat, pick(L.answers));
-        }, 2000 + simRng() * 15000);
+        }, fast ? 1000 + simRng() * 3000 : 2000 + simRng() * 15000);
       }
       // Everyone drops at the question: every grace ends within the discussion, before a vote can eliminate anyone.
       if ((sc.drops === 'all-gone' || sc.drops === 'all-one-back') && round === sc.dropRound) {
@@ -635,6 +688,10 @@ async function runGame(sc: Scenario): Promise<GameResult> {
           if (againstGone) {
             votesAgainstGone.push({ round, voterId: seat, targetId: gone.id });
             room.addVote(seat, gone.id);
+            return;
+          }
+          if (simRng() < HUMAN_ABSTAIN_PROB) {
+            room.addVote(seat, null);
             return;
           }
           const candidates = st.players.filter((p) => !p.isEliminated && p.id !== seat && p.id !== st.protectedPlayerId);
@@ -676,6 +733,24 @@ async function runGame(sc: Scenario): Promise<GameResult> {
           for (const k of Object.keys(p)) if (!PUBLIC_TOP_KEYS.has(k)) offend('reveal_early', `${p.phase} r${p.currentRound}: top-level field "${k}"`);
           if ((p as { gameOverReason?: unknown }).gameOverReason != null) offend('reveal_early', `${p.phase}: gameOverReason set`);
         } else gameoverPayload = JSON.parse(json);
+        // Before the round end, nobody's vote reaches any browser: no voter id anywhere, no system line naming a
+        // player during the vote, only an anonymous count that matches the room's.
+        if (p.phase !== 'endround' && !over) {
+          inc(`votes_hidden_checked:${p.phase}`);
+          if (json.includes('"voterId"')) offend('votes_visible', `${p.phase} r${p.currentRound}: a voter id is in the state`);
+          const count = (p as { voteCount?: unknown }).voteCount;
+          if (p.phase === 'voting' ? count !== state().votes.length : count !== undefined) offend('votes_visible', `${p.phase} r${p.currentRound}: voteCount ${String(count)} (room has ${state().votes.length})`);
+        }
+        const names = p.players.map((pl) => String(pl.username).toLowerCase());
+        for (const msg of (p as { messages?: GameMessage[] }).messages ?? []) {
+          if (seenMessages.has(msg.id)) continue;
+          seenMessages.add(msg.id);
+          const extraKeys = Object.keys(msg).filter((k) => !MESSAGE_KEYS.has(k));
+          if (extraKeys.length > 0) offend('message_fields', `message of ${msg.playerName} carries [${extraKeys.join(',')}]`);
+          if (msg.playerId === 'system' && msg.phase === 'voting' && names.some((n) => msg.content.toLowerCase().includes(n))) {
+            offend('votes_visible', `r${msg.round} system line during the vote names a player: "${msg.content}"`);
+          }
+        }
         for (const [pid, d] of dropped) {
           const pl = p.players.find((x) => x.id === pid);
           if (!pl) offend('dropped_seen', `${p.phase} r${p.currentRound}: dropped player ${pid} missing from the list`);
@@ -686,14 +761,34 @@ async function runGame(sc: Scenario): Promise<GameResult> {
           const voteStart = last?.phase === 'voting' ? last.t : null;
           phases.push({ t: clock.now(), phase: p.phase, round: p.currentRound });
           if (p.phase === 'endround') {
+            const explicit = [...state().votes];
             endroundVotes.set(p.currentRound, [...(p.votes ?? [])]);
+            explicitVotes.set(p.currentRound, explicit);
             eliminatedIn.set(p.currentRound, p.eliminatedPlayerId ?? null);
+            const voterIds = p.players.filter((pl) => !pl.isEliminated || pl.id === p.eliminatedPlayerId).map((pl) => String(pl.id));
+            const voters = voterIds.length;
             // A vote closed before its deadline with a vote missing: only allowed once every bot must have voted.
-            const voters = p.players.filter((pl) => !pl.isEliminated || pl.id === p.eliminatedPlayerId).length;
-            if (voteStart !== null && (p.votes ?? []).length < voters && clock.now() < voteStart + VOTE_PHASE_MS) {
+            if (voteStart !== null && explicit.length < voters && clock.now() < voteStart + VOTE_PHASE_MS) {
               inc('vote_closed_without_gone');
               if (clock.now() < voteStart + VOTE_DEADLINE_MS) offend('dropped_seen', `r${p.currentRound} vote closed at ${((clock.now() - voteStart) / 1000).toFixed(1)} s with a vote missing, before the bots' deadline`);
             }
+            if (voteStart !== null && explicit.length === voters && clock.now() < voteStart + VOTE_PHASE_MS && explicit.some((v) => v.targetId === null)) inc('closed_early_with_abstention');
+            // The reveal lists every player who could vote once, in seat order, a missing vote as an abstention:
+            // neither the casting order nor a silent non-vote may show.
+            inc('vote_reveals');
+            const shown = (p.votes ?? []).map((v) => v.voterId);
+            if (JSON.stringify(shown) !== JSON.stringify(voterIds)) offend('vote_reveal', `r${p.currentRound} reveal [${shown.join(',')}] is not one entry per voter in seat order`);
+            for (const v of p.votes ?? []) {
+              const own = explicit.find((x) => x.voterId === v.voterId);
+              if ((own?.targetId ?? null) !== v.targetId) offend('vote_reveal', `r${p.currentRound} ${v.voterId} revealed ${String(v.targetId)}, cast ${String(own?.targetId)}`);
+            }
+            // Most targeted votes is out, a tie or abstentions only is nobody.
+            const counts = new Map<string, number>();
+            for (const v of explicit) if (v.targetId) counts.set(v.targetId, (counts.get(v.targetId) ?? 0) + 1);
+            const max = Math.max(0, ...counts.values());
+            const top = [...counts].filter(([, c]) => c === max && max > 0).map(([id]) => id);
+            const expected = top.length === 1 ? top[0] : null;
+            if ((p.eliminatedPlayerId ?? null) !== expected) offend('vote_count_wrong', `r${p.currentRound} eliminated ${String(p.eliminatedPlayerId)}, the votes say ${String(expected)}`);
           }
           if (over) finished = true;
           else if (p.phase === 'waiting' && phases.some((x) => x.phase !== 'waiting')) {
@@ -923,19 +1018,28 @@ async function runGame(sc: Scenario): Promise<GameResult> {
     }
   }
 
-  // Votes: every active bot votes; a fallback is logged exactly when the model gave nothing usable in time.
+  // Votes: every active bot votes or abstains; a fallback is logged exactly when the model gave nothing usable in
+  // time to a bot that did not draw an abstention.
   const eliminatedBefore = new Set<string>();
   for (let rd = 1; rd <= s.currentRound; rd++) {
     const vStart = startOf('voting', rd);
-    const votes = endroundVotes.get(rd);
+    const votes = explicitVotes.get(rd);
     if (vStart === null || !votes) continue;
+    for (const v of votes) {
+      const side = botIds.has(v.voterId) ? 'bot' : 'human';
+      inc(`${side}_votes_rendered`);
+      if (v.targetId === null) inc(`${side}_abstentions`);
+    }
     for (const botId of botIds) {
       if (eliminatedBefore.has(botId) || !s.players.some((p) => p.id === botId)) continue;
       const name = s.players.find((p) => p.id === botId)!.username;
       inc('bot_votes_expected');
-      const voted = votes.some((v) => v.voterId === botId);
-      if (!voted) offend('bot_did_not_vote', `${name} r${rd}`);
+      const own = votes.find((v) => v.voterId === botId);
+      if (!own) offend('bot_did_not_vote', `${name} r${rd}`);
       else inc('bot_votes_cast');
+      const abstained = events.some((e) => e.kind === 'vote_abstain' && e.round === rd && e.player === name);
+      if (abstained !== (own !== undefined && own.targetId === null)) offend('vote_count_wrong', `${name} r${rd}: abstention logged=${abstained}, cast ${String(own?.targetId)}`);
+      if (abstained) continue;
       const usable = [...lab.tasks.values()].some(
         (t) => t.kind === 'vote' && t.bot === name && t.round0 === rd && t.text !== null && t.candidates.includes(t.text) && t.resolvedAt !== null && t.resolvedAt < vStart + VOTE_DEADLINE_MS
       );
@@ -946,6 +1050,37 @@ async function runGame(sc: Scenario): Promise<GameResult> {
     }
     const elimId = eliminatedIn.get(rd);
     if (elimId) eliminatedBefore.add(elimId);
+  }
+
+  // Reply quotes: every quote names an earlier player line of this room; bots and fake humans both quote; an unknown
+  // reply id never survives.
+  const byId = new Map(s.messages.map((x, i) => [x.id, { msg: x, idx: i }]));
+  s.messages.forEach((msg, idx) => {
+    if (msg.playerId === 'system') return;
+    const side = botIds.has(msg.playerId) ? 'bot' : 'human';
+    inc(`${side}_lines_all`);
+    if (!msg.replyToId) return;
+    inc(`${side}_replies`);
+    const target = byId.get(msg.replyToId);
+    if (!target || target.idx >= idx || target.msg.playerId === 'system') offend('reply_wrong', `${msg.playerName} r${msg.round} quotes ${msg.replyToId}: ${target ? 'not an earlier player line' : 'unknown'}`);
+    else if (target.msg.playerId === msg.playerId) offend('reply_wrong', `${msg.playerName} r${msg.round} quotes its own line`);
+  });
+  for (const mid of invalidReplies) {
+    inc('invalid_replies');
+    if (byId.get(mid)?.msg.replyToId) offend('reply_wrong', `unknown reply id kept on ${mid}`);
+  }
+
+  // Question phase: an early end (everyone answered) never before QUESTION_MIN_MS.
+  for (let rd = 1; rd <= s.currentRound; rd++) {
+    const qStart = startOf('question', rd);
+    const dStart = startOf('discussion', rd);
+    if (qStart === null || dStart === null) continue;
+    const length = dStart - qStart;
+    if (length >= QUESTION_PHASE_MS) continue;
+    inc('question_early_ends');
+    if (length < QUESTION_MIN_MS) offend('question_floor', `r${rd} discussion started ${(length / 1000).toFixed(1)} s into the question`);
+    const lastAnswer = Math.max(...answersOf(rd).map((a) => a.timestamp));
+    if (lastAnswer < qStart + QUESTION_MIN_MS) inc('question_floor_bound');
   }
 
   // Language of every prompt.
@@ -963,7 +1098,7 @@ async function runGame(sc: Scenario): Promise<GameResult> {
   for (const a of accusations) {
     // Only accusations whose 10 s reply window fits before the lock and before the phase really ends (abort).
     if (!a.targetIsBot || a.remaining < DISCUSSION_LOCK_MS + 10000 || a.t + 10000 >= endOfPhase('discussion', a.round)) continue;
-    const key = a.named && a.accusation ? 'named_accusations' : a.named ? 'named_questions' : 'reply_accusations';
+    const key = a.named && a.accusation ? 'named_accusations' : a.named ? 'named_questions' : a.quoted ? 'quoted_accusations' : 'reply_accusations';
     inc(key);
     const replied = botMsgs.some((x) => x.playerId === a.targetId && x.timestamp > a.t && x.timestamp <= a.t + 10000 && isDirect.get(x.id));
     if (replied) inc(`${key}_replied`);
@@ -1008,7 +1143,68 @@ async function runGame(sc: Scenario): Promise<GameResult> {
     }
   }
 
+  // The rates the bots are recalibrated on are logged for both sides and match what happened in the room.
+  const ux = telemetry?.roundUx;
+  if (telemetry && !ux) offend('telemetry', 'no roundUx block');
+  else if (ux) {
+    const bot = (k: keyof UxCounts) => ux.ai[k] + ux.inspector[k];
+    const measured: [string, number, number][] = [
+      ['bot abstentions', bot('abstain'), m.bot_abstentions ?? 0],
+      ['human abstentions', ux.human.abstain, m.human_abstentions ?? 0],
+      ['bot reply quotes', bot('replies'), m.bot_replies ?? 0],
+      ['human reply quotes', ux.human.replies, m.human_replies ?? 0],
+      ['bot lines', bot('lines'), m.bot_lines_all ?? 0],
+      ['human lines', ux.human.lines, m.human_lines_all ?? 0],
+    ];
+    for (const [what, logged, seen] of measured) if (logged !== seen) offend('telemetry', `roundUx ${what} ${logged} != ${seen} in the room`);
+  }
+
   return { id, lang: sc.lang, inspector: sc.inspector, aborted, m, offenders, telemetry, lab: lab.counters, events: eventCounts };
+}
+
+// ====== QUESTION FLOOR PROBE ======
+
+interface FloorProbe {
+  allAnswered: number | null;
+  oneMissing: number | null;
+}
+
+/**
+ * Bots never answer before 5 s, so full games rarely have every answer in before the floor. A table of 8 humans
+ * (no bot) answering within the first second does, every time: the discussion must start exactly at the floor, and
+ * with one answer missing only at the end of the question phase.
+ */
+async function probeQuestionFloor(): Promise<FloorProbe> {
+  const run = async (answering: number): Promise<number | null> => {
+    const clock = new VirtualClock(1_800_000_000_000);
+    const starts = new Map<string, number>();
+    const io: RoomEmitter = {
+      to: () => ({
+        emit: (event: string, payload: unknown) => {
+          const phase = (payload as { phase?: string }).phase ?? '';
+          if (event === 'gameState' && !starts.has(phase)) starts.set(phase, clock.now());
+          return true;
+        },
+      }),
+    };
+    const room = new GameRoom(`probe-floor-${answering}`, io, [], 0, {
+      clock,
+      rng: makeSeededRng(answering),
+      names: { add: () => {}, pick: () => 'zed' },
+      persistence: { saveGameLog: async () => {}, updateHumanProfiles: async () => {}, saveMessageFlag: async () => {}, getRandomHumanProfile: async () => null },
+      log: () => {},
+    });
+    for (let i = 0; i < 8; i++) await room.addHumanPlayer(`probe-${i}`, NAMES[i], 'fr');
+    room
+      .getState()
+      .players.slice(0, answering)
+      .forEach((p, i) => clock.setTimeout(() => room.addAnswer(p.id, 'oui'), 300 + i * 80));
+    await clock.run(() => starts.has('discussion'), clock.now() + 60_000);
+    const q = starts.get('question');
+    const d = starts.get('discussion');
+    return q !== undefined && d !== undefined ? d - q : null;
+  };
+  return { allAnswered: await run(8), oneMissing: await run(7) };
 }
 
 // ====== MAIN ======
@@ -1046,11 +1242,12 @@ async function main(): Promise<void> {
       );
     }
   }
+  const probe = await probeQuestionFloor();
   const elapsed = (performance.now() - started) / 1000;
-  report(results, elapsed, scenarios.length);
+  report(results, elapsed, scenarios.length, probe);
 }
 
-function report(results: GameResult[], elapsed: number, games: number): void {
+function report(results: GameResult[], elapsed: number, games: number, probe: FloorProbe): void {
   const sum = (k: string) => results.reduce((n, r) => n + (r.m[k] ?? 0), 0);
   const lab = (k: string) => results.reduce((n, r) => n + (r.lab[k] ?? 0), 0);
   const ev = (prefix: string) => results.reduce((n, r) => n + Object.entries(r.events).filter(([k]) => k.startsWith(prefix)).reduce((a, [, v]) => a + v, 0), 0);
@@ -1080,7 +1277,31 @@ function report(results: GameResult[], elapsed: number, games: number): void {
     { name: 'unhandled rejection / uncaught / unexpected error', value: `${sum('unhandled_rejection')} / ${sum('uncaught')} / ${sum('unexpected_errors') + sum('bot_errors')}`, ok: sum('unhandled_rejection') + sum('uncaught') + sum('unexpected_errors') + sum('bot_errors') === 0, keys: ['unhandled_rejection', 'uncaught', 'unexpected_errors', 'bot_errors'] },
     { name: 'telemetry line per game', value: `${games - sum('telemetry')}/${games}; trigger→post p50 ${medianOf('direct')} s direct, ${medianOf('regular')} s regular`, ok: sum('telemetry') === 0, keys: ['telemetry'] },
     { name: 'timers / emits / calls after end', value: `${sum('room_timers_left')} / ${sum('emits_after_end')} / ${sum('call_started_after_end')}, clock drained ${games - sum('clock_not_drained')}/${games}`, ok: sum('room_timers_left') + sum('emits_after_end') + sum('clock_not_drained') === 0, keys: ['room_timers_left', 'emits_after_end', 'clock_not_drained'] },
-    { name: 'player ids and fields sent to clients reveal nothing', value: `${sum('revealing_id')} leaks`, ok: sum('revealing_id') === 0, keys: ['revealing_id'] },
+    { name: 'player ids and fields sent to clients reveal nothing', value: `${sum('revealing_id')} leaks, ${sum('message_fields')} messages with an extra field`, ok: sum('revealing_id') + sum('message_fields') === 0, keys: ['revealing_id', 'message_fields'] },
+    {
+      name: 'no vote of another player visible before the round end, per phase',
+      value: `${sum('votes_visible')} leaks over ${['waiting', 'question', 'discussion', 'voting'].map((ph) => `${ph} ${sum(`votes_hidden_checked:${ph}`)}`).join(', ')} states; reveal = one entry per voter in seat order ${sum('vote_reveals') - offenders('vote_reveal').length}/${sum('vote_reveals')} rounds`,
+      ok: sum('votes_visible') + sum('vote_reveal') === 0 && sum('votes_hidden_checked:voting') > 0 && sum('vote_reveals') > 0,
+      keys: ['votes_visible', 'vote_reveal'],
+    },
+    {
+      name: 'abstention: bots and humans, a vote rendered, eliminates nobody',
+      value: `bots ${sum('bot_abstentions')}/${sum('bot_votes_rendered')} (target ${(BOT_ABSTAIN_PROB * 100).toFixed(0)} %), humans ${sum('human_abstentions')}/${sum('human_votes_rendered')}; early closes with an abstention ${sum('closed_early_with_abstention')}; outcomes recomputed wrong ${sum('vote_count_wrong')}`,
+      ok: sum('bot_abstentions') > 0 && sum('human_abstentions') > 0 && sum('closed_early_with_abstention') > 0 && sum('vote_count_wrong') === 0,
+      keys: ['vote_count_wrong'],
+    },
+    {
+      name: 'reply quotes: an earlier line of the room, by bots and humans',
+      value: `bots ${sum('bot_replies')}/${sum('bot_lines_all')} lines (direct ${ev('reply_quote:direct')}, named ${ev('reply_quote:named')}, other ${ev('reply_quote:other')}), humans ${sum('human_replies')}/${sum('human_lines_all')}; unknown ids dropped ${sum('invalid_replies')}; quoted accusations replied within 10 s ${sum('quoted_accusations_replied')}/${sum('quoted_accusations')}`,
+      ok: sum('reply_wrong') === 0 && sum('bot_replies') > 0 && sum('human_replies') > 0 && sum('invalid_replies') > 0,
+      keys: ['reply_wrong'],
+    },
+    {
+      name: 'question ends early once all answered, never before the floor',
+      value: `${sum('question_early_ends')} early ends (${sum('question_floor_bound')} with every answer in before ${QUESTION_MIN_MS / 1000} s), ${sum('question_floor')} before the floor; humans-only probe: all answered → ${probe.allAnswered === null ? 'n/a' : probe.allAnswered / 1000} s, one missing → ${probe.oneMissing === null ? 'n/a' : probe.oneMissing / 1000} s`,
+      ok: sum('question_floor') === 0 && sum('question_early_ends') > 0 && probe.allAnswered === QUESTION_MIN_MS && probe.oneMissing === QUESTION_PHASE_MS,
+      keys: ['question_floor'],
+    },
     {
       name: 'no reveal field before the game over, per phase',
       value: `${sum('reveal_early')} leaks over ${['waiting', 'question', 'discussion', 'voting', 'endround'].map((ph) => `${ph} ${sum(`reveal_checked:${ph}`)}`).join(', ')} states; game over reveals ${sum('reveal_ok')}/${sum('reveal_players')} players right`,
