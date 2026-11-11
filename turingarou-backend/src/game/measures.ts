@@ -1,6 +1,7 @@
 /**
- * What a room collects from its humans to study the games: consent to serve as a style example. Every value here
- * comes from a client payload, so it is parsed, never trusted; none of it is ever part of a state sent to clients.
+ * What a room collects from its humans to study the games: consent to serve as a style example, how each line was
+ * entered. Every value here comes from a client payload, so it is parsed, never trusted; none of it is ever part of a
+ * state sent to clients.
  */
 
 export interface StyleConsent {
@@ -8,6 +9,11 @@ export interface StyleConsent {
   styleExamples: boolean;
   /** Version of the home notice the player saw, as their client reports it. */
   notice: string | null;
+}
+
+/** How a human line reached the room: typed in the chat, or spoken in push-to-talk and transcribed. */
+export interface LineInput {
+  via: 'typed' | 'voice';
 }
 
 export const NO_CONSENT: StyleConsent = { styleExamples: false, notice: null };

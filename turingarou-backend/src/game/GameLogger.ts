@@ -13,6 +13,7 @@
  *   messages        — messages de discussion
  *   human_profiles  — profil cumulé par username (seulement les humains qui ont donné leur accord)
  *   player_consents — accord de chaque humain pour que ses messages servent d'exemples de style aux IA
+ *   player_voice    — voix active ou non dans la partie, et clips push-to-talk de chaque humain (A/B texte/voix)
  */
 
 import pg from 'pg';
@@ -46,6 +47,8 @@ export interface PlayerLog {
   eliminatedRound?: number;
   /** Real humans only: what they answered on the home screen. */
   consent?: StyleConsent;
+  /** Real humans only: push-to-talk lines posted. */
+  pttClips?: number;
 }
 
 export interface MessageLog {
@@ -64,6 +67,8 @@ export interface GameLogData {
   players: PlayerLog[];
   rounds: RoundLog[];
   messages: MessageLog[];
+  /** Voice of the game: every line spoken (tts), push-to-talk offered (stt). */
+  voice?: { tts: boolean; stt: boolean };
 }
 
 // ─── DB pool ──────────────────────────────────────────────────────────────────
@@ -212,6 +217,16 @@ export async function initDB(): Promise<void> {
       notice_version TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS player_voice (
+      id            SERIAL PRIMARY KEY,
+      game_id       TEXT NOT NULL REFERENCES games(game_id),
+      player_name   TEXT NOT NULL,
+      voice_enabled INTEGER NOT NULL,
+      ptt_enabled   INTEGER NOT NULL,
+      used_ptt      INTEGER NOT NULL,
+      ptt_clips     INTEGER NOT NULL
+    );
+
     CREATE UNIQUE INDEX IF NOT EXISTS idx_game_players_unique
       ON game_players(game_id, player_name);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_round_questions_unique
@@ -230,6 +245,8 @@ export async function initDB(): Promise<void> {
       ON human_answers(username, md5(question), md5(answer));
     CREATE UNIQUE INDEX IF NOT EXISTS idx_player_consents_unique
       ON player_consents(game_id, player_name);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_player_voice_unique
+      ON player_voice(game_id, player_name);
 
     CREATE INDEX IF NOT EXISTS idx_messages_game_id      ON messages(game_id);
     CREATE INDEX IF NOT EXISTS idx_round_answers_game_id ON round_answers(game_id);
@@ -322,6 +339,15 @@ export async function saveGameLog(data: GameLogData): Promise<void> {
         await db.query(
           `INSERT INTO player_consents (game_id, player_name, style_examples, notice_version) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
           [data.gameId, p.name, p.consent.styleExamples ? 1 : 0, p.consent.notice]
+        );
+      }
+
+      const voice = data.voice;
+      for (const p of voice ? data.players.filter((pl) => pl.type === 'human') : []) {
+        const clips = p.pttClips ?? 0;
+        await db.query(
+          `INSERT INTO player_voice (game_id, player_name, voice_enabled, ptt_enabled, used_ptt, ptt_clips) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING`,
+          [data.gameId, p.name, voice?.tts ? 1 : 0, voice?.stt ? 1 : 0, clips > 0 ? 1 : 0, clips]
         );
       }
 

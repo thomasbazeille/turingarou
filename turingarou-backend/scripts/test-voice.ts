@@ -157,6 +157,7 @@ type FakePlayer = { id: string; type: 'human' | 'ai'; isEliminated: boolean; soc
 
 class FakeRoom implements VoiceRoom {
   posted: { playerId: string; content: string }[] = [];
+  inputs: unknown[] = [];
   constructor(
     public roomId: string,
     public phase: string,
@@ -167,10 +168,11 @@ class FakeRoom implements VoiceRoom {
   getState() {
     return { roomId: this.roomId, phase: this.phase, language: this.language, players: this.players, messages: this.messages };
   }
-  addMessage(playerId: string, content: string): boolean {
+  addMessage(playerId: string, content: string, _replyToId?: unknown, input?: unknown): boolean {
     const p = this.players.find((x) => x.id === playerId);
     if (this.phase !== 'discussion' || !p || p.isEliminated) return false;
     this.posted.push({ playerId, content });
+    this.inputs.push(input);
     this.messages.push({ id: `msg-${this.messages.length}`, playerId, content });
     return true;
   }
@@ -330,6 +332,7 @@ test('STT posts the normalized transcript through room.addMessage as the speaker
     const body = await res.json();
     assert.equal(body.ok, true);
     assert.deepEqual(a.posted, [{ playerId: 'player-h1', content: body.text }]);
+    assert.deepEqual(a.inputs, [{ via: 'voice' }], 'a spoken line is marked as such for the text/voice A/B');
     assert.match(body.text, /^je pense que c’est paul$/i);
   });
 });

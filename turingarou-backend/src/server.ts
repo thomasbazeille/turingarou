@@ -60,6 +60,8 @@ const VERSION = (() => {
 // ====== GAME ROOMS MANAGEMENT ======
 
 const gameRooms = new Map<string, GameRoom>();
+// Set once at boot, below, before any socket can open a room.
+let voiceStatus = { tts: false, stt: false };
 
 function createRoom(roomId: string, aiCount: number, table: TableOptions = {}): GameRoom {
   const room: GameRoom = new GameRoom(roomId, io, llmProviders, aiCount, {
@@ -68,6 +70,7 @@ function createRoom(roomId: string, aiCount: number, table: TableOptions = {}): 
       gameRooms.delete(roomId);
       console.log(`Room ${roomId} deleted (no humans left)`);
     },
+    voice: voiceStatus,
   }, table);
   gameRooms.set(roomId, room);
   return room;
@@ -303,7 +306,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-registerVoiceRoutes(app, gameRooms);
+voiceStatus = registerVoiceRoutes(app, gameRooms);
 
 // Private rooms are counted, never named: their code is the only key to them.
 app.get('/rooms', (req, res) => {

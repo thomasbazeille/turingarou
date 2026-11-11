@@ -27,7 +27,7 @@ import {
   PlayerLog,
 } from './GameLogger.js';
 import { drawStyleProfile } from './aiSpeech.js';
-import { NO_CONSENT, StyleConsent } from './measures.js';
+import { LineInput, NO_CONSENT, StyleConsent } from './measures.js';
 import { checkMessage } from './formGate.js';
 import { Bot } from './Bot.js';
 import { CastMember, drawCast, templatesFor } from './botCast.js';
@@ -62,6 +62,8 @@ export interface GameRoomDeps {
   log: (line: string) => void;
   /** No human is connected or within their grace any more: the server forgets the room. */
   onVacant: () => void;
+  /** Voice of the server when the room opens: every line spoken (tts), push-to-talk offered (stt). Logged per game. */
+  voice: { tts: boolean; stt: boolean };
 }
 
 const defaultDeps: GameRoomDeps = {
@@ -72,6 +74,7 @@ const defaultDeps: GameRoomDeps = {
   persistence: { saveGameLog, updateHumanProfiles, saveMessageFlag, getRandomHumanProfile },
   log: (line) => console.log(line),
   onVacant: () => {},
+  voice: { tts: false, stt: false },
 };
 
 type PlayerKind = 'human' | 'ai' | 'inspector';
@@ -189,6 +192,8 @@ export class GameRoom {
   private sessions = new Map<string, Session>();
   /** Each real human's answer to the home-screen consent, by player id. Persisted only, never sent. */
   private consents = new Map<string, StyleConsent>();
+  /** Push-to-talk lines posted by each real human, by player id. Persisted only, never sent. */
+  private pttClips = new Map<string, number>();
   private vacant = false;
   /** Kind of every player who ever joined, departed humans included (their messages stay in the log). */
   private kinds = new Map<string, PlayerKind>();
@@ -817,7 +822,10 @@ export class GameRoom {
         }
         const entry: PlayerLog = { id: p.id, name: p.username, type: kindOf(p.id), eliminated: p.isEliminated };
         if (eliminatedRound !== undefined) entry.eliminatedRound = eliminatedRound;
-        if (entry.type === 'human') entry.consent = this.consents.get(p.id) ?? NO_CONSENT;
+        if (entry.type === 'human') {
+          entry.consent = this.consents.get(p.id) ?? NO_CONSENT;
+          entry.pttClips = this.pttClips.get(p.id) ?? 0;
+        }
         // "strategy@Provider" in the existing column: per-provider elimination rates without a schema change
         // (read back by src/history/reader.ts readStrategy).
         const bot = this.director.bots().find((b) => b.id === p.id);
@@ -850,6 +858,7 @@ export class GameRoom {
         players,
         rounds,
         messages,
+        voice: { ...this.deps.voice },
       };
       void this.deps.persistence.saveGameLog(data);
       void this.deps.persistence.updateHumanProfiles(data);
@@ -867,9 +876,10 @@ export class GameRoom {
 
   /**
    * Returns true when the message was posted. Single exit to the chat for humans and bots alike. A reply-to that
-   * names no earlier message of this room is dropped, the line itself is still posted.
+   * names no earlier message of this room is dropped, the line itself is still posted. `input` (humans only) is kept
+   * for analysis and changes nothing in what is posted.
    */
-  addMessage(playerId: string, content: string, replyToId?: unknown): boolean {
+  addMessage(playerId: string, content: string, replyToId?: unknown, input?: LineInput): boolean {
     if (this.aborted || this.state.phase !== 'discussion') return false;
     const player = this.state.players.find((p) => p.id === playerId);
     if (!player || player.isEliminated) return false;
@@ -911,6 +921,7 @@ export class GameRoom {
       this.ux[kind].lines++;
       if (quoted) this.ux[kind].replies++;
     }
+    if (kind === 'human' && input?.via === 'voice') this.pttClips.set(playerId, (this.pttClips.get(playerId) ?? 0) + 1);
     if (kind !== 'ai') this.director.onPlayerMessage(message, kind === 'human');
     return true;
   }

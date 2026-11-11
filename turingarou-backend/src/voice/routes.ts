@@ -5,6 +5,7 @@ import { AudioCache, RateWindow } from './cache.js';
 import { GradiumTts, providersFromEnv } from './providers.js';
 import type { Lang, SttProvider, TtsProvider, TtsResult } from './providers.js';
 import { normalizeTranscript, spokenText } from './text.js';
+import type { LineInput } from '../game/measures.js';
 import { loadGradiumVoices, VoiceBook, voicePool } from './voices.js';
 
 /** The slice of GameRoom the voice routes need; GameRoom satisfies it structurally. */
@@ -16,7 +17,7 @@ export interface VoiceRoom {
     players: ReadonlyArray<{ id: string; type: 'human' | 'ai'; isEliminated: boolean; socketId?: string }>;
     messages: ReadonlyArray<{ id: string; playerId: string; content: string }>;
   };
-  addMessage(playerId: string, content: string, replyToId?: unknown): boolean;
+  addMessage(playerId: string, content: string, replyToId?: unknown, input?: LineInput): boolean;
 }
 
 export interface VoiceOptions {
@@ -200,7 +201,7 @@ export function registerVoiceRoutes(app: Express, rooms: ReadonlyMap<string, Voi
       const { text, truncated } = normalizeTranscript(result.text, { casing: lower ? 'lower' : 'sentence' });
       if (!text) return void res.status(422).json({ error: 'empty' });
       // A spoken line may answer a message like a typed one (the client sends the quoted id in ?replyTo=).
-      if (!m.room.addMessage(m.player.id, text, req.query.replyTo)) return void res.status(409).json({ error: 'not_posted', text });
+      if (!m.room.addMessage(m.player.id, text, req.query.replyTo, { via: 'voice' })) return void res.status(409).json({ error: 'not_posted', text });
       res.json({ ok: true, text, truncated });
     } catch (err) {
       console.warn(`[voice] STT failed: ${(err as Error).message}`);
