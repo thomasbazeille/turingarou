@@ -26,6 +26,9 @@
     .setup-label { display: block; color: #94a3b8; font-size: 10px; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; }
     .setup-input { width: 100%; background: rgba(39,39,42,0.8); border: 1px solid rgba(6,182,212,0.3); color: #fff; padding: 9px; border-radius: 6px; font-size: 13px; margin-bottom: 12px; }
     .setup-input:focus { outline: none; border-color: #06b6d4; }
+    .setup-notice { color: #cbd5e1; font-size: 12px; line-height: 1.45; margin: 2px 0 10px; }
+    .setup-consent { display: flex; gap: 8px; align-items: flex-start; color: #94a3b8; font-size: 12px; line-height: 1.45; cursor: pointer; }
+    .setup-consent input { margin-top: 2px; accent-color: #06b6d4; flex: none; }
     #invite-note, #room-code-display, #fresh-name-note, #launch-wrap { position: relative; z-index: 1; }
     .player-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 18px; max-width: 650px; width: 100%; }
     .player-card { background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 7px; padding: 10px; text-align: center; min-height: 75px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; }
@@ -546,6 +549,9 @@
         <option value="fr" selected>Français</option>
         <option value="en">English</option>
       </select>
+
+      <p class="setup-notice" id="ai-notice"></p>
+      <label class="setup-consent"><input type="checkbox" id="style-consent"><span id="style-consent-text"></span></label>
     </div>
     
     <div class="player-grid" id="player-grid"></div>
@@ -925,6 +931,27 @@ let rematchDeadline = 0;
 let rematchPending = false;
 let rematchTimer = null;
 let joinTimers = [];
+
+// Text pending Thomas's review (AI Act art. 50, GDPR)
+const NOTICE = {
+  version: '2026-11-11',
+  fr: {
+    notice: 'Des IA jouent dans chaque partie, et les messages sont conservés pour analyser les parties.',
+    styleConsent: "J'accepte que mes messages servent aussi d'exemples de style aux IA.",
+  },
+  en: {
+    notice: 'AIs play in every game, and messages are kept to analyze the games.',
+    styleConsent: 'I agree that my messages may also serve as style examples for the AIs.',
+  },
+};
+// Unticked unless this browser ticked it before; sent with every join.
+const STYLE_CONSENT_KEY = 'turingarou.styleConsent';
+function loadStyleConsent() {
+  try { return localStorage.getItem(STYLE_CONSENT_KEY) === '1'; } catch (e) { return false; }
+}
+function saveStyleConsent(on) {
+  try { localStorage.setItem(STYLE_CONSENT_KEY, on ? '1' : '0'); } catch (e) {}
+}
 
 // Seat token from joinSuccess, per tab: a dropped connection (phone asleep, network) or a reload takes the seat back.
 const SESSION_KEY = 'turingarou.session';
@@ -1636,6 +1663,9 @@ function init(){
 document.getElementById('username-input').oninput=updateLocalPlayer;
 document.getElementById('username-input').onkeydown=function(e){if(e.key==='Enter'){e.preventDefault();startGame();}};
 document.getElementById('lang-select').onchange=refreshHome;
+const sc=document.getElementById('style-consent');
+sc.checked=loadStyleConsent();
+sc.onchange=function(){saveStyleConsent(sc.checked);};
 if(inviteCode)document.getElementById('room-input').value=inviteCode;
 refreshHome();
 renderWaitingRoom();
@@ -1660,6 +1690,9 @@ const sb=document.getElementById('start-btn');
 if(sb&&!playerId){sb.disabled=!G.ui;sb.textContent=startLabel();}
 const pb=document.getElementById('private-btn');
 if(pb){pb.disabled=!G.ui;pb.textContent=fr?'CRÉER UNE SALLE PRIVÉE (DÈS 3 AMIS)':'CREATE A PRIVATE ROOM (FROM 3 FRIENDS)';}
+const t=fr?NOTICE.fr:NOTICE.en;
+document.getElementById('ai-notice').textContent=t.notice;
+document.getElementById('style-consent-text').textContent=t.styleConsent;
 const note=document.getElementById('invite-note');
 if(note)note.textContent=inviteCode?(fr?'Invitation à la salle '+inviteCode+' : choisis ton pseudo.':'Invited to room '+inviteCode+': pick a username.'):'';
 renderLobbyPanel();
@@ -1876,7 +1909,9 @@ function startGame(){
   socket.emit('joinRoom', { 
     roomId: roomId, 
     username: username,
-    language: lang
+    language: lang,
+    styleConsent: document.getElementById('style-consent').checked,
+    notice: NOTICE.version
   });
   
   // Nettoyer les timeouts quand la connexion réussit

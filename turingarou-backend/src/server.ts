@@ -13,6 +13,7 @@ import fs from 'fs';
 import { ChatProvider } from './llm/chatClient.js';
 import { buildProviderPool, describePool } from './llm/providerRegistry.js';
 import { registerVoiceRoutes } from './voice/routes.js';
+import { NO_CONSENT, parseConsent, StyleConsent } from './game/measures.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -115,12 +116,14 @@ io.on('connection', (socket) => {
   console.log(`Client connected: ${socket.id}`);
 
   let currentRoom: GameRoom | null = null;
+  // The home-screen answer of this socket's player, carried into a rematch they join from here.
+  let consent: StyleConsent = NO_CONSENT;
   // Resolved on every action: once a resume moves the seat to another socket, this one plays for nobody.
   const me = (): string | null => (currentRoom ? currentRoom.playerIdBySocket(socket.id) : null);
 
   const joinInto = async (room: GameRoom, username: string, language?: 'fr' | 'en') => {
     const actualRoomId = room.getState().roomId;
-    const success = await room.addHumanPlayer(socket.id, username, language);
+    const success = await room.addHumanPlayer(socket.id, username, language, consent);
 
     if (success) {
       socket.join(actualRoomId);  // Rejoindre la vraie room (pas "public-lobby")
@@ -137,7 +140,9 @@ io.on('connection', (socket) => {
   };
 
   // Rejoindre une room
-  socket.on('joinRoom', async ({ roomId, username, language }: { roomId: string; username: string; language?: 'fr' | 'en' }) => {
+  socket.on('joinRoom', async (payload: { roomId: string; username: string; language?: 'fr' | 'en' }) => {
+    const { roomId, username, language } = payload;
+    consent = parseConsent(payload);
     console.log(`${username} joining room ${roomId}`);
     await joinInto(getOrCreateRoom(roomId), username, language);
   });
@@ -189,6 +194,7 @@ io.on('connection', (socket) => {
     }
     socket.join(roomId);
     currentRoom = room;
+    consent = room.consentOf(seat.playerId);
     // A socket that never noticed its own drop (a second tab, a half-open connection) stops playing this seat.
     if (seat.previousSocketId && seat.previousSocketId !== socket.id) io.sockets.sockets.get(seat.previousSocketId)?.disconnect(true);
     socket.emit('resumeSuccess', { playerId: seat.playerId, roomId });

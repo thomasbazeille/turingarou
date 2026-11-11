@@ -27,6 +27,7 @@ import {
   PlayerLog,
 } from './GameLogger.js';
 import { drawStyleProfile } from './aiSpeech.js';
+import { NO_CONSENT, StyleConsent } from './measures.js';
 import { checkMessage } from './formGate.js';
 import { Bot } from './Bot.js';
 import { CastMember, drawCast, templatesFor } from './botCast.js';
@@ -186,6 +187,8 @@ export class GameRoom {
   private graceTimers: Timers;
   /** Real humans only (inspectors are bots), by player id. */
   private sessions = new Map<string, Session>();
+  /** Each real human's answer to the home-screen consent, by player id. Persisted only, never sent. */
+  private consents = new Map<string, StyleConsent>();
   private vacant = false;
   /** Kind of every player who ever joined, departed humans included (their messages stay in the log). */
   private kinds = new Map<string, PlayerKind>();
@@ -297,7 +300,7 @@ export class GameRoom {
     return this.state.phase === 'waiting' && !this.aborted && !this.starting;
   }
 
-  async addHumanPlayer(socketId: string, username: string, language?: 'fr' | 'en'): Promise<boolean> {
+  async addHumanPlayer(socketId: string, username: string, language?: 'fr' | 'en', consent: StyleConsent = NO_CONSENT): Promise<boolean> {
     // Human slots full (an inspector may hold the last one while its prompt loads): a room past them never starts.
     if (!this.isJoinable() || this.state.players.length >= this.state.maxPlayers - this.state.aiCount) return false;
     if (language && !this.state.players.length) this.state.language = language;
@@ -319,6 +322,7 @@ export class GameRoom {
     this.state.players.push(player);
     this.kinds.set(player.id, 'human');
     this.sessions.set(player.id, { token: randomBytes(24).toString('base64url'), connected: true, disconnectedAt: 0, timer: null, gone: false });
+    this.consents.set(player.id, consent);
     this.deps.names.add(name);
     this.emitState();
     await this.startIfFull();
@@ -402,6 +406,11 @@ export class GameRoom {
     this.state.maxPlayers = this.state.players.length + this.state.aiCount;
     await this.start();
     return null;
+  }
+
+  /** A human's home-screen answer, for a rematch joined from a socket that took the seat back (never sent). */
+  consentOf(playerId: string): StyleConsent {
+    return this.consents.get(playerId) ?? NO_CONSENT;
   }
 
   /** Secret of a human's seat, for their own client only (joinSuccess); never in the game state. */
@@ -808,6 +817,7 @@ export class GameRoom {
         }
         const entry: PlayerLog = { id: p.id, name: p.username, type: kindOf(p.id), eliminated: p.isEliminated };
         if (eliminatedRound !== undefined) entry.eliminatedRound = eliminatedRound;
+        if (entry.type === 'human') entry.consent = this.consents.get(p.id) ?? NO_CONSENT;
         // "strategy@Provider" in the existing column: per-provider elimination rates without a schema change
         // (read back by src/history/reader.ts readStrategy).
         const bot = this.director.bots().find((b) => b.id === p.id);

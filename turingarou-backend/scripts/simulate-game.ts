@@ -32,6 +32,7 @@ import { makeSeededRng } from '../src/game/humanTiming.js';
 import { isTextureQuestion } from '../src/game/QuestionBank.js';
 import { getInspectorPromptContent, getRandomAIPlayerStrategy } from '../src/game/StrategyLoader.js';
 import type { GameLogData } from '../src/game/GameLogger.js';
+import { parseConsent } from '../src/game/measures.js';
 import type { GameMessage, GameRoomState, QuestionAnswer, Vote } from '../src/types/game.types.js';
 
 type Lang = 'fr' | 'en';
@@ -541,6 +542,24 @@ const PUBLIC_TOP_KEYS = new Set([
 ]);
 /** Fields of a chat message; the same for every author, a reply quote included. */
 const MESSAGE_KEYS = new Set(['id', 'playerId', 'playerName', 'content', 'timestamp', 'phase', 'round', 'replyToId']);
+/**
+ * What the room collects from humans (home-screen consent) must reach no client, ever: not in any event to any socket,
+ * before or after the game over. Fake humans send values carrying this sentinel, and the keys the room keeps them
+ * under must never appear in a payload either.
+ */
+const COLLECTED_SENTINEL = 'l6sentinel';
+const COLLECTED_KEYS = new Set(['consent', 'styleExamples', 'notice', 'styleConsent']);
+/** Every key of every object in a payload, at any depth. */
+function keysOf(x: unknown, out = new Set<string>()): Set<string> {
+  if (Array.isArray(x)) x.forEach((v) => keysOf(v, out));
+  else if (x && typeof x === 'object') {
+    for (const [k, v] of Object.entries(x)) {
+      out.add(k);
+      keysOf(v, out);
+    }
+  }
+  return out;
+}
 /** Fake humans abstain at this rate; quote a message (reply-to) at these rates; send an unknown reply id at this rate. */
 const HUMAN_ABSTAIN_PROB = 0.06;
 const HUMAN_INVALID_REPLY_PROB = 0.02;
@@ -605,6 +624,8 @@ async function runGame(sc: Scenario): Promise<GameResult> {
   const drops: { h: FakeHuman; at: number; eliminated: boolean }[] = [];
   const resumes: { h: FakeHuman; at: number; round: number }[] = [];
   const votesAgainstGone: { round: number; voterId: string; targetId: string }[] = [];
+  /** What each fake human answered on the home screen, by seat. */
+  const sentConsent = new Map<string, boolean>();
   const publicEntry = (pl: Record<string, unknown>) => JSON.stringify(PUBLIC_PLAYER_KEYS.filter((k) => k !== 'isEliminated').map((k) => pl[k]));
   /** Calls the room and says whether a state went out to the browsers meanwhile. */
   const emitsDuring = (fn: () => void): number => {
@@ -838,9 +859,16 @@ async function runGame(sc: Scenario): Promise<GameResult> {
       else inc('lobby_own_seat');
     }
   };
+  const checkCollected = (event: string, target: string, payload: unknown) => {
+    inc('collected_scanned');
+    if ((JSON.stringify(payload) ?? '').includes(COLLECTED_SENTINEL)) offend('collected_leak', `${event} to ${target}: a value a human sent the room`);
+    const keys = [...keysOf(payload)].filter((k) => COLLECTED_KEYS.has(k));
+    if (keys.length > 0) offend('collected_leak', `${event} to ${target}: keys [${keys.join(',')}]`);
+  };
   const io: RoomEmitter = {
     to: (target: string) => ({
       emit: (event: string, payload: unknown) => {
+        checkCollected(event, target, payload);
         if (event !== 'gameState') return true;
         if (target !== `sim-${id}`) {
           if (!finished) checkLobbyPayload(target, JSON.parse(JSON.stringify(payload)));
@@ -986,8 +1014,12 @@ async function runGame(sc: Scenario): Promise<GameResult> {
         inc('launch_checks');
         if (early !== 'too_few') offend('launch', `host launch with 2 humans gave ${early}`);
       }
-      await room.addHumanPlayer(socketId, name, sc.lang);
+      // Every other human ticks the box; drawn without simRng so the games stay the ones measured before L6.
+      const styleConsent = i % 2 === 0;
+      await room.addHumanPlayer(socketId, name, sc.lang, parseConsent({ styleConsent, notice: `${COLLECTED_SENTINEL}-notice` }));
+      inc('collected_sent:consent');
       const pid = room.playerIdBySocket(socketId)!;
+      sentConsent.set(pid, styleConsent);
       const seated = state().players.find((x) => x.id === pid)?.username ?? name;
       humans.push({ socketId, name: seated, id: pid, token: room.sessionToken(pid) ?? '', connected: true });
     }
@@ -1387,6 +1419,11 @@ async function runGame(sc: Scenario): Promise<GameResult> {
         // Bots carry "strategy@Provider" so elimination rates can be read per model (src/history/reader.ts).
         if (kind !== 'human' && !/^[^@]+@[^@]+$/.test(p.strategy ?? '')) offend('persisted_kind', `${p.name} strategy "${p.strategy ?? ''}" has no @provider`);
         if (kind === 'human' && p.strategy) offend('persisted_kind', `human ${p.name} persisted with strategy "${p.strategy}"`);
+        if (kind === 'human') {
+          inc('persisted_consents');
+          const sent = sentConsent.get(p.id);
+          if (p.consent?.styleExamples !== sent || p.consent?.notice !== `${COLLECTED_SENTINEL}-notice`) offend('collected_persist', `${p.name} sent consent ${String(sent)}, persisted ${JSON.stringify(p.consent)}`);
+        } else if (p.consent) offend('collected_persist', `${kind} ${p.name} persisted with a consent`);
       }
       for (const msg of log.messages) {
         const pid = nameToId.get(msg.player);
@@ -1764,6 +1801,18 @@ function report(results: GameResult[], elapsed: number, games: number, probe: Fl
       value: `${sum('aborts_measured') - sum('aborts_at_round_end')} aborts at the last grace end, ${sum('aborts_at_round_end')} at a round end (the humans in play all gone); ${sum('kept_alive_by_return')} kept alive by a return`,
       ok: sum('abort_timing') === 0 && sum('aborts_measured') === sum('games_aborted') && sum('aborts_measured') > 0 && sum('kept_alive_by_return') > 0,
       keys: ['abort_timing'],
+    },
+    {
+      name: 'data collected from humans never sent to a client',
+      value: `${sum('collected_leak')} leaks over ${sum('collected_scanned')} payloads (every event, every socket, game over included); sent: consents ${sum('collected_sent:consent')}`,
+      ok: sum('collected_leak') === 0 && sum('collected_scanned') > 0 && sum('collected_sent:consent') > 0,
+      keys: ['collected_leak'],
+    },
+    {
+      name: 'data collected from humans persisted as sent',
+      value: `${sum('collected_persist')} wrong; consents ${sum('persisted_consents')}`,
+      ok: sum('collected_persist') === 0 && sum('persisted_consents') > 0,
+      keys: ['collected_persist'],
     },
     { name: 'persisted player kinds', value: `${sum('persisted_kind') + sum('not_persisted')} wrong`, ok: sum('persisted_kind') + sum('not_persisted') === 0, keys: ['persisted_kind', 'not_persisted'] },
     {

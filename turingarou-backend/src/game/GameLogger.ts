@@ -11,12 +11,14 @@
  *   round_answers   — réponses aux questions
  *   round_votes     — votes par round
  *   messages        — messages de discussion
- *   human_profiles  — profil cumulé par username
+ *   human_profiles  — profil cumulé par username (seulement les humains qui ont donné leur accord)
+ *   player_consents — accord de chaque humain pour que ses messages servent d'exemples de style aux IA
  */
 
 import pg from 'pg';
 import { selectHumanPersona, type HumanPersona, type PersonaQuery } from '../history/persona.js';
 import { withReadOnly } from '../history/readonly.js';
+import type { StyleConsent } from './measures.js';
 
 export type { HumanPersona, PersonaQuery };
 
@@ -42,6 +44,8 @@ export interface PlayerLog {
   strategy?: string;
   eliminated: boolean;
   eliminatedRound?: number;
+  /** Real humans only: what they answered on the home screen. */
+  consent?: StyleConsent;
 }
 
 export interface MessageLog {
@@ -200,6 +204,14 @@ export async function initDB(): Promise<void> {
       UNIQUE(game_id, message_id, flagged_by)
     );
 
+    CREATE TABLE IF NOT EXISTS player_consents (
+      id             SERIAL PRIMARY KEY,
+      game_id        TEXT NOT NULL REFERENCES games(game_id),
+      player_name    TEXT NOT NULL,
+      style_examples INTEGER NOT NULL,
+      notice_version TEXT
+    );
+
     CREATE UNIQUE INDEX IF NOT EXISTS idx_game_players_unique
       ON game_players(game_id, player_name);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_round_questions_unique
@@ -216,6 +228,8 @@ export async function initDB(): Promise<void> {
       ON human_messages(username, md5(content));
     CREATE UNIQUE INDEX IF NOT EXISTS idx_human_answers_unique
       ON human_answers(username, md5(question), md5(answer));
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_player_consents_unique
+      ON player_consents(game_id, player_name);
 
     CREATE INDEX IF NOT EXISTS idx_messages_game_id      ON messages(game_id);
     CREATE INDEX IF NOT EXISTS idx_round_answers_game_id ON round_answers(game_id);
@@ -303,6 +317,14 @@ export async function saveGameLog(data: GameLogData): Promise<void> {
         );
       }
 
+      for (const p of data.players) {
+        if (!p.consent) continue;
+        await db.query(
+          `INSERT INTO player_consents (game_id, player_name, style_examples, notice_version) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+          [data.gameId, p.name, p.consent.styleExamples ? 1 : 0, p.consent.notice]
+        );
+      }
+
       // rounds
       for (const r of data.rounds) {
         if (r.question) {
@@ -347,48 +369,60 @@ export async function saveGameLog(data: GameLogData): Promise<void> {
   }
 }
 
+/** The slice of a pg client the profile writes use, small enough to fake in a test. */
+export interface Queryable {
+  query(text: string, values?: unknown[]): Promise<unknown>;
+}
+
+/** Humans whose lines may become style references for the AIs: those who ticked the box, nobody else. */
+export function styleReferencePlayers(data: GameLogData): PlayerLog[] {
+  return data.players.filter((p) => p.type === 'human' && p.consent?.styleExamples === true);
+}
+
+/** Cumulated profile, messages and answers of each consenting human; nothing at all for the others. */
+export async function writeHumanProfiles(db: Queryable, data: GameLogData): Promise<void> {
+  const humanWon = data.result === 'humans_win';
+  for (const p of styleReferencePlayers(data)) {
+    await db.query(
+      `INSERT INTO human_profiles (username, games_played, wins, last_seen)
+       VALUES ($1, 1, $2, $3)
+       ON CONFLICT (username) DO UPDATE SET
+         games_played = human_profiles.games_played + 1,
+         wins         = human_profiles.wins + EXCLUDED.wins,
+         last_seen    = EXCLUDED.last_seen`,
+      [p.name, humanWon ? 1 : 0, data.date]
+    );
+
+    for (const m of data.messages.filter((msg) => msg.player === p.name)) {
+      const trimmed = m.content.trim();
+      if (trimmed) {
+        await db.query(
+          `INSERT INTO human_messages (username, content) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          [p.name, trimmed]
+        );
+      }
+    }
+
+    for (const r of data.rounds) {
+      const ans = r.answers.find((a) => a.player === p.name);
+      if (ans?.answer.trim()) {
+        await db.query(
+          `INSERT INTO human_answers (username, question, answer) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+          [p.name, r.question, ans.answer.trim()]
+        );
+      }
+    }
+  }
+}
+
 /**
- * Met à jour les profils humains cumulés.
+ * Met à jour les profils humains cumulés, pour les seuls humains qui ont accepté de servir d'exemple de style.
  */
 export async function updateHumanProfiles(data: GameLogData): Promise<void> {
   const pool = getPool();
-  if (!pool) return;
+  if (!pool || styleReferencePlayers(data).length === 0) return;
   try {
-    const humanWon = data.result === 'humans_win';
-
-    await inTransaction(pool, async (db) => {
-      for (const p of data.players.filter((pl) => pl.type === 'human')) {
-        await db.query(
-          `INSERT INTO human_profiles (username, games_played, wins, last_seen)
-           VALUES ($1, 1, $2, $3)
-           ON CONFLICT (username) DO UPDATE SET
-             games_played = human_profiles.games_played + 1,
-             wins         = human_profiles.wins + EXCLUDED.wins,
-             last_seen    = EXCLUDED.last_seen`,
-          [p.name, humanWon ? 1 : 0, data.date]
-        );
-
-        for (const m of data.messages.filter((msg) => msg.player === p.name)) {
-          const trimmed = m.content.trim();
-          if (trimmed) {
-            await db.query(
-              `INSERT INTO human_messages (username, content) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-              [p.name, trimmed]
-            );
-          }
-        }
-
-        for (const r of data.rounds) {
-          const ans = r.answers.find((a) => a.player === p.name);
-          if (ans?.answer.trim()) {
-            await db.query(
-              `INSERT INTO human_answers (username, question, answer) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
-              [p.name, r.question, ans.answer.trim()]
-            );
-          }
-        }
-      }
-    });
+    await inTransaction(pool, (db) => writeHumanProfiles(db, data));
     console.log(`[GameLogger] Human profiles updated`);
   } catch (err) {
     console.error('[GameLogger] updateHumanProfiles error:', err);
