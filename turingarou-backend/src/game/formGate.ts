@@ -866,6 +866,7 @@ export function drawStyleHabits(rng: () => number = Math.random, takenSpellings:
     dropAccents: rng() < 0.25,
     questionMarks: q < 0.55 ? 'keep' : q < 0.8 ? 'drop' : 'double',
     maxWords: len < 0.35 ? 10 : len < 0.75 ? 16 : 25,
-    brevity: Math.round((0.25 + rng() * 0.35) * 100) / 100,
+    // Human chat lines: median 5 words (fixtures/form-gate-human.json); 0.25-0.6 left the model at 8 under the drawn profiles, 0.7-1 brings it to 6.
+    brevity: Math.round((0.7 + rng() * 0.3) * 100) / 100,
   };
 }

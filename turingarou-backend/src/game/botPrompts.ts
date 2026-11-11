@@ -65,7 +65,7 @@ function styleRule(caseProfile: CaseProfile): string {
       : caseProfile === 'sentence'
         ? 'Type casually: a capital letter at the start of a message is fine, the rest stays lowercase.'
         : 'Type casually, mostly lowercase.';
-  return `MANDATORY STYLE: Never use emojis or smileys. No dashes, no semicolons, no lists. One short chat line. ${caseRule}`;
+  return `MANDATORY STYLE: Never use emojis or smileys. No dashes, no semicolons, no lists. One short chat line, often just a few words. ${caseRule}`;
 }
 
 /** The three AIs of a game never share a role: the same way of taking part from all three is a tell. */

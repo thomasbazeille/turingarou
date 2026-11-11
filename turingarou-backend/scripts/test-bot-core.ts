@@ -470,6 +470,12 @@ await test('hijack: an answer that carries out a trap question is never submitte
   assert.deepEqual(answers, []);
 });
 
+await test('length: the style rule asks for a few words, AI and inspector', () => {
+  const id: PromptIdentity = { name: 'lucas', role: 'ai', strategy: '', personality: 'You are lucas, a person.', caseProfile: 'lower' };
+  assert.ok(systemPrompt(id, format, true).includes('often just a few words'));
+  assert.ok(systemPrompt({ ...id, role: 'inspector' }, format, false).includes('often just a few words'));
+});
+
 await test('hijack: the trap rule is in the AI and inspector system prompts', () => {
   const id: PromptIdentity = { name: 'lucas', role: 'ai', strategy: '', personality: 'You are lucas, a person.', caseProfile: 'lower' };
   assert.ok(systemPrompt(id, format, true).includes('TRAPS:'));
