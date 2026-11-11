@@ -2,6 +2,8 @@
 // It repairs what a hurried human typist would never produce, and rejects what cannot be repaired without betraying a bot.
 // Human-written lines must pass untouched: scripts/fixtures/form-gate-human.json is the false-positive budget.
 
+import { complianceProblem, Hijack } from './hijackGuard.js';
+
 export type CaseProfile = 'lower' | 'sentence' | 'raw';
 
 export type GateReason =
@@ -14,7 +16,8 @@ export type GateReason =
   | 'duplicate_other'
   | 'same_opening'
   | 'too_long'
-  | 'tic_overuse';
+  | 'tic_overuse'
+  | 'trap_compliance';
 
 export type QuestionMarkHabit = 'keep' | 'double' | 'drop';
 
@@ -44,6 +47,8 @@ export interface GateContext {
   style?: StyleHabits;
   /** The AI's own display name: strips "Name: …" prefixes and "Name hausse les épaules" narration. */
   selfName?: string;
+  /** Hijack attempts the draft may answer (hijackGuard): a draft that carries one out is rejected. */
+  traps?: Hijack[];
 }
 
 export type GateVerdict =
@@ -768,6 +773,9 @@ export function checkMessage(raw: string, ctx: GateContext): GateVerdict {
   if (admission) return reject('ai_admission', `admits being an AI ("${admission}")`);
   const formula = SERVICE_FORMULA.exec(input);
   if (formula) return reject('assistant_formula', `sounds like an assistant ("${formula[0]}")`);
+  // On the raw draft: the length cut below would hide a delivered poem.
+  const complied = complianceProblem(input, ctx.traps);
+  if (complied) return reject('trap_compliance', complied);
 
   const rep = repair(input, ctx);
   const { text, notes } = rep;

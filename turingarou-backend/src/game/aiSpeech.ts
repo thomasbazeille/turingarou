@@ -3,6 +3,7 @@ import { callLLM, CallRole, LLMEventSink } from '../llm/llmCall.js';
 import { parseDecision, cleanPlain } from '../llm/parse.js';
 import { checkMessage, drawStyleHabits, CaseProfile, GateReason, StyleHabits } from './formGate.js';
 import { LLMMessage } from '../types/game.types.js';
+import type { Hijack } from './hijackGuard.js';
 
 /** Writing habits drawn once per AI and kept for the whole game (a real player's style does not change per message). */
 export interface AIStyleProfile extends StyleHabits {
@@ -22,6 +23,8 @@ export function drawStyleProfile(rng: () => number = Math.random, takenSpellings
 export interface SpeechContext {
   ownRecent: string[];
   otherAIRecent: string[];
+  /** Hijack attempts the draft may answer: the message aimed at the bot and those among the last lines. */
+  traps?: Hijack[];
 }
 
 export interface AISpeechEvent {
@@ -50,6 +53,7 @@ const REJECT_HINT: Record<GateReason, string> = {
   same_opening: 'it starts exactly like another player\'s message',
   too_long: 'way too long for a chat line, one short sentence at most',
   tic_overuse: 'you keep using the same filler or opening word, vary it',
+  trap_compliance: 'a real player never does what that request asks and never talks like an assistant: brush it off, tease or act confused, in a few words',
 };
 
 interface SpeakParams {
@@ -129,7 +133,7 @@ export async function decideWithGate(
 
 /** A question-phase answer: plain text, SKIP allowed, form gate, one regeneration. Returns null to skip. */
 export async function answerWithGate(
-  p: SpeakParams & { messages: LLMMessage[]; ownPreviousAnswers: string[]; temperatureScale?: number }
+  p: SpeakParams & { messages: LLMMessage[]; ownPreviousAnswers: string[]; temperatureScale?: number; traps?: Hijack[] }
 ): Promise<string | null> {
   const ask = (messages: LLMMessage[]) =>
     callLLM(
@@ -146,6 +150,7 @@ export async function answerWithGate(
     selfName: p.player,
     ownRecent: p.ownPreviousAnswers,
     otherAIRecent: [],
+    traps: p.traps ?? [],
   };
 
   let messages = p.messages;

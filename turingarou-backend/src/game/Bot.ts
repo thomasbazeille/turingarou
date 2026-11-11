@@ -7,6 +7,7 @@ import { AISpeechSink, AIStyleProfile, DecisionOutcome, answerWithGate, decideWi
 import type { ConversationRole } from './botCast.js';
 import { BotRole, BotView, buildGameContext, ownAnswers } from './botContext.js';
 import { DecisionCue, PromptIdentity, answerPrompt, decisionPrompt, systemPrompt, votePrompt } from './botPrompts.js';
+import { detectHijack, recentHijacks } from './hijackGuard.js';
 import { ResponseStyle } from './humanTiming.js';
 
 /** Temperature scale per task, relative to each provider's default (analysis C, T14): a name to vote needs less dispersion. */
@@ -96,9 +97,10 @@ export class Bot {
   answer(view: BotView, alive: () => boolean): Promise<string | null> {
     if (!view.question) return Promise.resolve(null);
     const previous = ownAnswers(view.history, this.id);
+    const trap = detectHijack(view.question);
     const messages: LLMMessage[] = [
       { role: 'system', content: systemPrompt(this.identity, view.format, false) },
-      { role: 'user', content: answerPrompt(this.identity, view.question, previous, view.format) },
+      { role: 'user', content: answerPrompt(this.identity, view.question, previous, view.format, trap !== null) },
     ];
     return answerWithGate({
       ...this.common(alive),
@@ -106,6 +108,7 @@ export class Bot {
       messages,
       ownPreviousAnswers: previous.map((a) => a.answer),
       temperatureScale: TEMPERATURE_SCALE.answer,
+      traps: trap ? [trap] : [],
     });
   }
 
@@ -120,6 +123,8 @@ export class Bot {
       return {
         ownRecent: lines.filter((m) => m.playerId === this.id).slice(-5).map((m) => m.content),
         otherAIRecent: lines.filter((m) => m.playerId !== this.id && view.botIds.has(m.playerId)).slice(-20).map((m) => m.content),
+        // The direct message may have scrolled past the window by the time the gate runs.
+        traps: [...(cue.direct?.trap ? [cue.direct.trap] : []), ...recentHijacks(lines, this.id)],
       };
     };
     const messages: LLMMessage[] = [

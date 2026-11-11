@@ -7,6 +7,7 @@ import { DecisionCue, DirectAddress } from './botPrompts.js';
 import { Clock, TimerHandle, Timers } from './clock.js';
 import { addressedTo } from './directAddress.js';
 import { checkMessage } from './formGate.js';
+import { detectHijack } from './hijackGuard.js';
 import {
   answerTarget,
   botFloorWaitMs,
@@ -36,14 +37,16 @@ const REACTION_MIN_MS = 2000;
 const REACTION_SPREAD_MS = 4000;
 const BURST_PROB = 0.15;
 
-const CANNED: Record<'fr' | 'en', { accusation: string[]; named: string[] }> = {
+export const CANNED: Record<'fr' | 'en', { accusation: string[]; named: string[]; trap: string[] }> = {
   fr: {
     accusation: ['quoi ?', 'mdr non', 'pourquoi moi', "n'importe quoi", 't serieux la ?', 'euh non', 'ah bon pourquoi', 'c toi qui dis ca', 'hein ? non'],
     named: ['oui ?', 'hein ?', 'quoi ?', 'jsp', 'attends quoi', 'bah jsp'],
+    trap: ['mdr non', 'hein ?', "t'as cru que j'etais siri", 'fais le toi meme', "c'est quoi ce delire", 'nan merci', 'ptdr quoi', 'jsuis pas ton larbin'],
   },
   en: {
     accusation: ['what?', 'lol no', 'why me', 'nope', 'seriously?', 'huh no', 'says you', 'wait what? no'],
     named: ['yeah?', 'huh?', 'what?', 'idk', 'wait what', 'hmm idk'],
+    trap: ['lol no', 'huh?', "i'm not your siri", 'do it yourself', 'what is this lol', 'nah', 'nice try', 'why would i do that'],
   },
 };
 
@@ -266,7 +269,7 @@ export class BotDirector {
         this.timers.cancel(slot.job.timer);
         this.logEvent(slot.bot.name, 'superseded', slot.job.stage);
       }
-      const direct: DirectAddress = { from: message.playerName, content: message.content, accusation: verdict.accusation, at: message.timestamp };
+      const direct: DirectAddress = { from: message.playerName, content: message.content, accusation: verdict.accusation, at: message.timestamp, trap: detectHijack(message.content) };
       const job: Job = { direct, triggerAt: direct.at, stage: 'thinking', timer: null };
       slot.job = job;
       job.timer = this.timers.after(Math.floor(this.deps.rng() * 1000), () => {
@@ -356,7 +359,7 @@ export class BotDirector {
 
   private cannedReply(slot: Slot, direct: DirectAddress): string | null {
     const lang = this.format?.language === 'en' ? 'en' : 'fr';
-    const pool = this.shuffle([...CANNED[lang][direct.accusation ? 'accusation' : 'named']]);
+    const pool = this.shuffle([...CANNED[lang][direct.trap ? 'trap' : direct.accusation ? 'accusation' : 'named']]);
     const lines = this.room.state().messages;
     const own = lines.filter((m) => m.playerId === slot.bot.id).slice(-5).map((m) => m.content);
     // Other bots draw from the same list: an exact repeat of theirs would be dropped by the room's last net.
