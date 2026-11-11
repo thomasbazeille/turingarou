@@ -11,12 +11,12 @@ export interface AIStyleProfile extends StyleHabits {
   temperatureOffset: number;
 }
 
-export function drawStyleProfile(rng: () => number = Math.random): AIStyleProfile {
+export function drawStyleProfile(rng: () => number = Math.random, takenSpellings: ReadonlySet<string> = new Set()): AIStyleProfile {
   const r = rng();
   const caseProfile: CaseProfile = r < 0.55 ? 'lower' : r < 0.85 ? 'sentence' : 'raw';
   const dropFinalPeriodProb = 0.5 + rng() * 0.45;
   const temperatureOffset = Math.round((rng() * 0.3 - 0.15) * 100) / 100;
-  return { caseProfile, dropFinalPeriodProb, temperatureOffset, ...drawStyleHabits(rng) };
+  return { caseProfile, dropFinalPeriodProb, temperatureOffset, ...drawStyleHabits(rng, takenSpellings) };
 }
 
 export interface SpeechContext {

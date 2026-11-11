@@ -841,10 +841,14 @@ function pickDistinct<T>(items: readonly T[], n: number, rng: () => number): T[]
   return out;
 }
 
-/** Draws one player's persistent habits: two FR and two EN spelling habits, negation, contractions, accents, question marks, length, brevity. */
-export function drawStyleHabits(rng: () => number = Math.random): Required<StyleHabits> {
+/**
+ * Draws one player's persistent habits: two FR and two EN spelling habits, negation, contractions, accents, question marks, length, brevity.
+ * takenSpellings: spellings another AI of the game already uses; their groups are left out.
+ */
+export function drawStyleHabits(rng: () => number = Math.random, takenSpellings: ReadonlySet<string> = new Set()): Required<StyleHabits> {
   const variant = (g: ReadonlyArray<Variant>) => g[Math.floor(rng() * g.length)];
-  const rewrites = [...pickDistinct(FR_HABIT_GROUPS, 2, rng), ...pickDistinct(EN_HABIT_GROUPS, 2, rng)].flatMap(variant);
+  const free = (groups: ReadonlyArray<ReadonlyArray<Variant>>) => groups.filter((g) => !g.some((v) => v.some(([, to]) => takenSpellings.has(to))));
+  const rewrites = [...pickDistinct(free(FR_HABIT_GROUPS), 2, rng), ...pickDistinct(free(EN_HABIT_GROUPS), 2, rng)].flatMap(variant);
   const q = rng();
   const len = rng();
   return {

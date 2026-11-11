@@ -553,7 +553,14 @@ export class BotDirector {
   // ====== TELEMETRY ======
 
   /** LLM health per provider and bot events by kind, for the one-line game telemetry. */
-  telemetry(): { providers: Record<string, string>; llm: Record<string, unknown>; events: Record<string, number>; postDelayMs: Record<string, unknown>; paceLaunches: Record<Pace, number> } {
+  telemetry(): {
+    providers: Record<string, string>;
+    llm: Record<string, unknown>;
+    events: Record<string, number>;
+    postDelayMs: Record<string, unknown>;
+    paceLaunches: Record<Pace, number>;
+    cast: Record<string, { style: string; role: string | null; case: string; maxWords: number | null }>;
+  } {
     const pct = (xs: number[], q: number) => {
       if (xs.length === 0) return null;
       const sorted = [...xs].sort((a, b) => a - b);
@@ -584,10 +591,15 @@ export class BotDirector {
     }
     const providers: Record<string, string> = {};
     for (const slot of this.slots.values()) providers[slot.bot.name] = slot.bot.providerName;
+    const cast: Record<string, { style: string; role: string | null; case: string; maxWords: number | null }> = {};
+    for (const { bot } of this.slots.values()) {
+      if (bot.role !== 'ai') continue;
+      cast[bot.name] = { style: bot.responseStyle, role: bot.spec.conversationRole ?? null, case: bot.spec.profile.caseProfile, maxWords: bot.spec.profile.maxWords ?? null };
+    }
     const delays = (direct: boolean) => {
       const xs = this.postDelays.filter((d) => d.direct === direct).map((d) => Math.round(d.ms));
       return { n: xs.length, p50: pct(xs, 0.5), p90: pct(xs, 0.9) };
     };
-    return { providers, llm, events, postDelayMs: { direct: delays(true), regular: delays(false) }, paceLaunches: { ...this.paceLaunches } };
+    return { providers, llm, events, postDelayMs: { direct: delays(true), regular: delays(false) }, paceLaunches: { ...this.paceLaunches }, cast };
   }
 }

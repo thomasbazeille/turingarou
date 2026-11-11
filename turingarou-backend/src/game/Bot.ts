@@ -4,6 +4,7 @@ import { matchPlayerName } from '../llm/parse.js';
 import { LLMMessage } from '../types/game.types.js';
 import type { HumanPersona } from './GameLogger.js';
 import { AISpeechSink, AIStyleProfile, DecisionOutcome, answerWithGate, decideWithGate } from './aiSpeech.js';
+import type { ConversationRole } from './botCast.js';
 import { BotRole, BotView, buildGameContext, ownAnswers } from './botContext.js';
 import { DecisionCue, PromptIdentity, answerPrompt, decisionPrompt, systemPrompt, votePrompt } from './botPrompts.js';
 import { ResponseStyle } from './humanTiming.js';
@@ -24,6 +25,7 @@ export interface BotSpec {
   strategyName?: string;
   personality?: string;
   persona?: HumanPersona | null;
+  conversationRole?: ConversationRole;
 }
 
 export interface BotSinks {
@@ -65,6 +67,7 @@ export class Bot {
       personality: this.spec.personality,
       persona: this.spec.persona,
       caseProfile: this.spec.profile.caseProfile,
+      conversationRole: this.spec.conversationRole,
     };
   }
 

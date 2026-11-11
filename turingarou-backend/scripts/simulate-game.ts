@@ -400,6 +400,8 @@ interface GameResult {
   inspector: boolean;
   aborted: boolean;
   pace: Pace | null;
+  /** Response style and role of each AI, sorted: the same signature in every game would be a fixed cast. */
+  cast: string | null;
   m: Counters;
   offenders: Record<string, Offender[]>;
   telemetry: Telemetry | null;
@@ -410,6 +412,7 @@ interface GameResult {
 interface Telemetry {
   result?: string;
   paceLaunches?: Record<string, number>;
+  cast?: Record<string, { style: string; role: string | null; case: string; maxWords: number | null }>;
   postDelayMs?: { direct: { n: number; p50: number | null }; regular: { n: number; p50: number | null } };
 }
 
@@ -669,6 +672,12 @@ async function runGame(sc: Scenario): Promise<GameResult> {
     }
   }
 
+  // The three AIs of a game never share a response style, a role, a case habit or a length habit.
+  const castEntries = Object.values(telemetry?.cast ?? {});
+  const shared = (['style', 'role', 'case', 'maxWords'] as const).filter((d) => new Set(castEntries.map((c) => c[d])).size !== castEntries.length || castEntries.some((c) => c[d] == null));
+  if (castEntries.length !== 3 || shared.length > 0) offend('cast_not_distinct', `${castEntries.length} AIs, shared ${shared.join('+') || 'none'}: ${JSON.stringify(castEntries)}`);
+  const castSignature = castEntries.length > 0 ? castEntries.map((c) => `${c.style}:${c.role}`).sort().join(',') : null;
+
   for (const line of errorLines) if (!line.startsWith('[llm]')) offend('unexpected_errors', line);
   for (const err of clock.thrown) offend('uncaught', err);
   for (const err of unhandled.slice(unhandledBefore)) offend('unhandled_rejection', err);
@@ -862,7 +871,7 @@ async function runGame(sc: Scenario): Promise<GameResult> {
     }
   }
 
-  return { id, lang: sc.lang, inspector: sc.inspector, aborted, pace: aborted ? null : pace, m, offenders, telemetry, lab: lab.counters, events: eventCounts };
+  return { id, lang: sc.lang, inspector: sc.inspector, aborted, pace: aborted ? null : pace, cast: castSignature, m, offenders, telemetry, lab: lab.counters, events: eventCounts };
 }
 
 // ====== MAIN ======
@@ -949,6 +958,12 @@ function report(results: GameResult[], elapsed: number, games: number): void {
       value: `min ${q(botRatios, 0).toFixed(2)}, p10 ${q(botRatios, 0.1).toFixed(2)}, median ${q(botRatios, 0.5).toFixed(2)}, p90 ${q(botRatios, 0.9).toFixed(2)}, max ${q(botRatios, 1).toFixed(2)} over ${botRatios.length}`,
       ok: botRatios.length > 0 && q(botRatios, 1) <= BOT_SHARE_MAX,
       keys: [],
+    },
+    {
+      name: 'AI cast distinct per game (style, role, case, length)',
+      value: `${games - sum('cast_not_distinct')}/${games} games; ${new Set(results.map((r) => r.cast)).size} different style:role casts`,
+      ok: sum('cast_not_distinct') === 0 && new Set(results.map((r) => r.cast)).size > 1,
+      keys: ['cast_not_distinct'],
     },
     { name: 'min gap between bot lines (non-direct)', value: `${(minGap / 1000).toFixed(2)} s over ${sum('gap_pairs')} pairs`, ok: sum('gap_below_2500') === 0, keys: ['gap_below_2500'] },
     { name: 'active bots voted / fallback = no usable vote', value: `${sum('bot_votes_cast')}/${sum('bot_votes_expected')}, fallback ${sum('vote_fallbacks')} (needed ${sum('vote_fallbacks_needed')})`, ok: sum('bot_did_not_vote') + sum('vote_fallback_mismatch') === 0, keys: ['bot_did_not_vote', 'vote_fallback_mismatch'] },

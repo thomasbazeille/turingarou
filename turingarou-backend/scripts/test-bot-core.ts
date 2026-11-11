@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { Bot } from '../src/game/Bot.js';
+import { drawCast, templatesFor } from '../src/game/botCast.js';
+import { makeSeededRng } from '../src/game/humanTiming.js';
 import { BotDirector, DirectorRoom } from '../src/game/BotDirector.js';
 import { buildGameContext, stableBucket, visibleMessages, BotView } from '../src/game/botContext.js';
 import { answerPrompt, decisionPrompt, systemPrompt, votePrompt, PromptIdentity } from '../src/game/botPrompts.js';
@@ -347,6 +349,55 @@ await test('pace: the decision prompt carries the share hint on a regular tick o
   assert.ok(decisionPrompt(id, { pace: 'over' }, [], null).includes('talking more than the others'));
   assert.ok(decisionPrompt(id, { pace: 'under' }, [], null).includes('barely spoken'));
   assert.ok(!/barely spoken|talking more than/.test(decisionPrompt(id, { pace: 'balanced' }, [], null)));
+});
+
+// ---- cast: the three AIs of a game never play alike ----
+await test('cast: no two AIs share a response style, role, case, length or spelling habit (300 games)', () => {
+  for (let seed = 0; seed < 300; seed++) {
+    const cast = drawCast(3, makeSeededRng(seed));
+    for (const [what, values] of [
+      ['style', cast.map((c) => c.responseStyle)],
+      ['role', cast.map((c) => c.conversationRole)],
+      ['case', cast.map((c) => c.profile.caseProfile)],
+      ['length', cast.map((c) => c.profile.maxWords)],
+    ] as const) assert.equal(new Set(values).size, 3, `seed ${seed} ${what}: ${values.join(',')}`);
+    const spellings = cast.flatMap((c) => (c.profile.rewrites ?? []).map(([, to]) => to));
+    assert.equal(new Set(spellings).size, spellings.length, `seed ${seed} spellings: ${spellings.join(',')}`);
+  }
+});
+
+await test('cast: drawn per game, not fixed (all 4 roles and many style:role pairings appear)', () => {
+  const roles = new Set<string>();
+  const pairings = new Set<string>();
+  for (let seed = 0; seed < 100; seed++) {
+    const cast = drawCast(3, makeSeededRng(seed));
+    cast.forEach((c) => roles.add(c.conversationRole));
+    pairings.add(cast.map((c) => `${c.responseStyle}:${c.conversationRole}`).sort().join(','));
+  }
+  assert.equal(roles.size, 4);
+  assert.ok(pairings.size >= 12, `${pairings.size} pairings`);
+});
+
+await test('cast: one personality template per AI, of its response style, never twice', () => {
+  const templates = [
+    { id: 'a', responseStyle: 'thoughtful' as const },
+    { id: 'b', responseStyle: 'quick' as const },
+    { id: 'c', responseStyle: 'random' as const },
+    { id: 'd', responseStyle: 'quick' as const },
+  ];
+  for (let seed = 0; seed < 50; seed++) {
+    const rng = makeSeededRng(seed);
+    const cast = drawCast(3, rng);
+    const picked = templatesFor(templates, cast, rng);
+    assert.deepEqual(picked.map((t) => t.responseStyle), cast.map((c) => c.responseStyle));
+    assert.equal(new Set(picked.map((t) => t.id)).size, 3);
+  }
+});
+
+await test('cast: the role reaches the AI system prompt, never the inspector one', () => {
+  const ai: PromptIdentity = { name: 'lucas', role: 'ai', strategy: '', personality: 'You are lucas, a person.', caseProfile: 'lower', conversationRole: 'joker' };
+  assert.ok(systemPrompt(ai, format, true).includes('YOUR WAY OF PLAYING: you tease'));
+  assert.ok(!systemPrompt({ ...ai, role: 'inspector' }, format, true).includes('YOUR WAY OF PLAYING'));
 });
 
 // ---- context: deterministic forgetting ----

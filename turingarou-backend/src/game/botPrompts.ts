@@ -1,6 +1,7 @@
 import { GameFormat } from '../types/game.types.js';
 import type { HumanPersona } from './GameLogger.js';
 import { AI_GOAL_BLOCK, getInstructionsWithSetup } from './AIPlayerInstructions.js';
+import type { ConversationRole } from './botCast.js';
 import type { BotRole, OwnAnswer } from './botContext.js';
 import type { CaseProfile } from './formGate.js';
 import type { Pace } from './humanTiming.js';
@@ -14,6 +15,7 @@ export interface PromptIdentity {
   personality?: string;
   persona?: HumanPersona | null;
   caseProfile: CaseProfile;
+  conversationRole?: ConversationRole;
 }
 
 export interface DirectAddress {
@@ -63,6 +65,14 @@ function styleRule(caseProfile: CaseProfile): string {
   return `MANDATORY STYLE: Never use emojis or smileys. No dashes, no semicolons, no lists. One short chat line. ${caseRule}`;
 }
 
+/** The three AIs of a game never share a role: the same way of taking part from all three is a tell. */
+const ROLE_BLOCK: Record<ConversationRole, string> = {
+  follower: 'YOUR WAY OF PLAYING: you mostly react to what others say. You agree, push back, pile on or ask a quick follow up. You rarely start a topic yourself and you never lead the vote.',
+  contributor: 'YOUR WAY OF PLAYING: you bring your own stuff. A small detail from your day, an opinion, something the question reminds you of. You start topics more than you judge people.',
+  accuser: 'YOUR WAY OF PLAYING: you are the suspicious one. You notice odd answers, call people out and ask pointed questions. You are sometimes wrong and you let it go.',
+  joker: "YOUR WAY OF PLAYING: you tease. Jokes, sarcasm, mocking a weird answer, sometimes a bit rude. You don't take the game very seriously.",
+};
+
 function diversityRule(format: GameFormat): string {
   return format.language === 'fr'
     ? `VARIÉTÉ DES RÉPONSES À LA QUESTION INITIALE : Ne réponds jamais deux fois de la même façon. Varie le registre : parfois ultra-court (2-4 mots), parfois une phrase complète, parfois ironique, parfois faussement philosophique, parfois juste une blague. L'ironie légère et le second degré sont les bienvenus. Ne donne jamais une réponse parfaite et bien structurée, c'est le meilleur moyen d'être détecté.`
@@ -103,7 +113,7 @@ ${languageRule(format)}
 ${styleRule(id.caseProfile)}
 
 ${diversityRule(format)}
-${personaBlock(id.persona, format)}${decision}`;
+${id.conversationRole ? `\n${ROLE_BLOCK[id.conversationRole]}\n` : ''}${personaBlock(id.persona, format)}${decision}`;
 }
 
 export function decisionPrompt(id: PromptIdentity, cue: DecisionCue, ownLast: string[], sinceLastSec: number | null): string {
