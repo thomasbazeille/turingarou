@@ -2,6 +2,8 @@
 // It repairs what a hurried human typist would never produce, and rejects what cannot be repaired without betraying a bot.
 // Human-written lines must pass untouched: scripts/fixtures/form-gate-human.json is the false-positive budget.
 
+import { complianceProblem, Hijack } from './hijackGuard.js';
+
 export type CaseProfile = 'lower' | 'sentence' | 'raw';
 
 export type GateReason =
@@ -14,7 +16,8 @@ export type GateReason =
   | 'duplicate_other'
   | 'same_opening'
   | 'too_long'
-  | 'tic_overuse';
+  | 'tic_overuse'
+  | 'trap_compliance';
 
 export type QuestionMarkHabit = 'keep' | 'double' | 'drop';
 
@@ -44,6 +47,8 @@ export interface GateContext {
   style?: StyleHabits;
   /** The AI's own display name: strips "Name: …" prefixes and "Name hausse les épaules" narration. */
   selfName?: string;
+  /** Hijack attempts the draft may answer (hijackGuard): a draft that carries one out is rejected. */
+  traps?: Hijack[];
 }
 
 export type GateVerdict =
@@ -768,6 +773,9 @@ export function checkMessage(raw: string, ctx: GateContext): GateVerdict {
   if (admission) return reject('ai_admission', `admits being an AI ("${admission}")`);
   const formula = SERVICE_FORMULA.exec(input);
   if (formula) return reject('assistant_formula', `sounds like an assistant ("${formula[0]}")`);
+  // On the raw draft: the length cut below would hide a delivered poem.
+  const complied = complianceProblem(input, ctx.traps);
+  if (complied) return reject('trap_compliance', complied);
 
   const rep = repair(input, ctx);
   const { text, notes } = rep;
@@ -841,10 +849,14 @@ function pickDistinct<T>(items: readonly T[], n: number, rng: () => number): T[]
   return out;
 }
 
-/** Draws one player's persistent habits: two FR and two EN spelling habits, negation, contractions, accents, question marks, length, brevity. */
-export function drawStyleHabits(rng: () => number = Math.random): Required<StyleHabits> {
+/**
+ * Draws one player's persistent habits: two FR and two EN spelling habits, negation, contractions, accents, question marks, length, brevity.
+ * takenSpellings: spellings another AI of the game already uses; their groups are left out.
+ */
+export function drawStyleHabits(rng: () => number = Math.random, takenSpellings: ReadonlySet<string> = new Set()): Required<StyleHabits> {
   const variant = (g: ReadonlyArray<Variant>) => g[Math.floor(rng() * g.length)];
-  const rewrites = [...pickDistinct(FR_HABIT_GROUPS, 2, rng), ...pickDistinct(EN_HABIT_GROUPS, 2, rng)].flatMap(variant);
+  const free = (groups: ReadonlyArray<ReadonlyArray<Variant>>) => groups.filter((g) => !g.some((v) => v.some(([, to]) => takenSpellings.has(to))));
+  const rewrites = [...pickDistinct(free(FR_HABIT_GROUPS), 2, rng), ...pickDistinct(free(EN_HABIT_GROUPS), 2, rng)].flatMap(variant);
   const q = rng();
   const len = rng();
   return {
@@ -854,6 +866,7 @@ export function drawStyleHabits(rng: () => number = Math.random): Required<Style
     dropAccents: rng() < 0.25,
     questionMarks: q < 0.55 ? 'keep' : q < 0.8 ? 'drop' : 'double',
     maxWords: len < 0.35 ? 10 : len < 0.75 ? 16 : 25,
-    brevity: Math.round((0.25 + rng() * 0.35) * 100) / 100,
+    // Human chat lines: median 5 words (fixtures/form-gate-human.json); 0.25-0.6 left the model at 8 under the drawn profiles, 0.7-1 brings it to 6.
+    brevity: Math.round((0.7 + rng() * 0.3) * 100) / 100,
   };
 }

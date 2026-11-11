@@ -68,21 +68,63 @@ export function answerTarget(rng: () => number = Math.random): number {
   return uniform(5000, 17000, rng);
 }
 
-export function skipProbability(style: ResponseStyle): number {
-  if (style === 'quick') return 0.10;
-  if (style === 'thoughtful') return 0.35;
-  return 0.25;
+/**
+ * A bot's share of the talk against its fair share 1/n (Time to Talk, arXiv 2506.05309: an agent held to 1/n was
+ * spotted at chance; unregulated AIs post 60-95 % of a group chat). Measured on the last PACE_WINDOW_LINES lines of the
+ * current discussion (all of it while shorter), n = players still in the game.
+ */
+export type Pace = 'under' | 'balanced' | 'over';
+export const PACE_WINDOW_LINES = 20;
+/** Below this many lines nobody is "under": an empty chat would push every bot to open at once. */
+const PACE_MIN_LINES = 5;
+const PACE_LOW = 0.8;
+const PACE_HIGH = 1.15;
+
+export function paceOf(own: number, total: number, players: number): Pace {
+  if (total === 0 || players <= 0) return 'balanced';
+  const ratio = (own * players) / total;
+  if (own >= 1 && ratio > PACE_HIGH) return 'over';
+  if (total >= PACE_MIN_LINES && ratio < PACE_LOW) return 'under';
+  return 'balanced';
 }
 
-export function cooldownMs(style: ResponseStyle, lastWasShort: boolean, rng: () => number = Math.random): number {
-  if (lastWasShort) return uniform(3000, 6000, rng);
-  if (style === 'quick') return uniform(6000, 10000, rng);
-  if (style === 'thoughtful') return uniform(12000, 20000, rng);
-  return uniform(8000, 15000, rng);
+export function skipProbability(style: ResponseStyle, pace: Pace = 'balanced'): number {
+  const base = style === 'quick' ? 0.10 : style === 'thoughtful' ? 0.35 : 0.25;
+  if (pace === 'under') return base * 0.3;
+  if (pace === 'over') return 0.85 + 0.1 * base;
+  return base;
+}
+
+export function cooldownMs(style: ResponseStyle, lastWasShort: boolean, rng: () => number = Math.random, pace: Pace = 'balanced'): number {
+  const scale = pace === 'under' ? 0.6 : pace === 'over' ? 2 : 1;
+  if (lastWasShort) return scale * uniform(3000, 6000, rng);
+  if (style === 'quick') return scale * uniform(6000, 10000, rng);
+  if (style === 'thoughtful') return scale * uniform(12000, 20000, rng);
+  return scale * uniform(8000, 15000, rng);
 }
 
 export function globalGapMs(rng: () => number = Math.random): number {
   return uniform(2500, 4000, rng);
+}
+
+/** All active bots together against their seats: their share of the lines compared with seats / n. */
+export function groupPaceOf(botLines: number, total: number, players: number, seats: number): Pace {
+  return seats > 0 ? paceOf(botLines, total, players / seats) : 'balanced';
+}
+
+/** At most this many bot lines in any 10 s window (direct replies excepted); one more while the bots as a group are under their share. */
+export const MAX_BOT_LINES_PER_10S = 2;
+
+/** Wait before a non-direct bot line: a jittered gap after any bot line (longer when the bots are over) and the 10 s ceiling. */
+export function botFloorWaitMs(now: number, lastBotPostAt: number, recentBotPosts: number[], group: Pace, rng: () => number = Math.random): number {
+  const jitter = rng() * 600;
+  const gap = globalGapMs(rng) * (group === 'over' ? 1.5 : 1);
+  const ceiling = MAX_BOT_LINES_PER_10S + (group === 'under' ? 1 : 0);
+  const sinceLast = now - lastBotPostAt;
+  if (sinceLast < gap) return gap - sinceLast + jitter;
+  const recent = recentBotPosts.filter((t) => now - t < 10000);
+  if (recent.length >= ceiling) return recent[recent.length - ceiling] + 10000 - now + jitter;
+  return 0;
 }
 
 export function makeSeededRng(seed: number): () => number {

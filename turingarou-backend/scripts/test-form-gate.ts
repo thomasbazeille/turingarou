@@ -6,6 +6,8 @@ import { drawStyleProfile } from '../src/game/aiSpeech.js';
 
 // Thresholds of the corpus run (spec B-realisme-forme R13: a gate that cries wolf gets unplugged).
 const HUMAN_MAX_REJECTED = 0;
+/** Real model lines under the drawn profiles: median words at most this (human corpus: 5). */
+const MODEL_MAX_MEDIAN_WORDS = 6;
 const HUMAN_MAX_MODIFIED_RATIO = 0.1;
 const BOT_MIN_CAUGHT_RATIO = 0.9;
 
@@ -290,8 +292,8 @@ for (const t of [...human.map((h) => h.text), ...bot.map((b) => b.text)]) {
   }
 }
 
-// Real model output (fixtures/form-gate-model-probe.json): measured, not asserted. Length is the tell the gate can only
-// fix through the per-AI habits (maxWords, brevity), so the distribution is printed next to the human one.
+// Real model output (fixtures/form-gate-model-probe.json). Length is the tell the gate can only fix through the per-AI
+// habits (maxWords, brevity): the median under drawn profiles is asserted, the distribution printed next to the human one.
 const probe = load<{ source: string; lines: string[] }>('form-gate-model-probe.json').lines;
 const words = (t: string) => t.split(/\s+/).filter(Boolean).length;
 const median = (xs: number[]) => [...xs].sort((x, y) => x - y)[Math.floor(xs.length / 2)];
@@ -316,8 +318,8 @@ console.log(`human corpus under 12 drawn profiles (case + habits): rejected ${pr
 console.log(`bot corpus: ${bot.length} lines, caught ${bot.length - botMissed.length} = ${pct(caughtRatio)} (min ${pct(BOT_MIN_CAUGHT_RATIO)})`);
 console.log(`idempotence under the GameRoom last net: ${notIdempotent.length} violation(s)`);
 console.log(
-  `model probe (${probe.length} real lines, measured only): bare rejected ${probeBare.filter((v) => !v.ok).length}, modified ${probeBare.filter((v, i) => v.ok && v.text !== probe[i]).length}; ` +
-    `words median/share>12: human ${median(humanWords)}/${pct(share(humanWords, 12))}, model raw ${median(probeWords)}/${pct(share(probeWords, 12))}, model under drawn profiles ${median(probeProfiled)}/${pct(share(probeProfiled, 12))}`
+  `model probe (${probe.length} real lines): bare rejected ${probeBare.filter((v) => !v.ok).length}, modified ${probeBare.filter((v, i) => v.ok && v.text !== probe[i]).length}; ` +
+    `words median/share>12: human ${median(humanWords)}/${pct(share(humanWords, 12))}, model raw ${median(probeWords)}/${pct(share(probeWords, 12))}, model under drawn profiles ${median(probeProfiled)}/${pct(share(probeProfiled, 12))} (median max ${MODEL_MAX_MEDIAN_WORDS})`
 );
 const show = (title: string, items: string[]) => {
   if (items.length) console.log(`${title}:\n  ${items.slice(0, 30).join('\n  ')}`);
@@ -333,7 +335,8 @@ const corpusFail =
   profileRejected.length > 0 ||
   modifiedRatio > HUMAN_MAX_MODIFIED_RATIO ||
   caughtRatio < BOT_MIN_CAUGHT_RATIO ||
-  notIdempotent.length > 0;
+  notIdempotent.length > 0 ||
+  median(probeProfiled) > MODEL_MAX_MEDIAN_WORDS;
 if (failures > 0 || corpusFail) {
   console.log('form gate: FAIL');
   process.exit(1);

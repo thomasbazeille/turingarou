@@ -159,7 +159,7 @@ await check('each socket gets its own seat only; the room channel hears nothing 
     assert.equal(st.lobby.launchAIs, 2);
     assert.deepEqual(room.publicState(socket), st, 'publicState(socket) differs from what the socket was sent');
   }
-  assert.ok(room.publicState().players.every((p: any) => p.id === ''), 'publicState() without a socket shows a seat');
+  assert.ok((room.publicState().players as { id: string }[]).every((p) => p.id === ''), 'publicState() without a socket shows a seat');
   await room.launch(sockets[0]);
   const started = emits.filter((e) => e.target === 'L1');
   assert.ok(started.length > 0 && started.every((e) => e.payload.phase !== 'waiting' && !('lobby' in e.payload)));
