@@ -1,3 +1,4 @@
+import { fields, languageOf, roomIdOf, text } from './packets.js';
 import express from 'express';
 import { createServer } from 'http';
 import { Server as SocketServer } from 'socket.io';
@@ -123,6 +124,17 @@ io.on('connection', (socket) => {
   let consent: StyleConsent = NO_CONSENT;
   // Resolved on every action: once a resume moves the seat to another socket, this one plays for nobody.
   const me = (): string | null => (currentRoom ? currentRoom.playerIdBySocket(socket.id) : null);
+  // One bad packet must never take the server down with every game on it: a handler that throws is logged, then dropped.
+  const on = (event: string, handler: (...args: any[]) => unknown) =>
+    socket.on(event, (...args: unknown[]) => {
+      const drop = (err: unknown) => console.error(`[socket] ${event} from ${socket.id} dropped: ${err instanceof Error ? err.message : String(err)}`);
+      try {
+        const out = handler(...args);
+        if (out instanceof Promise) out.catch(drop);
+      } catch (err) {
+        drop(err);
+      }
+    });
 
   const joinInto = async (room: GameRoom, username: string, language?: 'fr' | 'en') => {
     const actualRoomId = room.getState().roomId;
@@ -143,21 +155,28 @@ io.on('connection', (socket) => {
   };
 
   // Rejoindre une room
-  socket.on('joinRoom', async (payload: { roomId: string; username: string; language?: 'fr' | 'en' }) => {
-    const { roomId, username, language } = payload;
+  on('joinRoom', async (payload: unknown) => {
+    const p = fields(payload);
+    const roomId = roomIdOf(p.roomId);
+    if (!roomId) {
+      socket.emit('joinError', { message: 'Room is full or unavailable' });
+      return;
+    }
+    const username = text(p.username) ?? '';
+    const language = languageOf(p.language);
     consent = parseConsent(payload);
     console.log(`${username} joining room ${roomId}`);
     await joinInto(getOrCreateRoom(roomId), username, language);
   });
 
   // L'hôte d'une salle privée lance la partie avec les humains présents (3 au moins)
-  socket.on('launchGame', async () => {
+  on('launchGame', async () => {
     const refusal = currentRoom ? await currentRoom.launch(socket.id) : 'not_waiting';
     if (refusal) socket.emit('launchError', { reason: refusal });
   });
 
   // Rejouer avec le même groupe : le premier clic ouvre une salle privée liée, les suivants y entrent pendant REMATCH_WINDOW_MS
-  socket.on('rematch', async () => {
+  on('rematch', async () => {
     const old = currentRoom;
     if (!old || !me() || old.getState().phase !== 'gameover') {
       socket.emit('rematchError', { reason: 'not_over' });
@@ -187,7 +206,7 @@ io.on('connection', (socket) => {
   });
 
   // Reprendre sa place après une coupure (veille mobile, réseau) avec le jeton reçu à joinSuccess
-  socket.on('resumeSession', (payload: { roomId?: unknown; token?: unknown } | undefined) => {
+  on('resumeSession', (payload: { roomId?: unknown; token?: unknown } | undefined) => {
     const roomId = typeof payload?.roomId === 'string' ? payload.roomId : '';
     const room = gameRooms.get(roomId);
     const seat = room && typeof payload?.token === 'string' ? room.resume(socket.id, payload.token) : null;
@@ -209,7 +228,7 @@ io.on('connection', (socket) => {
   });
 
   // Retour à l'accueil volontaire
-  socket.on('leaveRoom', () => {
+  on('leaveRoom', () => {
     if (!currentRoom) return;
     currentRoom.leave(socket.id);
     socket.leave(currentRoom.getRoomId());
@@ -217,18 +236,21 @@ io.on('connection', (socket) => {
   });
 
   // Envoyer un message ; collage et temps de frappe (input) sont gardés pour l'analyse, jamais renvoyés ni sanctionnés
-  socket.on('sendMessage', ({ message, replyToId, input }: { message: string; replyToId?: unknown; input?: unknown }) => {
+  on('sendMessage', (payload: unknown) => {
+    const { replyToId, input } = fields(payload);
+    const message = text(fields(payload).message);
     const playerId = me();
-    if (!currentRoom || !playerId) return;
+    if (!currentRoom || !playerId || message === null) return;
 
     console.log(`Message from ${playerId}: ${message}`);
     currentRoom.addMessage(playerId, message, replyToId, parseTyping(input));
   });
 
   // Répondre à la question ; la réponse n'est renvoyée qu'à son auteur, les autres la voient à la fin de la question
-  socket.on('answerQuestion', ({ answer }: { answer: string }) => {
+  on('answerQuestion', (payload: unknown) => {
+    const answer = text(fields(payload).answer);
     const playerId = me();
-    if (!currentRoom || !playerId) return;
+    if (!currentRoom || !playerId || answer === null) return;
 
     console.log(`Answer from ${playerId}: ${answer}`);
     currentRoom.addAnswer(playerId, answer);
@@ -236,7 +258,7 @@ io.on('connection', (socket) => {
   });
 
   // Voter (ou s'abstenir) ; le vote n'est renvoyé qu'à son auteur, les autres ne voient qu'un compteur anonyme
-  socket.on('vote', (payload: { targetId?: unknown; abstain?: unknown } | undefined) => {
+  on('vote', (payload: { targetId?: unknown; abstain?: unknown } | undefined) => {
     const playerId = me();
     if (!currentRoom || !playerId) return;
     const targetId = payload?.abstain === true ? null : typeof payload?.targetId === 'string' ? payload.targetId : undefined;
@@ -248,7 +270,7 @@ io.on('connection', (socket) => {
   });
 
   // Raison facultative de son propre vote, choisie après l'avoir envoyé : rien n'est renvoyé, personne ne la voit
-  socket.on('voteReason', (payload: { reason?: unknown } | undefined) => {
+  on('voteReason', (payload: { reason?: unknown } | undefined) => {
     const playerId = me();
     const reason = parseVoteReason(payload?.reason);
     if (!currentRoom || !playerId || !reason) return;
@@ -256,7 +278,7 @@ io.on('connection', (socket) => {
   });
 
   // Note de fin de partie (1 à 5) et indice libre facultatif : stockés, jamais renvoyés ni journalisés en clair
-  socket.on('gameFeedback', (payload: unknown) => {
+  on('gameFeedback', (payload: unknown) => {
     const playerId = me();
     const feedback = parseFeedback(payload);
     if (!currentRoom || !playerId || !feedback) return;
@@ -264,14 +286,16 @@ io.on('connection', (socket) => {
   });
 
   // Flaguer un message comme suspicious
-  socket.on('flagMessage', ({ messageId, reason }: { messageId: string; reason?: string }) => {
+  on('flagMessage', (payload: unknown) => {
+    const p = fields(payload);
+    const messageId = text(p.messageId);
     const playerId = me();
-    if (!currentRoom || !playerId) return;
-    currentRoom.flagMessage(playerId, messageId, reason);
+    if (!currentRoom || !playerId || messageId === null) return;
+    currentRoom.flagMessage(playerId, messageId, text(p.reason)?.slice(0, 200) ?? undefined);
   });
 
   // Ajouter un AI Inspector pour remplir le dernier slot humain (2 humains en attente)
-  socket.on('addInspector', async () => {
+  on('addInspector', async () => {
     if (!currentRoom) {
       socket.emit('joinError', { message: 'Not in a room' });
       return;
@@ -285,7 +309,7 @@ io.on('connection', (socket) => {
   });
 
   // Déconnexion : la place reste (grâce), la room se supprime d'elle-même quand plus aucun humain n'y est (onVacant)
-  socket.on('disconnect', () => {
+  on('disconnect', () => {
     console.log(`Client disconnected: ${socket.id}`);
     currentRoom?.disconnect(socket.id);
   });

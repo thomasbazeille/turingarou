@@ -920,7 +920,7 @@ export class GameRoom {
    * for analysis and changes nothing in what is posted.
    */
   addMessage(playerId: string, content: string, replyToId?: unknown, input?: LineInput): boolean {
-    if (this.aborted || this.state.phase !== 'discussion') return false;
+    if (this.aborted || this.state.phase !== 'discussion' || typeof content !== 'string') return false;
     const player = this.state.players.find((p) => p.id === playerId);
     if (!player || player.isEliminated) return false;
 
@@ -980,7 +980,7 @@ export class GameRoom {
   }
 
   addAnswer(playerId: string, answer: string): void {
-    if (this.aborted || this.state.phase !== 'question') return;
+    if (this.aborted || this.state.phase !== 'question' || typeof answer !== 'string') return;
     const player = this.state.players.find((p) => p.id === playerId);
     if (!player || player.isEliminated) return;
     this.state.answers = this.state.answers.filter((a) => a.playerId !== playerId);
