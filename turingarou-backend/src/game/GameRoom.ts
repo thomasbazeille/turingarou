@@ -116,8 +116,8 @@ export const MIN_LAUNCH_HUMANS = 3;
 /**
  * AIs at a table of this many seats on the humans' side (an inspector sits there): close to the full game's 3 in 8,
  * never topped up to 8 seats, where 6 AIs would outvote 2 humans every round. 4 humans get 3 AIs: in simulated games
- * (scripts/simulate-game.ts --balance, 200 per table, humans voting an AI on purpose 0, 30 or 50 % of the time) 4 + 3
- * ends like 5 + 3, while 4 + 2 lets the humans win about 20 points more often.
+ * (scripts/simulate-game.ts --balance, 200 per table) 4 + 3 ends closest to 5 + 3 when humans vote an AI on purpose
+ * 0 or 30 % of the time, 4 + 2 when they do 50 % of the time; how often real humans spot an AI is not measured yet.
  */
 export function aiCountFor(humanSide: number): number {
   return humanSide >= 4 ? 3 : 2;
