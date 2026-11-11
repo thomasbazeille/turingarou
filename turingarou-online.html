@@ -179,6 +179,19 @@
     .reveal-round-num { color: #22d3ee; font-family: monospace; margin-right: 4px; }
     .reveal-round-out { color: #94a3b8; }
     @keyframes revealIn { from { opacity: 0; transform: translateY(7px) scale(0.96); } to { opacity: 1; transform: none; } }
+    .replay { max-width: 760px; width: calc(100% - 30px); margin: 18px auto 20px; padding: 10px 12px; background: rgba(0,0,0,0.4); border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); text-align: left; }
+    .replay summary { color: #94a3b8; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; cursor: pointer; }
+    .replay-body { margin-top: 10px; max-height: 420px; overflow-y: auto; font-size: 12px; line-height: 1.5; color: #e2e8f0; }
+    .replay-round { color: #22d3ee; font-family: monospace; margin: 12px 0 2px; }
+    .replay-q { color: #cbd5e1; font-style: italic; margin-bottom: 4px; }
+    .replay-line { padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .replay-line.answer { color: #cbd5e1; }
+    .replay-who { margin-right: 6px; font-weight: 600; }
+    .replay-tag { font-size: 10px; margin-right: 6px; }
+    .replay-tag.ai { color: #ef4444; }
+    .replay-tag.human { color: #22c55e; }
+    .replay-quote { color: #64748b; margin-right: 4px; }
+    .replay-out { color: #94a3b8; margin-top: 4px; }
     @media (max-width: 600px) { .reveal-grid { grid-template-columns: repeat(2, 1fr); } }
     @media (prefers-reduced-motion: reduce) { .reveal-card { animation: none; opacity: 1; } }
     /* Connection notice, shown to this player only */
@@ -750,10 +763,10 @@
           <div class="next-round-text" id="gameover-home-text">Retour à l'accueil</div>
         </button>
       </div>
-      <div class="end-screen-history-wrap">
-        <div class="end-screen-history-title" id="gameover-history-title">Historique</div>
-        <div class="end-screen-history-scroll" id="gameover-history"></div>
-      </div>
+      <details class="replay" id="gameover-replay">
+        <summary id="gameover-replay-title">Relire la partie</summary>
+        <div class="replay-body" id="gameover-replay-body"></div>
+      </details>
     </div>
   </div>
 
@@ -1608,6 +1621,7 @@ function updateGameFromServer(state) {
       showScreen('gameover');
       renderGameOver(state.gameOverReason || 'draw');
       renderReveal(state);
+      renderReplay(state.transcript);
       break;
   }
 }
@@ -3261,7 +3275,6 @@ else { msg.textContent=goFr?'Égalité':'Draw'; if(detail) detail.textContent=go
 if(gameoverHomeBtn) gameoverHomeBtn.textContent = G.lang === 'fr' ? "Retour à l'accueil" : 'Return home';
 if(rematchDeadline) tickRematch();
 else if(!rematchPending) setRematchButton(false, G.lang === 'fr' ? 'Rejouer avec ce groupe' : 'Play again, same group');
-renderEndScreenHistory('gameover-history', 'gameover-history-title');
 var goScreen=document.getElementById('gameover-screen');
 if(reason==='humans_win'){
   startGearsAnimation();
@@ -3348,6 +3361,57 @@ function renderReveal(state){
     const out = ep ? name(r.eliminatedId) + (fr ? ' éliminé ' : ' out ') + (ep.isAI ? '🤖' : '🧑') : (fr ? 'égalité, personne' : 'tie, no one out');
     line.innerHTML = '<span class="reveal-round-num">' + (fr ? 'M' : 'R') + r.round + '</span>' + votes + ' <span class="reveal-round-out">⇒ ' + out + '</span>';
     votesEl.appendChild(line);
+  });
+}
+
+/** The whole game again, every author marked human or AI with its model: the server's transcript, sent at game over only. */
+function renderReplay(transcript){
+  const fr = G.lang === 'fr';
+  const title = document.getElementById('gameover-replay-title');
+  const body = document.getElementById('gameover-replay-body');
+  if (!body) return;
+  if (title) title.textContent = fr ? 'Relire la partie' : 'Replay the game';
+  body.innerHTML = '';
+  if (!transcript || !Array.isArray(transcript.rounds)) return;
+  const byId = {};
+  transcript.players.forEach(function(p){ byId[p.id] = p; });
+  const who = function(id){
+    const p = byId[id];
+    if (!p) return '<span class="replay-who">?</span>';
+    const tag = p.isAI ? '<span class="replay-tag ai">🤖 ' + escHtml(p.model || (fr ? 'IA' : 'AI')) + '</span>' : '<span class="replay-tag human">🧑</span>';
+    return '<span class="replay-who" style="color:' + escHtml(p.color) + '">' + escHtml(p.name) + (p.id === playerId ? (fr ? ' (toi)' : ' (you)') : '') + '</span>' + tag;
+  };
+  const authorOf = {};
+  transcript.rounds.forEach(function(r){ r.messages.forEach(function(m){ authorOf[m.id] = m.playerId; }); });
+  transcript.rounds.forEach(function(r){
+    const head = document.createElement('div');
+    head.className = 'replay-round';
+    head.textContent = (fr ? 'Manche ' : 'Round ') + r.round;
+    body.appendChild(head);
+    if (r.question) {
+      const q = document.createElement('div');
+      q.className = 'replay-q';
+      q.textContent = r.question;
+      body.appendChild(q);
+    }
+    r.answers.forEach(function(a){
+      const line = document.createElement('div');
+      line.className = 'replay-line answer';
+      line.innerHTML = who(a.playerId) + escHtml(a.text);
+      body.appendChild(line);
+    });
+    r.messages.forEach(function(m){
+      const line = document.createElement('div');
+      line.className = 'replay-line';
+      const quoted = m.replyToId && authorOf[m.replyToId] && byId[authorOf[m.replyToId]];
+      line.innerHTML = who(m.playerId) + (quoted ? '<span class="replay-quote">↪ ' + escHtml(quoted.name) + '</span>' : '') + escHtml(m.text);
+      body.appendChild(line);
+    });
+    const out = document.createElement('div');
+    out.className = 'replay-out';
+    const ep = r.eliminatedId ? byId[r.eliminatedId] : null;
+    out.innerHTML = '⇒ ' + (ep ? who(ep.id) + (fr ? 'éliminé' : 'out') : (fr ? 'personne éliminé' : 'no one out'));
+    body.appendChild(out);
   });
 }
 

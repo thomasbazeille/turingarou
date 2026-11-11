@@ -39,6 +39,7 @@ import {
   VOTE_DEADLINE_MS,
 } from './BotDirector.js';
 import { RoundRecord } from './botContext.js';
+import { buildTranscript, Transcript } from './gameReview.js';
 import { Clock, systemClock, TimerHandle, Timers } from './clock.js';
 
 /** The part of Socket.io a room uses: broadcast to its own channel. */
@@ -1079,6 +1080,18 @@ export class GameRoom {
     return bot ? { isAI: true, model: modelLabel(bot.providerName) } : { isAI: false };
   }
 
+  /** Every round of a finished game with each author revealed, for the replay (game over only). */
+  private transcript(): Transcript {
+    return buildTranscript({
+      players: this.state.players.map((p) => ({ id: p.id, name: p.username, color: p.color, ...this.revealOf(p.id) })),
+      rounds: this.state.currentRound,
+      question: (rd) => this.questionsByRound.get(rd) ?? '',
+      answers: (rd) => (rd === this.state.currentRound ? this.state.answers : this.state.answersByRound?.[rd] ?? []),
+      messages: this.state.messages,
+      eliminatedId: (rd) => this.voteHistory.find((r) => r.round === rd)?.eliminatedId ?? null,
+    });
+  }
+
   /** Never reveals who is an AI to the clients before the game is over. */
   private sanitizeState(): Record<string, unknown> {
     const over = this.state.phase === 'gameover';
@@ -1113,6 +1126,7 @@ export class GameRoom {
     if (over) {
       out.gameOverReason = this.state.gameOverReason ?? null;
       out.voteHistory = this.voteHistory.map((r) => ({ ...r, votes: [...r.votes] }));
+      out.transcript = this.transcript();
     }
     out.language = this.state.language ?? 'fr';
     return out;

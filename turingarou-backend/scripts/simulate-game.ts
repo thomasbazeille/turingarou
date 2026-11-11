@@ -32,6 +32,7 @@ import { makeSeededRng } from '../src/game/humanTiming.js';
 import { isTextureQuestion } from '../src/game/QuestionBank.js';
 import { getInspectorPromptContent, getRandomAIPlayerStrategy } from '../src/game/StrategyLoader.js';
 import type { GameLogData } from '../src/game/GameLogger.js';
+import type { Transcript } from '../src/game/gameReview.js';
 import type { GameMessage, GameRoomState, QuestionAnswer, Vote } from '../src/types/game.types.js';
 
 type Lang = 'fr' | 'en';
@@ -1124,6 +1125,31 @@ async function runGame(sc: Scenario): Promise<GameResult> {
     if (history.length !== endroundVotes.size || history.some((r) => JSON.stringify(r.votes) !== JSON.stringify(endroundVotes.get(r.round)))) {
       offend('reveal_wrong', `vote history (${history.length} rounds) differs from the votes shown at each round end (${endroundVotes.size})`);
     }
+    // The replay: every round, question, answer and line of the game, each author revealed like the players above,
+    // and the same to a client that comes back after the end.
+    const t = (gameoverPayload as { transcript?: Transcript }).transcript;
+    const roundAnswers = (rd: number): QuestionAnswer[] => (rd === s.currentRound ? s.answers : s.answersByRound?.[rd] ?? []);
+    const bad: string[] = [];
+    inc('transcripts');
+    if (!t) bad.push('no transcript');
+    else {
+      if (t.rounds.length !== s.currentRound) bad.push(`${t.rounds.length} rounds of ${s.currentRound}`);
+      for (const p of t.players) {
+        const live = s.players.find((x) => x.id === p.id);
+        const isBot = !!live && (live.type === 'ai' || (live.type === 'human' && live.socketId === ''));
+        if (p.isAI !== isBot || (isBot ? !labels.has(p.model ?? '') : 'model' in p)) bad.push(`${p.name} isAI=${p.isAI} model=${p.model}`);
+      }
+      for (const r of t.rounds) {
+        if (r.question !== questions[r.round - 1]) bad.push(`r${r.round} question`);
+        const lines = s.messages.filter((x) => x.round === r.round && x.playerId !== 'system').map((x) => [x.id, x.playerId, x.content]);
+        if (JSON.stringify(r.messages.map((x) => [x.id, x.playerId, x.text])) !== JSON.stringify(lines)) bad.push(`r${r.round} lines`);
+        const answers = roundAnswers(r.round);
+        if (r.answers.length !== answers.length || r.answers.some((a) => !answers.some((x) => x.playerId === a.playerId && x.answer === a.text))) bad.push(`r${r.round} answers`);
+      }
+      if (JSON.stringify((room.publicState() as { transcript?: unknown }).transcript ?? null) !== JSON.stringify(t)) bad.push('differs on resume');
+    }
+    if (bad.length > 0) offend('transcript', bad.join(', '));
+    else inc('transcripts_ok');
   }
   inc(aborted ? 'games_aborted' : 'games_completed');
   if (emitsAfterEnd > 0) offend('emits_after_end', `${emitsAfterEnd} state emits after ${aborted ? 'abort' : 'game over'}`);
@@ -1773,6 +1799,12 @@ function report(results: GameResult[], elapsed: number, games: number, probe: Fl
       value: `${sum('reveal_early')} leaks over ${['waiting', 'question', 'discussion', 'voting', 'endround'].map((ph) => `${ph} ${sum(`reveal_checked:${ph}`)}`).join(', ')} states; game over reveals ${sum('reveal_ok')}/${sum('reveal_players')} players right`,
       ok: sum('reveal_early') + sum('reveal_wrong') === 0 && sum('reveal_players') > 0 && sum('reveal_checked:discussion') > 0,
       keys: ['reveal_early', 'reveal_wrong'],
+    },
+    {
+      name: 'game over replay: every round, answer and line, authors revealed',
+      value: `${sum('transcripts_ok')}/${sum('transcripts')} games complete, the same on resume`,
+      ok: sum('transcript') === 0 && sum('transcripts') > 0,
+      keys: ['transcript'],
     },
     {
       name: 'dropped human looks like an AI (same entry, no emit, vote target)',
