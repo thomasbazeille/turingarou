@@ -42,6 +42,7 @@ import {
   VOTE_DEADLINE_MS,
 } from './BotDirector.js';
 import { RoundRecord } from './botContext.js';
+import { buildTranscript, flagResults, PlayerReview, scoreVotes, shareText, Transcript } from './gameReview.js';
 import { Clock, systemClock, TimerHandle, Timers } from './clock.js';
 
 /** The part of Socket.io a room uses: broadcast to its own channel. */
@@ -215,6 +216,9 @@ export class GameRoom {
   private eliminationsByRound = new Map<number, { name: string; isAI: boolean }>();
   private questionsByRound = new Map<number, string>();
   private eliminationOrder: string[] = [];
+  /** Lines each human flagged, by player id: never shown to anyone before the game over, then only to its author. */
+  private flagsBy = new Map<string, string[]>();
+  private startedAt = 0;
   /**
    * Votes of the finished round as every browser sees them: one entry per player who could vote, in seat order (never
    * in casting order), a missing vote shown as an abstention. Bots always vote by the deadline, so a missing vote or
@@ -674,6 +678,7 @@ export class GameRoom {
 
   private startGame(): void {
     this.starting = false;
+    this.startedAt = this.now();
     this.eliminationOrder = [];
     this.beginQuestion(1);
   }
@@ -806,6 +811,7 @@ export class GameRoom {
     for (const session of this.sessions.values()) session.timer = null;
     this.director.dispose();
     this.emitState();
+    this.emitReviews();
     this.persistGameLog();
     this.logTelemetry(this.state.gameOverReason);
   }
@@ -965,7 +971,7 @@ export class GameRoom {
     if (!player || player.isEliminated) return;
     this.state.answers = this.state.answers.filter((a) => a.playerId !== playerId);
     this.state.answers.push({ playerId, playerName: player.username, answer, timestamp: this.now() });
-    this.emitState();
+    // No broadcast: a state sent now would say that someone answered at this instant. The author gets answerOf.
 
     // Everyone answered: discussion starts now, or at QUESTION_MIN_MS if that is later. A bot that skips keeps the
     // phase open like a silent human would, otherwise an early close with one missing answer would point at a bot.
@@ -1016,6 +1022,21 @@ export class GameRoom {
     this.feedbackSends.set(playerId, sends + 1);
     void this.deps.persistence.saveGameFeedback(this.state.roomId, this.nameOf(playerId), feedback);
     return true;
+  }
+
+  /** This player's own answer of the round, for their client only (never broadcast before the question ends). */
+  answerOf(playerId: string): { round: number; answer: string } | null {
+    const own = this.state.answers.find((a) => a.playerId === playerId);
+    return own ? { round: this.state.currentRound, answer: own.answer } : null;
+  }
+
+  /** Answers as browsers see them once the question is over: in seat order, without the time each one came in. */
+  private shownAnswers(answers: QuestionAnswer[]): Omit<QuestionAnswer, 'timestamp'>[] {
+    const byPlayer = new Map(answers.map((a) => [a.playerId, a]));
+    return this.state.players.flatMap((p) => {
+      const a = byPlayer.get(p.id);
+      return a ? [{ playerId: a.playerId, playerName: a.playerName, answer: a.answer }] : [];
+    });
   }
 
   /** This player's own vote of the round, for their client only (never broadcast before the round end). */
@@ -1080,7 +1101,10 @@ export class GameRoom {
     const player = this.state.players.find((p) => p.id === playerId);
     if (!player || player.type !== 'human' || player.isEliminated) return;
     const message = this.state.messages.find((m) => m.id === messageId);
-    if (!message || message.playerId === playerId) return;
+    if (!message || message.playerId === playerId || message.playerId === 'system') return;
+    const own = this.flagsBy.get(playerId) ?? [];
+    if (own.includes(messageId)) return;
+    this.flagsBy.set(playerId, [...own, messageId]);
     void this.deps.persistence.saveMessageFlag(this.state.roomId, messageId, player.username, message.round, reason);
   }
 
@@ -1141,6 +1165,39 @@ export class GameRoom {
     return bot ? { isAI: true, model: modelLabel(bot.providerName) } : { isAI: false };
   }
 
+  /** What this human gets at the game over, for their client only; null before it, and for any other seat. */
+  reviewOf(playerId: string): PlayerReview | null {
+    if (this.state.phase !== 'gameover' || !this.sessions.has(playerId)) return null;
+    const isAI = (id: string) => this.revealOf(id).isAI;
+    const score = scoreVotes(playerId, this.voteHistory, isAI);
+    return {
+      gameKey: `${this.state.roomId}-${this.startedAt}`,
+      score,
+      share: shareText(score, this.state.language ?? 'fr'),
+      flags: flagResults(this.flagsBy.get(playerId) ?? [], this.state.messages, isAI),
+    };
+  }
+
+  /** Each connected human gets their own review on their own socket; one away gets it when they resume. */
+  private emitReviews(): void {
+    for (const p of this.state.players) {
+      if (p.type !== 'human' || !p.socketId || !this.sessions.get(p.id)?.connected) continue;
+      this.io.to(p.socketId).emit('myReview', this.reviewOf(p.id));
+    }
+  }
+
+  /** Every round of a finished game with each author revealed, for the replay (game over only). */
+  private transcript(): Transcript {
+    return buildTranscript({
+      players: this.state.players.map((p) => ({ id: p.id, name: p.username, color: p.color, ...this.revealOf(p.id) })),
+      rounds: this.state.currentRound,
+      question: (rd) => this.questionsByRound.get(rd) ?? '',
+      answers: (rd) => (rd === this.state.currentRound ? this.state.answers : this.state.answersByRound?.[rd] ?? []),
+      messages: this.state.messages,
+      eliminatedId: (rd) => this.voteHistory.find((r) => r.round === rd)?.eliminatedId ?? null,
+    });
+  }
+
   /** Never reveals who is an AI to the clients before the game is over. */
   private sanitizeState(): Record<string, unknown> {
     const over = this.state.phase === 'gameover';
@@ -1157,6 +1214,13 @@ export class GameRoom {
       })),
       eliminationOrder: [...this.eliminationOrder],
     };
+    // Answers stay hidden until the question ends (each author gets their own through answerOf), then show in seat
+    // order without their time: who answered, when or in what order would point at the bots.
+    const answered = ['discussion', 'voting', 'endround', 'gameover'].includes(this.state.phase);
+    out.answers = answered ? this.shownAnswers(this.state.answers) : [];
+    if (this.state.answersByRound) {
+      out.answersByRound = Object.fromEntries(Object.entries(this.state.answersByRound).map(([rd, list]) => [rd, this.shownAnswers(list)]));
+    }
     // Votes stay hidden until the round end: each player gets their own through voteOf, everyone an anonymous count.
     out.votes = this.state.phase === 'endround' || over ? [...this.revealedVotes] : [];
     if (this.state.phase === 'voting') out.voteCount = this.state.votes.length;
@@ -1168,6 +1232,7 @@ export class GameRoom {
     if (over) {
       out.gameOverReason = this.state.gameOverReason ?? null;
       out.voteHistory = this.voteHistory.map((r) => ({ ...r, votes: [...r.votes] }));
+      out.transcript = this.transcript();
     }
     out.language = this.state.language ?? 'fr';
     return out;

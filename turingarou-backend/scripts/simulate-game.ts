@@ -33,6 +33,7 @@ import { isTextureQuestion } from '../src/game/QuestionBank.js';
 import { getInspectorPromptContent, getRandomAIPlayerStrategy } from '../src/game/StrategyLoader.js';
 import type { GameLogData, LineInputLog } from '../src/game/GameLogger.js';
 import { msPerChar, parseConsent, parseFeedback, parseTyping, VOTE_REASONS, type LineInput, type VoteReason } from '../src/game/measures.js';
+import type { PlayerReview, Transcript } from '../src/game/gameReview.js';
 import type { GameMessage, GameRoomState, QuestionAnswer, Vote } from '../src/types/game.types.js';
 
 type Lang = 'fr' | 'en';
@@ -574,6 +575,8 @@ async function runGame(sc: Scenario): Promise<GameResult> {
   const id = `${sc.lang}-s${sc.seed}-${sc.tempo}${sc.humans !== 5 && !sc.inspector ? `-h${sc.humans}` : ''}${sc.inspector ? '-insp' : ''}${sc.drops ? `-${sc.drops}` : ''}${sc.rematchOf ? '-rematch' : ''}${sc.aiScale ? `-ai${sc.aiScale(sc.humans)}` : ''}${sc.skill ? `-skill${sc.skill}` : ''}`;
   const roomRng = makeSeededRng(sc.seed * 1000 + (sc.lang === 'en' ? 1 : 0));
   const simRng = makeSeededRng(sc.seed * 7919 + (sc.lang === 'en' ? 17 : 3));
+  // Flags draw from their own stream: flagging changes no other draw of the game.
+  const flagRng = makeSeededRng(sc.seed * 104729 + (sc.lang === 'en' ? 7 : 1));
   const clock = new VirtualClock(1_800_000_000_000);
   const pick = <T,>(xs: T[]): T => xs[Math.floor(simRng() * xs.length)];
   const m: Counters = {};
@@ -638,6 +641,9 @@ async function runGame(sc: Scenario): Promise<GameResult> {
   const sentInputs: LineInputLog[] = [];
   const sentFeedback: { name: string; rating: number; clue: string | null }[] = [];
   const savedFeedback: { gameId: string; name: string; rating: number; clue: string | null }[] = [];
+  /** Lines each fake human flagged and the room had to keep, in order; and every review the room sent anywhere. */
+  const flagsOf = new Map<string, string[]>();
+  const reviews: { target: string; payload: unknown; afterEnd: boolean }[] = [];
   const publicEntry = (pl: Record<string, unknown>) => JSON.stringify(PUBLIC_PLAYER_KEYS.filter((k) => k !== 'isEliminated').map((k) => pl[k]));
   /** Calls the room and says whether a state went out to the browsers meanwhile. */
   const emitsDuring = (fn: () => void): number => {
@@ -856,6 +862,16 @@ async function runGame(sc: Scenario): Promise<GameResult> {
         if (sc.drops === 'one-back') clock.setTimeout(() => comeBack(h), 50000);
       }
     } else if (phase === 'voting') {
+      // Some humans flag lines of the round: others' lines are kept once each, their own never.
+      for (const h of present) {
+        const lines = state().messages.filter((x) => x.round === round && x.playerId !== 'system');
+        for (const line of lines) {
+          if (flagRng() >= 0.12) continue;
+          room.flagMessage(h.id, line.id);
+          const own = flagsOf.get(h.id) ?? [];
+          if (line.playerId !== h.id && !own.includes(line.id)) flagsOf.set(h.id, [...own, line.id]);
+        }
+      }
       // A seat whose grace ran out can still be voted against.
       const gone = humans.find((h) => !h.connected && isActive(h.id) && (goneSince(h) ?? Infinity) + RECONNECT_GRACE_MS <= clock.now());
       present.forEach((h, idx) => {
@@ -915,6 +931,10 @@ async function runGame(sc: Scenario): Promise<GameResult> {
     to: (target: string) => ({
       emit: (event: string, payload: unknown) => {
         checkCollected(event, target, payload);
+        if (event === 'myReview') {
+          reviews.push({ target, payload: JSON.parse(JSON.stringify(payload ?? null)), afterEnd: finished });
+          return true;
+        }
         if (event !== 'gameState') return true;
         if (target !== `sim-${id}`) {
           if (!finished) checkLobbyPayload(target, JSON.parse(JSON.stringify(payload)));
@@ -956,6 +976,27 @@ async function runGame(sc: Scenario): Promise<GameResult> {
           if (json.includes('"voterId"')) offend('votes_visible', `${p.phase} r${p.currentRound}: a voter id is in the state`);
           const count = (p as { voteCount?: unknown }).voteCount;
           if (p.phase === 'voting' ? count !== state().votes.length : count !== undefined) offend('votes_visible', `${p.phase} r${p.currentRound}: voteCount ${String(count)} (room has ${state().votes.length})`);
+        }
+        // Before the question ends, no browser learns who answered, what, or when: no answer in any state, and no state
+        // at all between the question's start and its end. Then every answer shows in seat order, without its time.
+        const prevPhase = phases[phases.length - 1];
+        const shownAnswers = (p as { answers?: Record<string, unknown>[] }).answers ?? [];
+        if (p.phase === 'question') {
+          inc('answers_hidden_checked');
+          if (shownAnswers.length > 0) offend('answers_visible', `question r${p.currentRound}: ${shownAnswers.length} answer(s) in the state, by ${shownAnswers.map((a) => String(a.playerName)).join(', ')}`);
+          if (prevPhase?.phase === 'question' && prevPhase.round === p.currentRound) offend('answers_visible', `question r${p.currentRound}: state broadcast ${((clock.now() - prevPhase.t) / 1000).toFixed(1)} s into the phase`);
+        } else if (p.phase === 'discussion' && !(prevPhase?.phase === 'discussion' && prevPhase.round === p.currentRound)) {
+          inc('answer_reveals');
+          const lists = [shownAnswers, ...Object.values((p as { answersByRound?: Record<string, Record<string, unknown>[]> }).answersByRound ?? {})];
+          const bad = lists.flatMap((list) => {
+            const order = list.map((a) => String(a.playerId));
+            const seatOrder = p.players.map((pl) => String(pl.id)).filter((pid) => order.includes(pid));
+            const extra = [...new Set(list.flatMap((a) => Object.keys(a).filter((k) => !['playerId', 'playerName', 'answer'].includes(k))))];
+            return [...(JSON.stringify(order) !== JSON.stringify(seatOrder) ? ['not in seat order'] : []), ...(extra.length ? [`carries [${extra.join(',')}]`] : [])];
+          });
+          if (shownAnswers.length !== state().answers.length) bad.push(`${shownAnswers.length} shown of ${state().answers.length}`);
+          if (bad.length) offend('answer_reveal', `r${p.currentRound} answers revealed ${[...new Set(bad)].join(', ')}`);
+          else inc('answer_reveals_ok');
         }
         const names = p.players.map((pl) => String(pl.username).toLowerCase());
         for (const msg of (p as { messages?: GameMessage[] }).messages ?? []) {
@@ -1200,6 +1241,31 @@ async function runGame(sc: Scenario): Promise<GameResult> {
     if (history.length !== endroundVotes.size || history.some((r) => JSON.stringify(r.votes) !== JSON.stringify(endroundVotes.get(r.round)))) {
       offend('reveal_wrong', `vote history (${history.length} rounds) differs from the votes shown at each round end (${endroundVotes.size})`);
     }
+    // The replay: every round, question, answer and line of the game, each author revealed like the players above,
+    // and the same to a client that comes back after the end.
+    const t = (gameoverPayload as { transcript?: Transcript }).transcript;
+    const roundAnswers = (rd: number): QuestionAnswer[] => (rd === s.currentRound ? s.answers : s.answersByRound?.[rd] ?? []);
+    const bad: string[] = [];
+    inc('transcripts');
+    if (!t) bad.push('no transcript');
+    else {
+      if (t.rounds.length !== s.currentRound) bad.push(`${t.rounds.length} rounds of ${s.currentRound}`);
+      for (const p of t.players) {
+        const live = s.players.find((x) => x.id === p.id);
+        const isBot = !!live && (live.type === 'ai' || (live.type === 'human' && live.socketId === ''));
+        if (p.isAI !== isBot || (isBot ? !labels.has(p.model ?? '') : 'model' in p)) bad.push(`${p.name} isAI=${p.isAI} model=${p.model}`);
+      }
+      for (const r of t.rounds) {
+        if (r.question !== questions[r.round - 1]) bad.push(`r${r.round} question`);
+        const lines = s.messages.filter((x) => x.round === r.round && x.playerId !== 'system').map((x) => [x.id, x.playerId, x.content]);
+        if (JSON.stringify(r.messages.map((x) => [x.id, x.playerId, x.text])) !== JSON.stringify(lines)) bad.push(`r${r.round} lines`);
+        const answers = roundAnswers(r.round);
+        if (r.answers.length !== answers.length || r.answers.some((a) => !answers.some((x) => x.playerId === a.playerId && x.answer === a.text))) bad.push(`r${r.round} answers`);
+      }
+      if (JSON.stringify((room.publicState() as { transcript?: unknown }).transcript ?? null) !== JSON.stringify(t)) bad.push('differs on resume');
+    }
+    if (bad.length > 0) offend('transcript', bad.join(', '));
+    else inc('transcripts_ok');
   }
   inc(aborted ? 'games_aborted' : 'games_completed');
   if (emitsAfterEnd > 0) offend('emits_after_end', `${emitsAfterEnd} state emits after ${aborted ? 'abort' : 'game over'}`);
@@ -1550,6 +1616,51 @@ async function runGame(sc: Scenario): Promise<GameResult> {
       offend('end_coherent', `game over "${s.gameOverReason}" with ${ais} AIs, ${realHumans} humans, ${active.length} players at r${s.currentRound}`);
     }
   }
+  // Each human's own review: on their own socket only, after the game over, with their score (recomputed here from
+  // the votes shown at each round end) and their flags with the truth about each author. Every human connected at the
+  // end gets exactly one; an aborted game sends none.
+  for (const r of reviews) {
+    inc('reviews');
+    const h = humans.find((x) => x.socketId === r.target && room.playerIdBySocket(r.target) === x.id);
+    const review = r.payload as PlayerReview | null;
+    const bad: string[] = [];
+    if (!h) bad.push(`sent to ${r.target}, not a human's socket`);
+    if (!r.afterEnd || aborted) bad.push('sent before the game over');
+    if (!review) bad.push('empty');
+    else {
+      const expected = h ? flagsOf.get(h.id) ?? [] : [];
+      if (JSON.stringify(review.flags.map((f) => f.messageId)) !== JSON.stringify(expected)) bad.push(`flags [${review.flags.map((f) => f.messageId).join(',')}], flagged [${expected.join(',')}]`);
+      const rounds = h
+        ? [...endroundVotes.entries()].sort((a, b) => a[0] - b[0]).flatMap(([rd, votes]) => {
+            const own = votes.find((v) => v.voterId === h.id);
+            return own ? [{ round: rd, outcome: own.targetId === null ? 'abstain' : botIds.has(own.targetId) ? 'ai' : 'human', out: eliminatedIn.get(rd) === h.id }] : [];
+          })
+        : [];
+      const aiFound = rounds.filter((r) => r.outcome === 'ai').length;
+      const falseAccusations = rounds.filter((r) => r.outcome === 'human').length;
+      inc('scores_checked');
+      inc('score_ai_found', review.score.aiFound);
+      inc('score_false_accusations', review.score.falseAccusations);
+      if (JSON.stringify(review.score) !== JSON.stringify({ aiFound, falseAccusations, rounds })) bad.push(`score ${JSON.stringify(review.score)}, votes say ${aiFound} AIs found, ${falseAccusations} false over ${rounds.length} rounds`);
+      // The text to share spoils nothing: no name of the game, no model, no room; one line per round played.
+      inc('shares_checked');
+      const spoilers = [...s.players.map((p) => p.username), ...PROFILES.map((pr) => modelLabel(pr.name)), s.roomId].filter((w) => new RegExp(`(^|[^\\p{L}])${w}($|[^\\p{L}])`, 'iu').test(review.share));
+      if (spoilers.length > 0 || review.share.split('\n').length !== 1 + rounds.length) bad.push(`share text "${review.share}" carries [${spoilers.join(',')}]`);
+      for (const f of review.flags) {
+        inc('flags_checked');
+        const line = s.messages.find((x) => x.id === f.messageId);
+        if (!line || f.authorId !== line.playerId || f.authorName !== line.playerName || f.isAI !== botIds.has(line.playerId)) bad.push(`flag ${f.messageId} says ${f.authorName} isAI=${f.isAI}`);
+      }
+    }
+    if (bad.length > 0) offend('review', `${h?.name ?? r.target}: ${bad.join(', ')}`);
+    else inc('reviews_ok');
+  }
+  if (!aborted && s.phase === 'gameover') {
+    for (const h of humans.filter((x) => x.connected)) {
+      const n = reviews.filter((r) => r.target === h.socketId).length;
+      if (n !== 1) offend('review', `${h.name} connected at the end got ${n} reviews`);
+    }
+  }
   const handoff: Previous | null =
     !aborted && s.phase === 'gameover'
       ? {
@@ -1850,6 +1961,12 @@ function report(results: GameResult[], elapsed: number, games: number, probe: Fl
       keys: ['votes_visible', 'vote_reveal'],
     },
     {
+      name: 'no answer nor answerer visible before the question ends',
+      value: `${sum('answers_visible')} leaks over ${sum('answers_hidden_checked')} question states; then seat order, no time ${sum('answer_reveals_ok')}/${sum('answer_reveals')} rounds`,
+      ok: sum('answers_visible') + sum('answer_reveal') === 0 && sum('answers_hidden_checked') > 0 && sum('answer_reveals') > 0,
+      keys: ['answers_visible', 'answer_reveal'],
+    },
+    {
       name: 'abstention: bots and humans, a vote rendered, eliminates nobody',
       value: `bots ${sum('bot_abstentions')}/${sum('bot_votes_rendered')} (target ${(BOT_ABSTAIN_PROB * 100).toFixed(0)} %), humans ${sum('human_abstentions')}/${sum('human_votes_rendered')}; early closes with an abstention ${sum('closed_early_with_abstention')}; outcomes recomputed wrong ${sum('vote_count_wrong')}`,
       ok: sum('bot_abstentions') > 0 && sum('human_abstentions') > 0 && sum('closed_early_with_abstention') > 0 && sum('vote_count_wrong') === 0,
@@ -1873,6 +1990,18 @@ function report(results: GameResult[], elapsed: number, games: number, probe: Fl
       value: `${sum('reveal_early')} leaks over ${['waiting', 'question', 'discussion', 'voting', 'endround'].map((ph) => `${ph} ${sum(`reveal_checked:${ph}`)}`).join(', ')} states; game over reveals ${sum('reveal_ok')}/${sum('reveal_players')} players right`,
       ok: sum('reveal_early') + sum('reveal_wrong') === 0 && sum('reveal_players') > 0 && sum('reveal_checked:discussion') > 0,
       keys: ['reveal_early', 'reveal_wrong'],
+    },
+    {
+      name: 'game over replay: every round, answer and line, authors revealed',
+      value: `${sum('transcripts_ok')}/${sum('transcripts')} games complete, the same on resume`,
+      ok: sum('transcript') === 0 && sum('transcripts') > 0,
+      keys: ['transcript'],
+    },
+    {
+      name: "each human's review (score, share, flags) on their own socket only, after the end",
+      value: `${sum('reviews_ok')}/${sum('reviews')} reviews right; scores ${sum('scores_checked')} (AIs found ${sum('score_ai_found')}, false accusations ${sum('score_false_accusations')}); share texts without spoiler ${sum('shares_checked')}; ${sum('flags_checked')} flags`,
+      ok: sum('review') === 0 && sum('reviews') > 0 && sum('flags_checked') > 0 && sum('score_ai_found') > 0 && sum('score_false_accusations') > 0 && sum('shares_checked') === sum('reviews'),
+      keys: ['review'],
     },
     {
       name: 'dropped human looks like an AI (same entry, no emit, vote target)',
