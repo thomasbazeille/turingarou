@@ -34,7 +34,8 @@
     .player-card { background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 7px; padding: 10px; text-align: center; min-height: 75px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; }
     .player-card.local { border-color: #06b6d4; box-shadow: 0 0 12px rgba(6,182,212,0.3); }
     .player-card.empty { opacity: 0.3; border-style: dashed; }
-    .player-avatar-waiting { width: 42px; height: 42px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: bold; color: #fff; }
+    .player-avatar-waiting,.status-avatar,.avatar-circle,.reveal-avatar,.immune-avatar,.sc-avatar { border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #fff; }
+    .player-avatar-waiting { width: 42px; height: 42px; font-size: 20px; }
     .player-name-waiting { color: #e2e8f0; font-size: 12px; font-weight: 500; }
     .start-btn { background: #06b6d4; color: #000; border: none; padding: 11px 35px; font-size: 15px; font-weight: bold; border-radius: 7px; cursor: pointer; transition: all 0.3s; text-transform: uppercase; }
     .start-btn:hover:not(:disabled) { background: #0891b2; box-shadow: 0 0 25px rgba(6,182,212,0.6); }
@@ -53,7 +54,7 @@
     .players-status-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; max-width: 700px; width: 100%; }
     .player-status-card { background: rgba(24,24,27,0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 7px; padding: 10px; display: flex; align-items: center; gap: 9px; }
     .player-status-card.answered { border-color: rgba(6,182,212,0.3); }
-    .status-avatar { width: 35px; height: 35px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: bold; color: #fff; flex-shrink: 0; }
+    .status-avatar { width: 35px; height: 35px; font-size: 16px; flex-shrink: 0; }
     .status-avatar.waiting { opacity: 0.3; }
     .status-check { width: 16px; height: 16px; background: rgba(34,197,94,0.2); border: 1px solid #22c55e; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; color: #22c55e; }
 
@@ -78,16 +79,13 @@
     /* Player avatar col */
     .player-avatar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; position: relative; }
     .player-username { color: #fbbf24; font-size: 10px; font-weight: 500; }
-    .avatar-circle { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: bold; color: #fff; position: relative; }
+    .avatar-circle { width: 36px; height: 36px; font-size: 16px; position: relative; }
     .heart-icon { font-size: 12px; cursor: pointer; opacity: 0.3; transition: opacity 0.2s; }
     .heart-icon:hover { opacity: 1; }
     .heart-icon.filled { opacity: 1; }
     /* Messages */
     .messages-container { flex: 1; background: #000; padding: 10px 130px 0 40px; overflow-y: scroll !important; overflow-x: hidden; position: relative; }
     .messages-container::-webkit-scrollbar { width: 8px; }
-    .messages-container::-webkit-scrollbar-track { background: rgba(30,30,30,0.8); border-radius: 5px; }
-    .messages-container::-webkit-scrollbar-thumb { background: rgba(6,182,212,0.6); border-radius: 5px; border: 2px solid rgba(0,0,0,0.3); }
-    .messages-container::-webkit-scrollbar-thumb:hover { background: rgba(6,182,212,0.8); }
     .messages-columns { display: flex; gap: 5px; position: relative; min-height: 100%; }
     .player-column { flex: 1; position: relative; min-width: 0; }
     .player-column.local-col { z-index: 2; }
@@ -120,7 +118,6 @@
     .voice-status { font-size: 10px; color: #f59e0b; text-align: right; }
     /* Vote UI (inside local-input-cell during voting phase) */
     .vote-label { color: #ef4444; font-size: 10px; font-weight: 700; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 1px; }
-    .vote-select { width: 100%; background: #18181b; border: 1px solid rgba(239,68,68,0.5); color: #fff; padding: 7px; border-radius: 5px; margin-bottom: 6px; cursor: pointer; font-size: 11px; }
     .vote-btn { width: 100%; background: #ef4444; color: #fff; border: none; padding: 10px; border-radius: 5px; font-weight: bold; cursor: pointer; font-size: 11px; transition: all 0.2s; letter-spacing: 1px; min-height: 36px; }
     .vote-btn:hover:not(:disabled) { background: #dc2626; }
     .vote-btn:disabled { background: #3f3f46; cursor: not-allowed; }
@@ -141,14 +138,6 @@
     .eliminated-spectator-bar p { color: #94a3b8; font-size: 11px; }
     .return-home-btn { background: rgba(6,182,212,0.15); border: 1px solid #06b6d4; color: #22d3ee; padding: 6px 14px; border-radius: 5px; font-weight: bold; cursor: pointer; font-size: 11px; transition: all 0.2s; }
     .return-home-btn:hover { background: rgba(6,182,212,0.25); }
-    /* heart shape */
-    .heart-shape { width: 36px; height: 36px; position: relative; display: flex; align-items: center; justify-content: center; }
-    .heart-shape svg { width: 36px; height: 36px; filter: drop-shadow(0 0 6px rgba(255,215,0,0.4)); }
-    .heart-shape-text { position: absolute; font-size: 14px; font-weight: bold; color: #fff; z-index: 10; margin-top: -2px; }
-    .avatar-tooltip { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); background: rgba(39,39,42,0.95); border: 1px solid rgba(6,182,212,0.5); border-radius: 4px; padding: 4px 7px; font-size: 9px; color: #fbbf24; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity 0.2s; z-index: 1000; }
-    .player-avatar-col:hover .avatar-tooltip { opacity: 1; }
-    .vote-history-overlay { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 4px; background: rgba(0,0,0,0.92); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 4px 6px; z-index: 1000; white-space: nowrap; pointer-events: none; }
-    .vote-history-item { font-size: 8px; color: rgba(255,255,255,0.6); font-style: italic; line-height: 1.3; }
     .end-screen-history-wrap { margin-top: 24px; padding: 12px; background: rgba(0,0,0,0.4); border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); max-height: 280px; display: flex; flex-direction: column; }
     .end-screen-history-title { color: #94a3b8; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
     .end-screen-history-scroll { overflow-y: auto; flex: 1; font-size: 12px; line-height: 1.5; }
@@ -160,16 +149,13 @@
     .heart-shape-text { position: absolute; font-size: 16px; font-weight: bold; color: #fff; z-index: 10; margin-top: -2px; }
     .avatar-tooltip { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); background: rgba(39,39,42,0.95); border: 1px solid rgba(6,182,212,0.5); border-radius: 4px; padding: 5px 8px; font-size: 9px; color: #fbbf24; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity 0.2s; z-index: 1000; box-shadow: 0 4px 9px rgba(0,0,0,0.8); }
     .player-avatar-col:hover .avatar-tooltip { opacity: 1; }
-    .vote-history-overlay { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 5px; background: rgba(0,0,0,0.9); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 4px 6px; box-shadow: 0 4px 7px rgba(0,0,0,0.5); z-index: 1000; white-space: nowrap; pointer-events: none; }
-    .vote-history-item { font-size: 8px; color: rgba(255,255,255,0.6); font-style: italic; line-height: 1.3; margin-bottom: 1px; }
-    .vote-history-item:last-child { margin-bottom: 0; }
     /* Reveal at game over */
     .reveal-wrap { max-width: 760px; width: calc(100% - 30px); margin: 0 auto 6px; }
     .reveal-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
     .reveal-card { background: rgba(15,23,42,0.8); border: 1px solid rgba(255,255,255,0.1); border-radius: 7px; padding: 10px 6px; display: flex; flex-direction: column; align-items: center; gap: 3px; text-align: center; opacity: 0; animation: revealIn 0.5s ease-out forwards; }
     .reveal-card.ai { border-color: rgba(239,68,68,0.6); box-shadow: 0 0 14px rgba(239,68,68,0.25); }
     .reveal-card.human { border-color: rgba(34,197,94,0.45); }
-    .reveal-avatar { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: bold; color: #fff; }
+    .reveal-avatar { width: 34px; height: 34px; font-size: 15px; }
     .reveal-card.out .reveal-avatar { filter: saturate(0.4); opacity: 0.7; }
     .reveal-name { color: #e2e8f0; font-size: 12px; font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .reveal-kind { font-family: monospace; font-size: 11px; font-weight: bold; letter-spacing: 1.5px; }
@@ -264,7 +250,7 @@
     .voted-by-text { color: #71717a; font-size: 12px; text-align: center; margin-bottom: 6px; }
     .immunity-badge { position: absolute; bottom: 60px; right: 40px; background: linear-gradient(135deg, rgba(217,119,6,0.4), rgba(161,98,7,0.2)); backdrop-filter: blur(10px); border: 2px solid rgba(251,191,36,0.5); border-radius: 9px; padding: 16px 20px; display: flex; align-items: center; gap: 12px; box-shadow: 0 0 30px rgba(251,191,36,0.5); }
     .immunity-label { color: #fbbf24; font-family: monospace; font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
-    .immune-avatar { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: bold; color: #fff; }
+    .immune-avatar { width: 36px; height: 36px; font-size: 18px; }
     .no-immunity { position: absolute; bottom: 60px; right: 40px; background: rgba(71,85,105,0.3); backdrop-filter: blur(10px); border: 2px solid rgba(100,116,139,0.4); border-radius: 9px; padding: 16px 20px; color: #94a3b8; font-size: 12px; font-style: italic; }
     .end-round-home-btn { position: absolute; top: 14px; right: 16px; background: rgba(71,85,105,0.25); border: 1px solid rgba(100,116,139,0.5); color: #94a3b8; padding: 6px 14px; border-radius: 5px; font-size: 11px; font-weight: bold; cursor: pointer; transition: all 0.2s; z-index: 10; }
     .end-round-home-btn:hover { background: rgba(71,85,105,0.45); color: #cbd5e1; }
@@ -273,7 +259,6 @@
     @media (hover: hover) { .next-round-btn:hover { transform: scale(1.05); } }
     .progress-bar { position: absolute; inset: 0; background: #22d3ee; width: 0%; transition: width 50ms linear; box-shadow: 0 0 12px rgba(34,211,238,0.8); }
     .next-round-text { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 12px; letter-spacing: 2px; z-index: 10; }
-    .animate-fade-in { animation: fadeIn 0.4s ease-out; }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes votepulse { from { opacity: 0.6; transform: scale(0.95); } to { opacity: 1; transform: scale(1.05); } }
 
@@ -321,8 +306,7 @@
       /* --- C4: font-size ≥ 16px on all inputs prevents iOS auto-zoom --- */
       .message-textarea,
       .setup-input,
-      .answer-input,
-      .vote-select { font-size: 16px !important; }
+      .answer-input { font-size: 16px !important; }
 
       /* --- C5: immunity badge in normal flow on small screens --- */
       .immunity-badge,
@@ -338,7 +322,6 @@
       .send-btn      { padding: 10px 16px; font-size: 13px; }
       .heart-icon    { padding: 6px; }
       .vote-btn      { padding: 12px; font-size: 14px; }
-      .vote-select   { padding: 10px 8px; }
       .return-home-btn { padding: 10px 18px; font-size: 13px; }
 
       /* --- Clamp large text to prevent overflow at 320px --- */
@@ -415,13 +398,7 @@
     .sc-avatar {
       width: 24px;
       height: 24px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
       font-size: 11px;
-      font-weight: bold;
-      color: #fff;
       flex-shrink: 0;
       margin-top: 1px;
     }
@@ -520,73 +497,7 @@
   <!-- WAITING ROOM -->
   <div id="waiting-screen" class="screen active waiting-room">
     <!-- Menacing AI silhouette background -->
-    <div class="ai-silhouette" id="ai-silhouette" style="display:none;">
-      <svg viewBox="-40 0 480 610" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <filter id="eye-glow" x="-80%" y="-80%" width="260%" height="260%">
-            <feGaussianBlur stdDeviation="5" result="b"/>
-            <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
-          </filter>
-          <filter id="dot-glow" x="-200%" y="-200%" width="500%" height="500%">
-            <feGaussianBlur stdDeviation="3" result="b"/>
-            <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
-          </filter>
-        </defs>
-        <!-- Antenna -->
-        <rect x="195" y="8" width="10" height="48" rx="4" fill="#122238"/>
-        <circle cx="200" cy="6" r="11" fill="#122238"/>
-        <circle cx="200" cy="6" r="5" fill="#06b6d4" opacity="0.5" filter="url(#dot-glow)"/>
-        <!-- Head — angular hexagon -->
-        <path d="M126,56 L146,42 L254,42 L274,56 L284,78 L286,164 L275,177 L125,177 L114,164 L116,78 Z" fill="#122238"/>
-        <!-- Head side vents -->
-        <rect x="116" y="120" width="12" height="4" rx="1" fill="#0a1828" opacity="0.8"/>
-        <rect x="116" y="130" width="12" height="4" rx="1" fill="#0a1828" opacity="0.8"/>
-        <rect x="272" y="120" width="12" height="4" rx="1" fill="#0a1828" opacity="0.8"/>
-        <rect x="272" y="130" width="12" height="4" rx="1" fill="#0a1828" opacity="0.8"/>
-        <!-- Eyes — glowing red slits -->
-        <rect x="138" y="100" width="50" height="20" rx="5" fill="#ef4444" filter="url(#eye-glow)"/>
-        <rect x="212" y="100" width="50" height="20" rx="5" fill="#ef4444" filter="url(#eye-glow)"/>
-        <rect x="146" y="104" width="34" height="12" rx="3" fill="#fca5a5" opacity="0.55"/>
-        <rect x="220" y="104" width="34" height="12" rx="3" fill="#fca5a5" opacity="0.55"/>
-        <!-- Mouth grill -->
-        <rect x="162" y="148" width="76" height="4" rx="2" fill="#0a1828" opacity="0.9"/>
-        <rect x="166" y="156" width="68" height="4" rx="2" fill="#0a1828" opacity="0.9"/>
-        <!-- Neck -->
-        <path d="M162,177 L170,204 L230,204 L238,177 Z" fill="#122238"/>
-        <!-- Shoulders + torso -->
-        <path d="M42,210 L64,197 L162,197 L170,204 L230,204 L238,197 L336,197 L358,210 L380,234 L386,262 L378,342 L360,368 L262,380 L258,408 L142,408 L138,380 L40,368 L22,342 L14,262 L20,234 Z" fill="#122238"/>
-        <!-- Chest panel -->
-        <rect x="153" y="228" width="94" height="72" rx="6" fill="#0a1828"/>
-        <line x1="163" y1="244" x2="237" y2="244" stroke="#06b6d4" stroke-width="1" opacity="0.2"/>
-        <line x1="163" y1="256" x2="237" y2="256" stroke="#06b6d4" stroke-width="1" opacity="0.2"/>
-        <line x1="163" y1="268" x2="237" y2="268" stroke="#06b6d4" stroke-width="1" opacity="0.2"/>
-        <line x1="163" y1="280" x2="237" y2="280" stroke="#06b6d4" stroke-width="1" opacity="0.2"/>
-        <!-- Chest indicator dot -->
-        <circle cx="200" cy="220" r="5" fill="#ef4444" opacity="0.8" filter="url(#dot-glow)"/>
-        <!-- Left arm -->
-        <path d="M42,218 L10,242 L-22,328 L-30,402 L-10,420 L18,406 L32,328 L58,266 L76,236 Z" fill="#122238"/>
-        <!-- Left fingers -->
-        <line x1="-28" y1="400" x2="-50" y2="428" stroke="#122238" stroke-width="16" stroke-linecap="round"/>
-        <line x1="-10" y1="416" x2="-24" y2="446" stroke="#122238" stroke-width="14" stroke-linecap="round"/>
-        <line x1="10" y1="422" x2="4" y2="452" stroke="#122238" stroke-width="13" stroke-linecap="round"/>
-        <line x1="28" y1="418" x2="30" y2="448" stroke="#122238" stroke-width="12" stroke-linecap="round"/>
-        <!-- Right arm -->
-        <path d="M358,218 L390,242 L422,328 L430,402 L410,420 L382,406 L368,328 L342,266 L324,236 Z" fill="#122238"/>
-        <!-- Right fingers -->
-        <line x1="428" y1="400" x2="450" y2="428" stroke="#122238" stroke-width="16" stroke-linecap="round"/>
-        <line x1="410" y1="416" x2="424" y2="446" stroke="#122238" stroke-width="14" stroke-linecap="round"/>
-        <line x1="390" y1="422" x2="396" y2="452" stroke="#122238" stroke-width="13" stroke-linecap="round"/>
-        <line x1="372" y1="418" x2="370" y2="448" stroke="#122238" stroke-width="12" stroke-linecap="round"/>
-        <!-- Pelvis -->
-        <path d="M138,408 L126,440 L274,440 L262,408 Z" fill="#122238"/>
-        <!-- Legs -->
-        <rect x="128" y="440" width="66" height="145" rx="9" fill="#122238"/>
-        <rect x="206" y="440" width="66" height="145" rx="9" fill="#122238"/>
-        <!-- Feet -->
-        <path d="M110,572 L96,604 L212,604 L218,572 Z" fill="#122238"/>
-        <path d="M218,572 L214,604 L304,604 L292,572 Z" fill="#122238"/>
-      </svg>
-    </div>
+    <div class="ai-silhouette" id="ai-silhouette" style="display:none;"></div>
     <h1 class="waiting-title">Have you ever doubted<br>your own humanity?</h1>
     <p class="waiting-subtitle">A game of deception and detection</p>
     
@@ -734,62 +645,7 @@
     <canvas id="gears-canvas" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0;"></canvas>
     <canvas id="scale-canvas" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0;display:none;"></canvas>
     <div id="ai-win-bg">
-      <div id="ai-win-figure">
-        <svg viewBox="-40 0 480 610" xmlns="http://www.w3.org/2000/svg">
-          <defs>
-            <filter id="eye-glow-win" x="-80%" y="-80%" width="260%" height="260%">
-              <feGaussianBlur stdDeviation="6" result="b"/>
-              <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
-            </filter>
-          </defs>
-          <!-- Antenna -->
-          <rect x="195" y="8" width="10" height="48" rx="4" fill="#1a0808"/>
-          <circle cx="200" cy="6" r="11" fill="#1a0808"/>
-          <circle cx="200" cy="6" r="5" fill="#ef4444" opacity="0.7"/>
-          <!-- Head -->
-          <path d="M126,56 L146,42 L254,42 L274,56 L284,78 L286,164 L275,177 L125,177 L114,164 L116,78 Z" fill="#1a0808"/>
-          <rect x="116" y="120" width="12" height="4" rx="1" fill="#0d0404" opacity="0.8"/>
-          <rect x="116" y="130" width="12" height="4" rx="1" fill="#0d0404" opacity="0.8"/>
-          <rect x="272" y="120" width="12" height="4" rx="1" fill="#0d0404" opacity="0.8"/>
-          <rect x="272" y="130" width="12" height="4" rx="1" fill="#0d0404" opacity="0.8"/>
-          <!-- Eyes — triumphant glow -->
-          <rect class="eye-triumph" x="138" y="100" width="50" height="20" rx="5" fill="#ef4444" filter="url(#eye-glow-win)"/>
-          <rect class="eye-triumph" x="212" y="100" width="50" height="20" rx="5" fill="#ef4444" filter="url(#eye-glow-win)"/>
-          <rect x="146" y="104" width="34" height="12" rx="3" fill="#fca5a5" opacity="0.7"/>
-          <rect x="220" y="104" width="34" height="12" rx="3" fill="#fca5a5" opacity="0.7"/>
-          <!-- Mouth — smirk (asymmetric) -->
-          <path d="M162,152 Q190,162 238,150" stroke="#0d0404" stroke-width="4" fill="none" stroke-linecap="round"/>
-          <!-- Neck -->
-          <path d="M162,177 L170,204 L230,204 L238,177 Z" fill="#1a0808"/>
-          <!-- Torso — slightly hunched forward -->
-          <path d="M42,210 L64,197 L162,197 L170,204 L230,204 L238,197 L336,197 L358,210 L380,234 L386,262 L378,342 L360,368 L262,380 L258,408 L142,408 L138,380 L40,368 L22,342 L14,262 L20,234 Z" fill="#1a0808"/>
-          <!-- Chest panel -->
-          <rect x="153" y="228" width="94" height="72" rx="6" fill="#0d0404"/>
-          <line x1="163" y1="244" x2="237" y2="244" stroke="#ef4444" stroke-width="1" opacity="0.15"/>
-          <line x1="163" y1="256" x2="237" y2="256" stroke="#ef4444" stroke-width="1" opacity="0.15"/>
-          <line x1="163" y1="268" x2="237" y2="268" stroke="#ef4444" stroke-width="1" opacity="0.15"/>
-          <line x1="163" y1="280" x2="237" y2="280" stroke="#ef4444" stroke-width="1" opacity="0.15"/>
-          <circle cx="200" cy="220" r="5" fill="#ef4444" opacity="0.9"/>
-          <!-- Left arm — raised slightly in sly triumph -->
-          <path d="M42,218 L-10,200 L-40,280 L-30,370 L-8,388 L20,374 L28,290 L58,230 Z" fill="#1a0808"/>
-          <line x1="-28" y1="382" x2="-52" y2="408" stroke="#1a0808" stroke-width="16" stroke-linecap="round"/>
-          <line x1="-8" y1="394" x2="-22" y2="424" stroke="#1a0808" stroke-width="14" stroke-linecap="round"/>
-          <line x1="12" y1="400" x2="6" y2="430" stroke="#1a0808" stroke-width="13" stroke-linecap="round"/>
-          <line x1="28" y1="396" x2="30" y2="426" stroke="#1a0808" stroke-width="12" stroke-linecap="round"/>
-          <!-- Right arm — outstretched forward -->
-          <path d="M358,218 L430,180 L470,240 L450,300 L410,310 L368,280 L342,240 Z" fill="#1a0808"/>
-          <line x1="466" y1="242" x2="498" y2="258" stroke="#1a0808" stroke-width="16" stroke-linecap="round"/>
-          <line x1="452" y1="298" x2="476" y2="318" stroke="#1a0808" stroke-width="14" stroke-linecap="round"/>
-          <!-- Pelvis -->
-          <path d="M138,408 L126,440 L274,440 L262,408 Z" fill="#1a0808"/>
-          <!-- Legs -->
-          <rect x="128" y="440" width="66" height="145" rx="9" fill="#1a0808"/>
-          <rect x="206" y="440" width="66" height="145" rx="9" fill="#1a0808"/>
-          <!-- Feet -->
-          <path d="M110,572 L96,604 L212,604 L218,572 Z" fill="#1a0808"/>
-          <path d="M218,572 L214,604 L304,604 L292,572 Z" fill="#1a0808"/>
-        </svg>
-      </div>
+      <div id="ai-win-figure"></div>
     </div>
     <div style="position:relative;z-index:1;display:flex;flex-direction:column;flex:1;overflow:auto;">
       <div class="stats-bar">
@@ -829,10 +685,9 @@
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 
   <script>
-const COLORS=[{n:'Red',h:'#ef4444'},{n:'Orange',h:'#f97316'},{n:'Gold',h:'#eab308'},{n:'Silver',h:'#94a3b8'},{n:'Purple',h:'#a855f7'},{n:'Turquoise',h:'#06b6d4'},{n:'Pink',h:'#ec4899'},{n:'Lime',h:'#84cc16'},{n:'Indigo',h:'#6366f1'}];
 const T=8,A=3;  // 8 joueurs total (5 humains + 3 IA)
 const HUMAN_NEEDED=5;
-let G={s:'waiting',r:1,mr:7,t:100,qt:15,p:[],m:[],e:[],eliminationOrder:[],l:null,im:null,a:{},v:{},h:{},vh:{},sh:false,sa:null,ui:false,eliminatedAiCount:0,lang:'fr',currentQuestion:null,questions:{},questionEndTime:null,singleChat:false,flagged:new Set(),colOrder:null,myVote:null,myAnswer:null,review:null,voteSel:null,voteCount:0,replyTo:null,endSeq:null,endRoundEndTime:null};
+let G={s:'waiting',r:1,mr:7,p:[],m:[],e:[],eliminationOrder:[],l:null,im:null,a:{},v:{},h:{},ui:false,eliminatedAiCount:0,lang:'fr',currentQuestion:null,questions:{},questionEndTime:null,singleChat:false,flagged:new Set(),colOrder:null,myVote:null,myAnswer:null,review:null,voteSel:null,voteCount:0,replyTo:null,endSeq:null,endRoundEndTime:null};
 
 // === SOCKET.IO SETUP ===
 // Configuration automatique selon environnement
@@ -867,7 +722,6 @@ const socket = io(BACKEND_URL, {
 
 let playerId = null;
 let roomId = 'game-' + Math.random().toString(36).substr(2, 9);
-let isConnected = false;
 
 // Private room code of an invite link (?room=CODE): letters and digits, upper case.
 function roomCodeFromSearch(search) {
@@ -1045,7 +899,6 @@ document.addEventListener('visibilitychange', function () {
 // Indicateur visuel de connexion
 socket.on('connect', () => {
   console.log('✅ Connected to server');
-  isConnected = true;
   document.body.style.borderTop = '3px solid #22c55e';
   
   const btn = document.getElementById('start-btn');
@@ -1060,7 +913,6 @@ socket.on('connect', () => {
 
 socket.on('disconnect', () => {
   console.log('❌ Disconnected from server');
-  isConnected = false;
   document.body.style.borderTop = '3px solid #ef4444';
 });
 
@@ -1520,8 +1372,6 @@ function updateGameFromServer(state) {
     G.questions = G.questions || {};
     G.questions[state.currentRound] = state.currentQuestion;
   }
-  if (state.questionEndTime) G.questionEndTime = state.questionEndTime;
-  if (state.voteEndTime != null) G.voteEndTime = state.voteEndTime; else G.voteEndTime = null;
   G.endRoundEndTime = state.endRoundEndTime || null;
   G.voteCount = state.voteCount || 0;
   if (state.phase !== 'voting') G.voteSel = null;
@@ -1546,8 +1396,7 @@ function updateGameFromServer(state) {
     isAI: p.isAI === true,   // sent at game over only
     model: p.model || null,
     hasAnswered: hasAnsweredFor(p.id),
-    hasVoted: hasVotedFor(p.id),
-    votesAgainst: []
+    hasVoted: hasVotedFor(p.id)
   }));
   
   // Identifier le joueur local
@@ -1606,7 +1455,6 @@ function updateGameFromServer(state) {
         G.e = [];
         G.a = {};
         G.v = {};
-        G.vh = {};
         G.h = {};
         G.questions = {};
         G.answersByRound = {};
@@ -1737,6 +1585,8 @@ window.addEventListener('beforeunload', () => {
 
 
 function init(){
+document.getElementById('ai-silhouette').innerHTML=AI_CHARS[0].waiting;
+document.getElementById('ai-win-figure').innerHTML=AI_CHARS[0].win;
 document.getElementById('username-input').oninput=updateLocalPlayer;
 document.getElementById('username-input').onkeydown=function(e){if(e.key==='Enter'){e.preventDefault();startGame();}};
 document.getElementById('lang-select').onchange=function(){refreshHome();renderWaitingRoom();applyPhoneView(document.body.classList.contains('phone-view'));};
@@ -2141,7 +1991,6 @@ cell.innerHTML='<div class="vote-panel" id="vote-panel"></div>';
 // Mode message — textarea coloré avec la couleur du joueur
 const col=p.color||'#22d3ee';
 const borderCol=col;
-const bgCol=col.replace(/^#/,'');
 cell.innerHTML=
   '<div class="reply-bar" id="reply-bar" style="display:none;"></div>'
   +'<div style="display:flex;align-items:flex-end;gap:6px;">'
@@ -2256,86 +2105,6 @@ function lockAnswerFormEliminated(){
   if (btn) { btn.disabled = true; btn.textContent = G.lang === 'fr' ? 'ÉLIMINÉ·E' : 'ELIMINATED'; }
 }
 
-function startGameRound(){
-  renderGameScreen();
-  // Le timer est géré par le serveur via startTimerFromServer()
-  // Les messages IA sont gérés par le backend avec les LLM
-  setupScrollDetection();
-}
-
-function setupScrollDetection(){
-const container=document.getElementById('messages-container');
-container.addEventListener('scroll',function(){
-updateVisiblePlayersBasedOnScroll();
-});
-}
-
-function updateVisiblePlayersBasedOnScroll(){
-const container=document.getElementById('messages-container');
-const scrollTop=container.scrollTop;
-const containerHeight=container.clientHeight;
-const viewportCenter=scrollTop+(containerHeight/2);
-// Trouver les séparateurs de rounds
-const separators=Array.from(document.querySelectorAll('.round-separator'));
-if(separators.length===0){
-// Pas de séparateurs = round 1 ou round actuel
-updateHeaderAndColumnsForRound(G.r);
-return;
-}
-// Déterminer quel round est visible au centre du viewport
-let visibleRound=1; // Par défaut round 1
-for(let i=0;i<separators.length;i++){
-const sepTop=separators[i].offsetTop;
-if(viewportCenter>sepTop){
-// On est après ce séparateur, donc dans le round suivant
-visibleRound=i+2; // Le séparateur i correspond à la fin du round i+1
-}
-}
-// Si on est tout en bas, c'est le round actuel
-if(scrollTop+containerHeight>=container.scrollHeight-50){
-visibleRound=G.r;
-}
-// Afficher les joueurs actifs à ce round
-updateHeaderAndColumnsForRound(visibleRound);
-}
-
-function updateHeaderAndColumnsForRound(roundNum){
-// Toujours masquer les éliminés, peu importe le round affiché
-const activeInRound=G.p.filter(p=>!G.e.includes(p.id));
-const activeIds=new Set(activeInRound.map(p=>p.id));
-// Toujours utiliser l'ordre canonique des colonnes DOM comme référence
-const ordered=G.colOrder
-?G.colOrder.map(id=>G.p.find(p=>p.id===id)).filter(p=>p&&activeIds.has(p.id))
-:playersWithLocalCenter(G.p).filter(p=>activeIds.has(p.id));
-// Mettre à jour le header
-const h=document.getElementById('player-avatars-header');
-h.innerHTML='';
-ordered.forEach(p=>{
-const im=p.id===G.im&&roundNum===G.r; // Immunité seulement pour le round actuel
-const va=Object.entries(G.v).filter(([vi,vf])=>vf===p.id).map(([vi])=>G.p.find(px=>px.id===vi)?.username||'?');
-const vt=va.length>0?(G.lang==='fr'?'Voté par : ':'Voted by: ')+va.join(', '):(G.lang==='fr'?'Aucun vote':'No votes');
-const vi=p.hasVoted&&roundNum===G.r?'<div style="position:absolute;top:-3px;right:-3px;width:18px;height:18px;background:#22c55e;border-radius:50%;border:2px solid #000;display:flex;align-items:center;justify-content:center;font-size:10px;z-index:10;">✓</div>':'';
-let ah='';
-if(im){
-ah='<div class="heart-shape"><svg viewBox="0 0 64 64"><path d="M32 54C32 54,10 38,10 24C10 16,16 12,22 12C26 12,30 14,32 18C34 14,38 12,42 12C48 12,54 16,54 24C54 38,32 54,32 54Z" fill="'+p.color+'" stroke="#FFD700" stroke-width="2"/></svg><div class="heart-shape-text">'+escHtml(p.username.charAt(0))+'</div>'+vi+'</div>';
-}else{
-ah='<div class="avatar-circle" style="background:'+p.color+';box-shadow:0 0 18px '+p.color+'80;position:relative;">'+escHtml(p.username.charAt(0))+vi+'</div>';
-}
-const c=document.createElement('div');
-c.className='player-avatar-col';
-const showHistory=G.sh&&G.vh[p.id]&&roundNum===G.r;
-c.innerHTML='<div class="player-username">'+escHtml(p.username)+'</div>'+ah+'<div class="heart-icon'+(G.h[p.id]&&roundNum===G.r?' filled':'')+'" onclick="toggleHeart(\''+p.id+'\')"'+(p.isLocal?' style="cursor:default;opacity:0.2;"':'')+'>'+(G.h[p.id]&&roundNum===G.r?'❤️':'🤍')+'</div>'+(showHistory?'<div class="vote-history-overlay">'+G.vh[p.id].map(v=>'<div class="vote-history-item">R'+v.r+': '+v.vf+'</div>').join('')+(G.r>G.vh[p.id].length?'<div class="vote-history-item">R'+G.r+': ...</div>':'')+'</div>':'')+'<div class="avatar-tooltip">'+vt+'</div>';
-h.appendChild(c);
-});
-// Mettre à jour la visibilité des colonnes
-G.p.forEach(p=>{
-const col=document.getElementById('col-'+p.id);
-if(col){
-col.style.display=activeIds.has(p.id)?'block':'none';
-}
-});
-}
-
 function renderGameScreen(){
 const h=document.getElementById('player-avatars-header');
 const ap=G.p.filter(p=>!G.e.includes(p.id));
@@ -2377,7 +2146,7 @@ ah='<div class="avatar-circle" style="background:'+p.color+';box-shadow:0 0 18px
 }
 const c=document.createElement('div');
 c.className='player-avatar-col';
-c.innerHTML='<div class="player-username">'+escHtml(p.username)+'</div>'+ah+'<div class="heart-icon'+(G.h[p.id]?' filled':'')+'" onclick="toggleHeart(\''+p.id+'\')"'+(p.isLocal?' style="cursor:default;opacity:0.2;"':'')+'>'+(G.h[p.id]?'❤️':'🤍')+'</div>'+(G.sh&&G.vh[p.id]?'<div class="vote-history-overlay">'+G.vh[p.id].map(v=>'<div class="vote-history-item">R'+v.r+': '+v.vf+'</div>').join('')+(G.r>G.vh[p.id].length?'<div class="vote-history-item">R'+G.r+': ...</div>':'')+'</div>':'')+'<div class="avatar-tooltip">'+vt+'</div>';
+c.innerHTML='<div class="player-username">'+escHtml(p.username)+'</div>'+ah+'<div class="heart-icon'+(G.h[p.id]?' filled':'')+'" onclick="toggleHeart(\''+p.id+'\')"'+(p.isLocal?' style="cursor:default;opacity:0.2;"':'')+'>'+(G.h[p.id]?'❤️':'🤍')+'</div>'+'<div class="avatar-tooltip">'+vt+'</div>';
 h.appendChild(c);
 });
 renderMessages();
@@ -2755,9 +2524,6 @@ function confirmVote(){
     lp.hasVoted = true;
     if (!abstain) {
       G.v[lp.id] = sel;
-      if (!G.vh[lp.id]) G.vh[lp.id] = [];
-      var vp = G.p.find(function(p){ return p.id === sel; });
-      if (vp) G.vh[lp.id].push({r:G.r,vf:vp.username});
     }
   }
   renderGameScreen();
@@ -2931,27 +2697,7 @@ function renderReplyBar(){
   bar.querySelector('.reply-bar-close').onclick = function(){ G.replyTo = null; renderReplyBar(); renderMessages(); };
 }
 
-function startTimer(){
-G.t=100;
-const iv=setInterval(()=>{
-G.t--;
-const d=document.getElementById('timer-display');
-d.textContent=G.t+'s';
-if(G.t<=30)d.classList.add('warning');
-if(G.t<=0){
-clearInterval(iv);
-endRound();
-}
-},1000);
-}
-
 // ❌ simulateAIMessages() SUPPRIMÉE - Le backend gère les messages IA via LLM
-
-// endRound() - Gérée par le backend, mais gardée pour compatibilité legacy
-function endRound(){
-  // Le backend gère la logique de fin de round
-  console.log('⚠️ endRound() appelée localement - devrait être géré par le backend');
-}
 
 // ── Staged elimination: the vote count, then the name, then human or AI. Played once per round, and only for a client
 // that saw the vote close; anyone arriving later (resume, late tab) gets the final state at once. ──
@@ -3147,7 +2893,6 @@ function goHome(){
   G.m = [];
   G.a = {};
   G.v = {};
-  G.vh = {};
   G.h = {};
   G.r = 1;
   G.im = null;
@@ -3783,13 +3528,6 @@ function renderReplay(transcript){
     out.innerHTML = '⇒ ' + (ep ? who(ep.id) + (fr ? 'éliminé' : 'out') : (fr ? 'personne éliminé' : 'no one out'));
     body.appendChild(out);
   });
-}
-
-// nextRound() - Gérée par le backend, mais gardée pour compatibilité
-function nextRound(){
-  // Le backend gère la transition entre rounds
-  console.log('⚠️ nextRound() appelée localement - devrait être géré par le backend');
-  // On attend juste le prochain gameState du serveur
 }
 
 function showScreen(n){
