@@ -96,9 +96,11 @@ class FakeClient implements SqlClient {
     if (/^(BEGIN|COMMIT|ROLLBACK|SET )/i.test(sql)) return { rows: [] };
     const routed = this.router?.(sql, values);
     if (routed) return { rows: routed as R[] };
-    if (/^SELECT game_id, date, language, result FROM games WHERE \(\$1/.test(sql)) {
+    // The page query must leave the aborted games out: without that clause it is no query this fake knows.
+    if (/^SELECT game_id, date, language, result FROM games\s+WHERE result <> 'aborted'\s+AND \(\$1/.test(sql)) {
       const [since, until, afterDate, afterId, limit] = values as [string | null, string | null, string | null, string | null, number];
       const rows = this.tables.games
+        .filter((g) => g.result !== 'aborted')
         .filter((g) => (since === null || g.date >= since) && (until === null || g.date < until))
         .filter((g) => afterDate === null || g.date > afterDate || (g.date === afterDate && g.game_id > afterId!))
         .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.game_id < b.game_id ? -1 : 1))
@@ -352,6 +354,14 @@ async function main() {
     const expected = [...games].sort((a, b) => a.date.localeCompare(b.date)).map(({ synthetic, ...g }) => g);
     assert.deepEqual(read, expected);
     assert.deepEqual(readStrategy('v1_condensed'), { strategy: 'v1_condensed', provider: null });
+  });
+
+  await test('reader: an aborted game is left out of the stream', async () => {
+    const withAborted = { ...tables, games: [...tables.games, { game_id: 'ABORTED-1', date: '2026-10-01T00:00:00.000Z', language: 'fr', result: 'aborted' }] };
+    const read: string[] = [];
+    await streamGames(new FakePool(withAborted), {}, (g) => void read.push(g.gameId));
+    assert.equal(read.includes('ABORTED-1'), false);
+    assert.equal(read.length, games.length);
   });
 
   await test('read-only: every statement runs inside BEGIN READ ONLY, one short transaction per page, nothing written', async () => {

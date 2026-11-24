@@ -6,7 +6,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { GameRoom, TableOptions } from './game/GameRoom.js';
+import { GameRoom, TableChoice, TableOptions, parseTableChoice } from './game/GameRoom.js';
 import { REMATCH_WINDOW_MS, RematchLink, newRoomCode, rematchTable, routeRematch } from './game/rematch.js';
 import { initDB, isDBEnabled } from './game/GameLogger.js';
 import { registerHistoryRoutes } from './history/routes.js';
@@ -77,7 +77,7 @@ function createRoom(roomId: string, aiCount: number, table: TableOptions = {}): 
   return room;
 }
 
-function getOrCreateRoom(roomId: string): GameRoom {
+function getOrCreateRoom(roomId: string, chosen: TableChoice | null = null): GameRoom {
   // Si c'est le public lobby, chercher une room disponible
   if (roomId === 'public-lobby') {
     // Chercher une room publique en attente avec de la place
@@ -104,9 +104,10 @@ function getOrCreateRoom(roomId: string): GameRoom {
   // Room privée avec code custom
   if (!gameRooms.has(roomId)) {
     const aiCount = parseInt(process.env.AI_COUNT || '3');
-    // The host launches from 3 humans, with fewer AIs than a full table.
-    createRoom(roomId, aiCount, roomId.startsWith('public-') ? {} : { hostLaunch: true });
-    console.log(`Created private room: ${roomId} with ${aiCount} AIs`);
+    // The host launches from 3 humans, with fewer AIs than a full table; a table chosen on the home page fixes both.
+    const table: TableOptions = roomId.startsWith('public-') ? {} : chosen ? { hostLaunch: true, chosen } : { hostLaunch: true };
+    createRoom(roomId, aiCount, table);
+    console.log(`Created private room: ${roomId} with ${chosen ? `${chosen.humans} humans + ${chosen.ais}` : aiCount} AIs`);
   }
   return gameRooms.get(roomId)!;
 }
@@ -166,7 +167,7 @@ io.on('connection', (socket) => {
     const language = languageOf(p.language);
     consent = parseConsent(payload);
     console.log(`${username} joining room ${roomId}`);
-    await joinInto(getOrCreateRoom(roomId), username, language);
+    await joinInto(getOrCreateRoom(roomId, parseTableChoice(p.table)), username, language);
   });
 
   // L'hôte d'une salle privée lance la partie avec les humains présents (3 au moins)
@@ -193,7 +194,7 @@ io.on('connection', (socket) => {
     let room = route.kind === 'join' ? gameRooms.get(route.roomId) : undefined;
     if (!room) {
       const roomId = newRoomCode((code) => gameRooms.has(code));
-      room = createRoom(roomId, parseInt(process.env.AI_COUNT || '3'), rematchTable(finished.players.map((p) => p.username)));
+      room = createRoom(roomId, parseInt(process.env.AI_COUNT || '3'), rematchTable(finished.players.map((p) => p.username), old.tableChoice()));
       rematchLinks.set(old, { roomId, openedAt: Date.now() });
       io.to(finished.roomId).emit('rematchOpen', { remainingMs: REMATCH_WINDOW_MS });
       console.log(`Rematch room ${roomId} opened from ${finished.roomId}`);
@@ -382,4 +383,13 @@ httpServer.listen(PORT, () => {
 🎯 AI Count: ${process.env.AI_COUNT || 2}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   `);
+});
+
+// A redeploy stops this process with SIGTERM: every game in play is written as aborted before it exits.
+process.once('SIGTERM', () => {
+  const rooms = [...gameRooms.values()];
+  console.log(`SIGTERM: closing ${rooms.length} room(s)`);
+  const exit = () => process.exit(0);
+  void Promise.allSettled(rooms.map((room) => room.shutdown())).then(exit);
+  setTimeout(exit, 5000).unref();
 });

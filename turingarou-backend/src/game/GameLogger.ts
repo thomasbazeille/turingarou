@@ -60,6 +60,10 @@ export interface PlayerLog {
 }
 
 export interface MessageLog {
+  /** The id the players saw: message_flags.message_id and the replies point to it. */
+  id?: string;
+  /** The earlier line this one quotes. */
+  replyToId?: string;
   round: number;
   player: string;
   type: string;
@@ -83,7 +87,8 @@ export interface GameLogData {
   gameId: string;
   date: string;
   language: 'fr' | 'en';
-  result: 'humans_win' | 'ai_win' | 'draw';
+  /** aborted: every human gone, or the server stopped, before the end; the analyses leave these games out. */
+  result: 'humans_win' | 'ai_win' | 'draw' | 'aborted';
   players: PlayerLog[];
   rounds: RoundLog[];
   messages: MessageLog[];
@@ -316,6 +321,10 @@ export async function initDB(): Promise<void> {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_message_inputs_unique
       ON message_inputs(game_id, round, player_name, ts);
 
+    -- Added 2026-11-24, idempotent on every boot: a flag or a reply joins the line it names; older rows stay NULL.
+    ALTER TABLE messages ADD COLUMN IF NOT EXISTS message_id TEXT;
+    ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to TEXT;
+
     CREATE INDEX IF NOT EXISTS idx_messages_game_id      ON messages(game_id);
     CREATE INDEX IF NOT EXISTS idx_round_answers_game_id ON round_answers(game_id);
     CREATE INDEX IF NOT EXISTS idx_round_votes_game_id   ON round_votes(game_id);
@@ -487,10 +496,10 @@ export async function saveGameLog(data: GameLogData): Promise<void> {
       // messages
       for (const m of data.messages) {
         await db.query(
-          `INSERT INTO messages (game_id, round, player_name, player_type, content, ts)
-           VALUES ($1, $2, $3, $4, $5, $6)
+          `INSERT INTO messages (game_id, round, player_name, player_type, content, ts, message_id, reply_to)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
            ON CONFLICT DO NOTHING`,
-          [data.gameId, m.round, m.player, m.type, m.content, m.timestamp]
+          [data.gameId, m.round, m.player, m.type, m.content, m.timestamp, m.id ?? null, m.replyToId ?? null]
         );
       }
 

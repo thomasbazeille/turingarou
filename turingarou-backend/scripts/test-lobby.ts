@@ -8,7 +8,8 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createHash, webcrypto } from 'node:crypto';
-import { GameRoom, MIN_LAUNCH_HUMANS, RoomEmitter, TableOptions, USERNAME_MAX, aiCountFor, cleanUsername } from '../src/game/GameRoom.js';
+import { GameRoom, MIN_LAUNCH_HUMANS, RoomEmitter, TableOptions, USERNAME_MAX, aiCountFor, cleanUsername, parseTableChoice } from '../src/game/GameRoom.js';
+import type { GameLogData } from '../src/game/GameLogger.js';
 import { REMATCH_WINDOW_MS, ROOM_CODE_ALPHABET, newRoomCode, rematchTable, routeRematch } from '../src/game/rematch.js';
 import type { ChatProvider } from '../src/llm/chatClient.js';
 import { makeSeededRng } from '../src/game/humanTiming.js';
@@ -45,6 +46,7 @@ function makeRoom(roomId: string, table: TableOptions = {}) {
   const pool = ['ana', 'ben', 'cleo', 'dan', 'eva', 'fred', 'gina', 'hugo', 'ivy', 'jo', 'kim', 'lou', 'max', 'nina', 'otto', 'pia', 'quin', 'rita'];
   const used = new Set<string>();
   const picks: string[][] = [];
+  const saved: GameLogData[] = [];
   const rng = makeSeededRng(11);
   const room = new GameRoom(
     roomId,
@@ -63,7 +65,7 @@ function makeRoom(roomId: string, table: TableOptions = {}) {
         },
       },
       strategies: { aiPlayer: async () => ({ name: 'test', content: 'play' }), inspector: async () => 'inspect' },
-      persistence: { saveGameLog: async () => {}, updateHumanProfiles: async () => {}, saveMessageFlag: async () => {}, saveGameFeedback: async () => {}, getRandomHumanProfile: async () => null },
+      persistence: { saveGameLog: async (d) => void saved.push(d), updateHumanProfiles: async () => {}, saveMessageFlag: async () => {}, saveGameFeedback: async () => {}, getRandomHumanProfile: async () => null },
       log: () => {},
     },
     table
@@ -75,7 +77,7 @@ function makeRoom(roomId: string, table: TableOptions = {}) {
     assert.equal(await room.addHumanPlayer(socket, name, 'fr'), true, `${name} could not join`);
     return socket;
   };
-  return { room, emits, sockets, join, picks };
+  return { room, emits, sockets, join, picks, saved };
 }
 
 const lastTo = (emits: Emit[], target: string) => [...emits].reverse().find((e) => e.target === target)?.payload;
@@ -297,6 +299,76 @@ await check('a name sent past the page is cleaned by the room; one left empty ge
   const [typed, drawn] = room.getState().players;
   assert.equal(typed.username, 'scriptx/script');
   assert.ok(drawn.username.length > 0 && !/[<>]/.test(drawn.username), `drawn name "${drawn.username}"`);
+});
+
+console.log('table chosen on the home page');
+
+await check('a choice is whole numbers, 1 human and 1 AI at least, 3 to 8 seats', () => {
+  assert.deepEqual(parseTableChoice({ humans: 1, ais: 2 }), { humans: 1, ais: 2 });
+  assert.deepEqual(parseTableChoice({ humans: 6, ais: 2 }), { humans: 6, ais: 2 });
+  for (const bad of [null, undefined, 'x', {}, { humans: 1, ais: 1 }, { humans: 0, ais: 3 }, { humans: 3, ais: 0 }, { humans: 5, ais: 4 }, { humans: 2.5, ais: 2 }, { humans: '3', ais: 2 }, { humans: NaN, ais: 2 }])
+    assert.equal(parseTableChoice(bad), null, JSON.stringify(bad));
+});
+
+await check('2 humans + 3 AIs: starts by itself when the second human sits, a third is refused', async () => {
+  const { room, join } = makeRoom('C1', { hostLaunch: true, chosen: { humans: 2, ais: 3 } });
+  await join('h0');
+  assert.equal(room.getState().phase, 'waiting');
+  await join('h1');
+  const s = room.getState();
+  assert.equal(s.phase, 'question');
+  assert.equal(s.players.length, 5);
+  assert.equal(s.players.filter((p) => p.type === 'ai').length, 3);
+  assert.equal(await room.addHumanPlayer('C1-late', 'h2', 'fr'), false);
+});
+
+await check('1 human + 2 AIs: the host plays alone at once', async () => {
+  const { room, join } = makeRoom('C2', { hostLaunch: true, chosen: { humans: 1, ais: 2 } });
+  await join('solo');
+  assert.equal(room.getState().phase, 'question');
+  assert.equal(room.getState().players.length, 3);
+});
+
+await check('5 humans + 1 AI launched at 3 humans keeps its 1 AI, and the lobby says so', async () => {
+  const { room, join, emits } = makeRoom('C3', { hostLaunch: true, chosen: { humans: 5, ais: 1 } });
+  const host = await join('h0');
+  await join('h1');
+  await join('h2');
+  const lobby = lastTo(emits, host)?.lobby;
+  assert.equal(lobby.launchAIs, 1);
+  assert.deepEqual(lobby.table, { humans: 5, ais: 1 });
+  assert.equal(await room.launch(host), null);
+  assert.equal(room.getState().players.length, 4);
+  assert.equal(room.getState().players.filter((p) => p.type === 'ai').length, 1);
+});
+
+await check('the rematch keeps the chosen table', () => {
+  assert.deepEqual(rematchTable(['a'], { humans: 2, ais: 2 }).chosen, { humans: 2, ais: 2 });
+  assert.equal(rematchTable(['a']).chosen, undefined);
+});
+
+await check('a stop mid-game writes it as aborted with every line and its ids; a lobby writes nothing', async () => {
+  const { room, join, saved } = makeRoom('C4', { hostLaunch: true, chosen: { humans: 1, ais: 2 } });
+  const solo = await join('solo');
+  assert.equal(room.getState().phase, 'question');
+  const waiting = makeRoom('C5', { hostLaunch: true });
+  await waiting.join('h0');
+  await waiting.room.shutdown();
+  assert.equal(waiting.saved.length, 0, 'a lobby was written');
+  (room as any).state.phase = 'discussion';
+  const me = room.playerIdBySocket(solo)!;
+  assert.equal(room.addMessage(me, 'premiere ligne'), true);
+  const first = room.getState().messages.at(-1)!;
+  assert.equal(room.addMessage(me, 'je me reponds', first.id), true);
+  await room.shutdown();
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].result, 'aborted');
+  const lines = saved[0].messages;
+  assert.deepEqual(lines.map((m) => m.content), ['premiere ligne', 'je me reponds']);
+  assert.equal(lines[0].id, first.id);
+  assert.equal(lines[1].replyToId, first.id);
+  await room.shutdown();
+  assert.equal(saved.length, 1, 'written twice');
 });
 
 console.log(failures ? `\n${failures} échec(s)` : '\nTout est vert');

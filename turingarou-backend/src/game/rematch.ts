@@ -1,5 +1,5 @@
 import { randomInt } from 'node:crypto';
-import type { TableOptions } from './GameRoom.js';
+import type { TableChoice, TableOptions } from './GameRoom.js';
 
 /** After the first "play again with this group" click, the rest of the group may follow this long. */
 export const REMATCH_WINDOW_MS = 30_000;
@@ -35,7 +35,7 @@ export function routeRematch(link: RematchLink | null, now: number, linked: { jo
   return { kind: 'join', roomId: link.roomId };
 }
 
-/** A rematch is a private room where nobody keeps a name from the game just revealed, AIs included. */
-export function rematchTable(previousNames: string[]): TableOptions {
-  return { hostLaunch: true, freshNames: { reserved: [...previousNames] } };
+/** A rematch is a private room where nobody keeps a name from the game just revealed, AIs included; a chosen table stays. */
+export function rematchTable(previousNames: string[], chosen: TableChoice | null = null): TableOptions {
+  return { hostLaunch: true, freshNames: { reserved: [...previousNames] }, ...(chosen ? { chosen } : {}) };
 }

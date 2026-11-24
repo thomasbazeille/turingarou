@@ -165,6 +165,24 @@ export function aiCountFor(humanSide: number): number {
   return humanSide >= 4 ? 3 : 2;
 }
 
+/** The most seats a table holds, humans and AIs together: one colour each. */
+export const TABLE_MAX = 8;
+
+/** A private table set on the home page: the humans awaited (the game starts once they are all seated) and its AIs. */
+export interface TableChoice {
+  humans: number;
+  ais: number;
+}
+
+/** A choice sent by a page, or null: whole numbers, 1 human and 1 AI at least, 3 to TABLE_MAX seats (2 end at the first vote). */
+export function parseTableChoice(payload: unknown): TableChoice | null {
+  const p = (payload && typeof payload === 'object' ? payload : {}) as { humans?: unknown; ais?: unknown };
+  const { humans, ais } = p;
+  if (typeof humans !== 'number' || typeof ais !== 'number' || !Number.isInteger(humans) || !Number.isInteger(ais)) return null;
+  if (humans < 1 || ais < 1 || humans + ais < 3 || humans + ais > TABLE_MAX) return null;
+  return { humans, ais };
+}
+
 /** What kind of table a room is; the default is the public room. */
 export interface TableOptions {
   /** Private room: its earliest human still seated is the host and may launch from MIN_LAUNCH_HUMANS humans. */
@@ -173,6 +191,8 @@ export interface TableOptions {
   freshNames?: { reserved: string[] };
   /** AIs of a launched table; aiCountFor, unless a simulation compares another scale. */
   aiCountFor?: (humanSide: number) => number;
+  /** Private table set on the home page: it starts once these humans are seated, with these AIs even if launched earlier. */
+  chosen?: TableChoice;
 }
 
 export type LaunchRefusal = 'not_private' | 'not_waiting' | 'not_host' | 'too_few';
@@ -297,6 +317,10 @@ export class GameRoom {
       gameOverReason: null,
       language: 'fr',
     };
+    if (table.chosen) {
+      this.state.aiCount = table.chosen.ais;
+      this.state.maxPlayers = table.chosen.humans + table.chosen.ais;
+    }
   }
 
   private now(): number {
@@ -438,10 +462,20 @@ export class GameRoom {
     const id = this.playerIdBySocket(socketId);
     if (!id || id !== this.hostId()) return 'not_host';
     if (this.humanSeats() < MIN_LAUNCH_HUMANS) return 'too_few';
-    this.state.aiCount = (this.table.aiCountFor ?? aiCountFor)(this.state.players.length);
+    this.state.aiCount = this.launchAIs();
     this.state.maxPlayers = this.state.players.length + this.state.aiCount;
     await this.start();
     return null;
+  }
+
+  /** AIs a launch adds now: the chosen table's, or the scale's for the humans seated. */
+  private launchAIs(): number {
+    return this.table.chosen?.ais ?? (this.table.aiCountFor ?? aiCountFor)(this.state.players.length);
+  }
+
+  /** The table set on the home page, carried into the rematch. */
+  tableChoice(): TableChoice | null {
+    return this.table.chosen ?? null;
   }
 
   /** A human's home-screen answer, for a rematch joined from a socket that took the seat back (never sent). */
@@ -568,7 +602,7 @@ export class GameRoom {
     const inProgress = this.starting || !['waiting', 'gameover'].includes(this.state.phase);
     if (!inProgress || this.aborted) return false;
     if (this.state.players.some((p) => !p.isEliminated && this.present(p.id))) return false;
-    this.abortGame();
+    void this.abortGame();
     return true;
   }
 
@@ -578,8 +612,14 @@ export class GameRoom {
     this.deps.onVacant();
   }
 
-  private abortGame(): void {
-    if (this.aborted) return;
+  /** The server is stopping (a redeploy): a game in play ends as aborted, written before the process exits. */
+  shutdown(): Promise<void> {
+    if (this.state.phase === 'waiting' || this.state.phase === 'gameover') return Promise.resolve();
+    return this.abortGame();
+  }
+
+  private abortGame(): Promise<void> {
+    if (this.aborted) return Promise.resolve();
     this.aborted = true;
     this.deps.log(`[GameRoom ${this.state.roomId}] No human connected or in grace — aborting game.`);
     this.phaseTimers.clearAll();
@@ -587,11 +627,14 @@ export class GameRoom {
     this.graceTimers.clearAll();
     for (const session of this.sessions.values()) session.timer = null;
     this.director.dispose();
+    // A game that reached its first question is kept, marked aborted: its lines are what the logs are for.
+    const saved = this.state.currentRound >= 1 ? this.persistGameLog('aborted') : Promise.resolve();
     this.logTelemetry('aborted');
     // Back to waiting so the frontend shows the waiting screen.
     this.state.phase = 'waiting';
     this.emitState();
     this.notifyIfVacant();
+    return saved;
   }
 
   private async addAIPlayers(): Promise<void> {
@@ -845,7 +888,7 @@ export class GameRoom {
     return out;
   }
 
-  private persistGameLog(): void {
+  private persistGameLog(result: GameLogData['result'] = this.state.gameOverReason ?? 'draw'): Promise<void> {
     try {
       const kindOf = (id: string): PlayerKind => this.kinds.get(id) ?? 'human';
       // Inspectors were persisted as humans, so their lines fed the human style profiles that AIs imitate.
@@ -887,23 +930,26 @@ export class GameRoom {
       // A human who left mid-game is no longer in players: their lines used to be logged as 'ai'.
       const messages: MessageLog[] = this.state.messages
         .filter((m) => m.playerId !== 'system')
-        .map((m) => ({ round: m.round, player: m.playerName, type: kindOf(m.playerId), content: m.content, timestamp: m.timestamp }));
+        .map((m) => ({ id: m.id, round: m.round, player: m.playerName, type: kindOf(m.playerId), content: m.content, timestamp: m.timestamp, ...(m.replyToId ? { replyToId: m.replyToId } : {}) }));
 
       const data: GameLogData = {
         gameId: this.gameId(),
         date: new Date(this.now()).toISOString(),
         language: this.state.language ?? 'fr',
-        result: this.state.gameOverReason ?? 'draw',
+        result,
         players,
         rounds,
         messages,
         voice: { ...this.deps.voice },
         lineInputs: [...this.lineInputs],
       };
-      void this.deps.persistence.saveGameLog(data);
-      void this.deps.persistence.updateHumanProfiles(data);
+      const saved = this.deps.persistence.saveGameLog(data);
+      // An aborted game says nothing of who won: the human profiles stay as they were.
+      if (result !== 'aborted') void this.deps.persistence.updateHumanProfiles(data);
+      return saved;
     } catch (err) {
       console.error('[GameRoom] persistGameLog error:', err);
+      return Promise.resolve();
     }
   }
 
@@ -1166,7 +1212,8 @@ export class GameRoom {
       private: !!this.table.hostLaunch,
       host,
       launchFrom: this.table.hostLaunch ? MIN_LAUNCH_HUMANS : null,
-      launchAIs: this.table.hostLaunch ? (this.table.aiCountFor ?? aiCountFor)(this.state.players.length) : null,
+      launchAIs: this.table.hostLaunch ? this.launchAIs() : null,
+      table: this.table.chosen ?? null,
       canLaunch: host && this.isJoinable() && this.humanSeats() >= MIN_LAUNCH_HUMANS,
       freshName: !!this.table.freshNames,
     };

@@ -1189,6 +1189,10 @@ async function runGame(sc: Scenario): Promise<GameResult> {
   const aborted = sc.drops === 'all-gone' || (abortAt !== null && liveAtAbort.length === 0);
   if (aborted) {
     if (s.phase !== 'waiting') offend('abort_not_clean', `phase ${s.phase} after abort`);
+    // A game aborted after its first question keeps its lines in the logs, marked aborted.
+    const kept = (saved as GameLogData | null)?.result ?? null;
+    if (s.currentRound >= 1 && kept !== 'aborted') offend('abort_not_persisted', `aborted in round ${s.currentRound}, persisted ${String(kept)}`);
+    if (kept === 'aborted') inc('persisted_aborted');
   } else if (s.phase !== 'gameover') offend('no_gameover', `final phase ${s.phase}`);
   if (abortAt !== null && liveAtAbort.length > 0) offend('abort_timing', `aborted at ${abortAt} although ${liveAtAbort.join(', ')} still played`);
   if (aborted && sc.drops !== 'all-gone' && abortAt !== null) {
