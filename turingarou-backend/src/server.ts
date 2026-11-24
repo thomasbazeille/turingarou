@@ -77,12 +77,13 @@ function createRoom(roomId: string, aiCount: number, table: TableOptions = {}): 
   return room;
 }
 
+const aiCount = (): number => parseInt(process.env.AI_COUNT || '3');
+
 function getOrCreateRoom(roomId: string, chosen: TableChoice | null = null): GameRoom {
   // Si c'est le public lobby, chercher une room disponible
   if (roomId === 'public-lobby') {
     // Chercher une room publique en attente avec de la place
-    const lobbyAiCount = parseInt(process.env.AI_COUNT || '3');
-    const humanSlots = 8 - lobbyAiCount; // maxPlayers - aiCount
+    const humanSlots = 8 - aiCount(); // maxPlayers - aiCount
     for (const [id, room] of gameRooms) {
       if (id.startsWith('public-') && room.isJoinable()) {
         const humanCount = room.getState().players.filter(p => p.type === 'human').length;
@@ -95,19 +96,19 @@ function getOrCreateRoom(roomId: string, chosen: TableChoice | null = null): Gam
     
     // Aucune room dispo, créer une nouvelle avec un ID unique
     const newRoomId = 'public-' + Date.now();
-    const aiCount = parseInt(process.env.AI_COUNT || '3');
-    const room = createRoom(newRoomId, aiCount);
-    console.log(`Created new public room: ${newRoomId} with ${aiCount} AIs`);
+    const ais = aiCount();
+    const room = createRoom(newRoomId, ais);
+    console.log(`Created new public room: ${newRoomId} with ${ais} AIs`);
     return room;
   }
   
   // Room privée avec code custom
   if (!gameRooms.has(roomId)) {
-    const aiCount = parseInt(process.env.AI_COUNT || '3');
+    const ais = aiCount();
     // The host launches from 3 humans, with fewer AIs than a full table; a table chosen on the home page fixes both.
     const table: TableOptions = roomId.startsWith('public-') ? {} : chosen ? { hostLaunch: true, chosen } : { hostLaunch: true };
-    createRoom(roomId, aiCount, table);
-    console.log(`Created private room: ${roomId} with ${chosen ? `${chosen.humans} humans + ${chosen.ais}` : aiCount} AIs`);
+    createRoom(roomId, ais, table);
+    console.log(`Created private room: ${roomId} with ${chosen ? `${chosen.humans} humans + ${chosen.ais}` : ais} AIs`);
   }
   return gameRooms.get(roomId)!;
 }
@@ -194,7 +195,7 @@ io.on('connection', (socket) => {
     let room = route.kind === 'join' ? gameRooms.get(route.roomId) : undefined;
     if (!room) {
       const roomId = newRoomCode((code) => gameRooms.has(code));
-      room = createRoom(roomId, parseInt(process.env.AI_COUNT || '3'), rematchTable(finished.players.map((p) => p.username), old.tableChoice()));
+      room = createRoom(roomId, aiCount(), rematchTable(finished.players.map((p) => p.username), old.tableChoice()));
       rematchLinks.set(old, { roomId, openedAt: Date.now() });
       io.to(finished.roomId).emit('rematchOpen', { remainingMs: REMATCH_WINDOW_MS });
       console.log(`Rematch room ${roomId} opened from ${finished.roomId}`);
@@ -334,17 +335,17 @@ setInterval(() => {
 // src/ (tsx) et dist/ (build) sont tous deux à deux niveaux de la racine du repo.
 const FRONTEND_FILE = path.join(__dirname, '..', '..', 'turingarou-online.html');
 
-app.get('/', (req, res) => {
+app.get('/', (_req, res) => {
   res.sendFile(FRONTEND_FILE);
 });
 
-app.get('/health', (req, res) => {
+app.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
     version: VERSION,
     rooms: gameRooms.size,
     llmProviders: llmProviderNames,
-    aiCount: parseInt(process.env.AI_COUNT || '3'),
+    aiCount: aiCount(),
     maxPlayers: 8,
     db: isDBEnabled() ? 'postgres' : 'none',
   });
@@ -353,7 +354,7 @@ app.get('/health', (req, res) => {
 voiceStatus = registerVoiceRoutes(app, gameRooms);
 
 // Private rooms are counted, never named: their code is the only key to them.
-app.get('/rooms', (req, res) => {
+app.get('/rooms', (_req, res) => {
   const all = Array.from(gameRooms.values());
   const rooms = all.filter((room) => room.getRoomId().startsWith('public-')).map((room) => ({
     roomId: room.getRoomId(),

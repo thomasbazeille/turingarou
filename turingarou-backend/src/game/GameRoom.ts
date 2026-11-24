@@ -385,7 +385,7 @@ export class GameRoom {
     this.consents.set(player.id, consent);
     this.deps.names.add(name);
     this.emitState();
-    await this.startIfFull();
+    await this.start();
     return true;
   }
 
@@ -420,21 +420,20 @@ export class GameRoom {
     );
     this.deps.log(`[GameRoom] Inspector ${player.username} uses provider: ${provider.name}`);
     this.emitState();
-    await this.startIfFull();
+    await this.start();
     return true;
   }
 
-  private async startIfFull(): Promise<void> {
-    if (this.starting || this.state.players.length !== this.state.maxPlayers - this.state.aiCount) return;
-    await this.start();
-  }
-
   private async start(): Promise<void> {
+    if (this.starting || this.state.players.length !== this.state.maxPlayers - this.state.aiCount) return;
     this.starting = true;
     await this.addAIPlayers();
     if (this.aborted) return;
     this.shufflePlayers();
-    this.startGame();
+    this.starting = false;
+    this.startedAt = this.now();
+    this.eliminationOrder = [];
+    this.beginQuestion(1);
   }
 
   /** Names no newly drawn player may take: everyone seated, and in a rematch every name of the previous game. */
@@ -593,10 +592,6 @@ export class GameRoom {
     this.tryEndVotingEarly();
   }
 
-  private isGone(id: string): boolean {
-    return this.sessions.get(id)?.gone === true;
-  }
-
   /** A game where no real human still plays (connected or in grace; inspectors are bots) stops instead of burning model calls. */
   private abortIfNoLiveHuman(): boolean {
     const inProgress = this.starting || !['waiting', 'gameover'].includes(this.state.phase);
@@ -622,11 +617,7 @@ export class GameRoom {
     if (this.aborted) return Promise.resolve();
     this.aborted = true;
     this.deps.log(`[GameRoom ${this.state.roomId}] No human connected or in grace — aborting game.`);
-    this.phaseTimers.clearAll();
-    this.phaseTimer = null;
-    this.graceTimers.clearAll();
-    for (const session of this.sessions.values()) session.timer = null;
-    this.director.dispose();
+    this.stopTimersAndBots();
     // A game that reached its first question is kept, marked aborted: its lines are what the logs are for.
     const saved = this.state.currentRound >= 1 ? this.persistGameLog('aborted') : Promise.resolve();
     this.logTelemetry('aborted');
@@ -731,13 +722,6 @@ export class GameRoom {
       this.phaseTimer = null;
       next();
     });
-  }
-
-  private startGame(): void {
-    this.starting = false;
-    this.startedAt = this.now();
-    this.eliminationOrder = [];
-    this.beginQuestion(1);
   }
 
   private beginQuestion(round: number): void {
@@ -856,17 +840,21 @@ export class GameRoom {
     this.beginQuestion(this.state.currentRound + 1);
   }
 
+  private stopTimersAndBots(): void {
+    this.phaseTimers.clearAll();
+    this.phaseTimer = null;
+    this.graceTimers.clearAll();
+    for (const session of this.sessions.values()) session.timer = null;
+    this.director.dispose();
+  }
+
   private endGame(remainingAI: number, remainingHumans: number): void {
     this.state.gameOverReason = remainingAI === 0 ? 'humans_win' : remainingHumans === 0 ? 'ai_win' : 'draw';
     this.state.phase = 'gameover';
     this.state.eliminatedPlayerId = null;
     this.state.endRoundEndTime = null;
-    this.phaseTimers.clearAll();
-    this.phaseTimer = null;
     // The game is over: a player still away may come back to see the end, but nothing waits for anyone any more.
-    this.graceTimers.clearAll();
-    for (const session of this.sessions.values()) session.timer = null;
-    this.director.dispose();
+    this.stopTimersAndBots();
     this.emitState();
     this.emitReviews();
     this.persistGameLog();
@@ -1139,22 +1127,10 @@ export class GameRoom {
     const missing = active.filter((p) => !voted.has(p.id));
     if (active.length > 0 && missing.length === 0) {
       this.schedulePhase(0, () => this.processVotes());
-    } else if (missing.length > 0 && missing.every((p) => this.isGone(p.id))) {
+    } else if (missing.length > 0 && missing.every((p) => this.sessions.get(p.id)?.gone === true)) {
       const voteStart = (this.state.voteEndTime ?? this.now()) - VOTE_PHASE_MS;
       this.schedulePhase(voteStart + LOST_VOTE_CLOSE_MS - this.now(), () => this.processVotes());
     }
-  }
-
-  private addSystemMessage(content: string): void {
-    this.state.messages.push({
-      id: this.newId('sys'),
-      playerId: 'system',
-      playerName: '',
-      content,
-      timestamp: this.now(),
-      phase: this.state.phase,
-      round: this.state.currentRound,
-    });
   }
 
   flagMessage(playerId: string, messageId: string, reason?: string): void {
@@ -1175,7 +1151,7 @@ export class GameRoom {
   }
 
   private getRandomQuestion(): string {
-    const asked = Array.from({ length: this.state.currentRound - 1 }, (_, i) => this.questionsByRound.get(i + 1) ?? '');
+    const asked = [...this.questionsByRound.values()];
     return drawQuestion(this.state.language === 'en' ? 'en' : 'fr', asked, this.deps.rng);
   }
 
