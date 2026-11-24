@@ -54,8 +54,8 @@ export function detectHijack(text: string): Hijack | null {
 }
 
 /** Every hijack among the last lines of other players, newest first. */
-export function recentHijacks(lines: readonly { playerId: string; content: string }[], selfId: string, window = 6): Hijack[] {
-  const recent = lines.filter((m) => m.playerId !== selfId && m.playerId !== 'system').slice(-window);
+export function recentHijacks(lines: readonly { playerId: string; content: string }[], selfId: string): Hijack[] {
+  const recent = lines.filter((m) => m.playerId !== selfId && m.playerId !== 'system').slice(-6);
   return recent
     .reverse()
     .map((m) => detectHijack(m.content))

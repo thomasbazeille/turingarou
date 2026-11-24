@@ -23,17 +23,19 @@ const STRATEGY_FILES: { name: string; file: string; exportName: string }[] = [
 
 let cachedStrategies: StrategyEntry[] | null = null;
 
+async function loadStrategy(file: string, exportName: string): Promise<string> {
+  const url = pathToFileURL(path.join(process.cwd(), 'strategies', file)).href;
+  const content = (await import(url) as Record<string, string>)[exportName];
+  if (typeof content !== 'string') throw new Error(`Missing or invalid export ${exportName} in ${file}`);
+  return content;
+}
+
 async function loadStrategies(): Promise<StrategyEntry[]> {
   if (cachedStrategies) return cachedStrategies;
-  const base = path.join(process.cwd(), 'strategies');
   const loaded: StrategyEntry[] = [];
   for (const { name, file, exportName } of STRATEGY_FILES) {
     try {
-      const url = pathToFileURL(path.join(base, file)).href;
-      const mod = await import(url);
-      const content = (mod as Record<string, string>)[exportName];
-      if (typeof content !== 'string') throw new Error(`Missing or invalid export ${exportName} in ${file}`);
-      loaded.push({ name, content });
+      loaded.push({ name, content: await loadStrategy(file, exportName) });
     } catch (err) {
       console.error(`[StrategyLoader] Failed to load ${file}:`, err);
     }
@@ -56,11 +58,7 @@ let cachedInspectorPrompt: string | null = null;
 
 export async function getInspectorPromptContent(): Promise<string> {
   if (cachedInspectorPrompt) return cachedInspectorPrompt;
-  const base = path.join(process.cwd(), 'strategies');
-  const url = pathToFileURL(path.join(base, 'ai_inspector_humanlike.js')).href;
-  const mod = await import(url);
-  const content = (mod as Record<string, string>).AI_INSPECTOR_HUMANLIKE;
-  if (typeof content !== 'string') throw new Error('Missing AI_INSPECTOR_HUMANLIKE in ai_inspector_humanlike.js');
+  const content = await loadStrategy('ai_inspector_humanlike.js', 'AI_INSPECTOR_HUMANLIKE');
   cachedInspectorPrompt = content;
   console.log('[StrategyLoader] Inspector prompt loaded (ai_inspector_humanlike)');
   return content;

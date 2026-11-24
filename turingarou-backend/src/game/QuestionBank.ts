@@ -7,22 +7,13 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 function flattenQuestionArrays(obj: unknown, skipKeys: Set<string> = new Set(['effectiveness', 'description', 'rotation_weights', 'avoid'])): string[] {
-  const out: string[] = [];
-  if (Array.isArray(obj)) {
-    if (obj.every((x) => typeof x === 'string')) out.push(...(obj as string[]));
-    return out;
-  }
-  if (obj && typeof obj === 'object') {
-    for (const [k, v] of Object.entries(obj)) {
-      if (skipKeys.has(k)) continue;
-      if (Array.isArray(v) && v.every((x) => typeof x === 'string')) {
-        out.push(...(v as string[]));
-      } else if (v && typeof v === 'object' && !Array.isArray(v)) {
-        out.push(...flattenQuestionArrays(v, skipKeys));
-      }
-    }
-  }
-  return out;
+  if (Array.isArray(obj)) return obj.every((x) => typeof x === 'string') ? (obj as string[]) : [];
+  if (!obj || typeof obj !== 'object') return [];
+  return Object.entries(obj).flatMap(([k, v]) => {
+    if (skipKeys.has(k)) return [];
+    if (Array.isArray(v)) return v.every((x) => typeof x === 'string') ? (v as string[]) : [];
+    return v && typeof v === 'object' ? flattenQuestionArrays(v, skipKeys) : [];
+  });
 }
 
 let cachedFr: string[] | null = null;
@@ -320,7 +311,7 @@ export function isTextureQuestion(question: string, lang: 'fr' | 'en'): boolean 
  * model, Among Liars; not measured there). By round r at least round(0.4 r) of them were asked: 1 by round 2, 2 by
  * round 4, 3 by round 7.
  */
-export const TEXTURE_MIN_SHARE = 0.4;
+const TEXTURE_MIN_SHARE = 0.4;
 
 /** The question of the next round: a texture one when the game is behind its minimum share, never one already asked. */
 export function drawQuestion(lang: 'fr' | 'en', asked: readonly string[], rng: () => number = Math.random): string {

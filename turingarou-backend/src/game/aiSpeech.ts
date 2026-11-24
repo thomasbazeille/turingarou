@@ -69,6 +69,14 @@ interface SpeakParams {
   rng?: () => number;
 }
 
+export const speechGate = (profile: AIStyleProfile, selfName: string, rng?: () => number) => ({
+  caseProfile: profile.caseProfile,
+  dropFinalPeriodProb: profile.dropFinalPeriodProb,
+  rng,
+  style: profile,
+  selfName,
+});
+
 /** A discussion decision: strict JSON, form gate on the message, one regeneration, never posts raw model output. */
 export async function decideWithGate(
   p: SpeakParams & { messages: LLMMessage[]; speech: SpeechContext | (() => SpeechContext); temperatureScale: number }
@@ -108,11 +116,7 @@ export async function decideWithGate(
   // Read when the gate runs: during a chain of retries other bots may have posted the very line this one drafts.
   const gateCtx = () => ({
     channel: 'discussion' as const,
-    caseProfile: p.profile.caseProfile,
-    dropFinalPeriodProb: p.profile.dropFinalPeriodProb,
-    rng: p.rng,
-    style: p.profile,
-    selfName: p.player,
+    ...speechGate(p.profile, p.player, p.rng),
     ...(typeof p.speech === 'function' ? p.speech() : p.speech),
   });
   const v1 = checkMessage(first.decision.message, gateCtx());
@@ -143,11 +147,7 @@ export async function answerWithGate(
     );
   const gateCtx = {
     channel: 'answer' as const,
-    caseProfile: p.profile.caseProfile,
-    dropFinalPeriodProb: p.profile.dropFinalPeriodProb,
-    rng: p.rng,
-    style: p.profile,
-    selfName: p.player,
+    ...speechGate(p.profile, p.player, p.rng),
     ownRecent: p.ownPreviousAnswers,
     otherAIRecent: [],
     traps: p.traps ?? [],

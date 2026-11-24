@@ -1,6 +1,6 @@
 import { LLMCallEvent } from '../llm/llmCall.js';
 import { GameFormat, GameMessage, GameRoomState } from '../types/game.types.js';
-import { AISpeechEvent } from './aiSpeech.js';
+import { AISpeechEvent, speechGate } from './aiSpeech.js';
 import { Bot } from './Bot.js';
 import { BotView, RoundRecord } from './botContext.js';
 import { DecisionCue, DirectAddress } from './botPrompts.js';
@@ -402,13 +402,9 @@ export class BotDirector {
     for (const candidate of pool) {
       const v = checkMessage(candidate, {
         channel: 'discussion',
-        caseProfile: p.caseProfile,
-        dropFinalPeriodProb: p.dropFinalPeriodProb,
-        style: p,
-        selfName: slot.bot.name,
+        ...speechGate(p, slot.bot.name, this.deps.rng),
         ownRecent: own,
         otherAIRecent: others,
-        rng: this.deps.rng,
       });
       if (v.ok) return v.text;
     }

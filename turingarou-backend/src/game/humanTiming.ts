@@ -113,7 +113,7 @@ export function groupPaceOf(botLines: number, total: number, players: number, se
 }
 
 /** At most this many bot lines in any 10 s window (direct replies excepted); one more while the bots as a group are under their share. */
-export const MAX_BOT_LINES_PER_10S = 2;
+const MAX_BOT_LINES_PER_10S = 2;
 
 /** Wait before a non-direct bot line: a jittered gap after any bot line (longer when the bots are over) and the 10 s ceiling. */
 export function botFloorWaitMs(now: number, lastBotPostAt: number, recentBotPosts: number[], group: Pace, rng: () => number = Math.random): number {

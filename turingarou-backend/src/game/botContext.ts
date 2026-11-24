@@ -37,8 +37,8 @@ export interface BotView {
   history: RoundRecord[];
 }
 
-export const CONTEXT_WINDOW = 40;
-export const FORGET_PERCENT = 12;
+const CONTEXT_WINDOW = 40;
+const FORGET_PERCENT = 12;
 
 /** Stable pseudo-random 0..99 from a string: the same message is forgotten (or not) on every call. */
 export function stableBucket(key: string): number {

@@ -11,7 +11,7 @@ import { detectHijack, recentHijacks } from './hijackGuard.js';
 import { ResponseStyle } from './humanTiming.js';
 
 /** Temperature scale per task, relative to each provider's default (analysis C, T14): a name to vote needs less dispersion. */
-export const TEMPERATURE_SCALE = { decision: 0.9, answer: 0.9, vote: 0.5 } as const;
+const TEMPERATURE_SCALE = { decision: 0.9, answer: 0.9, vote: 0.5 } as const;
 const VOTE_TIMEOUT_MS = 6000;
 
 export interface BotSpec {

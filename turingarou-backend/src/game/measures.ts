@@ -39,9 +39,11 @@ export const NO_CONSENT: StyleConsent = { styleExamples: false, notice: null };
 
 const NOTICE_RE = /^[\w.-]{1,32}$/;
 
+const asObject = (p: unknown) => (p && typeof p === 'object' ? p : {}) as Record<string, unknown>;
+
 /** Only an explicit `true` is an agreement: a missing, malformed or truthy-but-not-true value is a refusal. */
 export function parseConsent(payload: unknown): StyleConsent {
-  const p = (payload && typeof payload === 'object' ? payload : {}) as { styleConsent?: unknown; notice?: unknown };
+  const p = asObject(payload);
   return {
     styleExamples: p.styleConsent === true,
     notice: typeof p.notice === 'string' && NOTICE_RE.test(p.notice) ? p.notice : null,
@@ -54,7 +56,7 @@ export function parseVoteReason(value: unknown): VoteReason | null {
 
 /** An integer note from 1 to 5; the clue is optional, trimmed, and refused past CLUE_MAX_CHARS (the field's own limit). */
 export function parseFeedback(payload: unknown): GameFeedback | null {
-  const p = (payload && typeof payload === 'object' ? payload : {}) as { rating?: unknown; clue?: unknown };
+  const p = asObject(payload);
   const rating = p.rating;
   if (typeof rating !== 'number' || !Number.isInteger(rating) || rating < 1 || rating > 5) return null;
   if (p.clue !== undefined && p.clue !== null && typeof p.clue !== 'string') return null;
@@ -65,7 +67,7 @@ export function parseFeedback(payload: unknown): GameFeedback | null {
 
 /** A typed line's signals as its client reported them: pasted only if exactly true, a duration within 0..TYPING_MS_MAX. */
 export function parseTyping(payload: unknown): LineInput {
-  const p = (payload && typeof payload === 'object' ? payload : {}) as { pasted?: unknown; typingMs?: unknown };
+  const p = asObject(payload);
   const ms = p.typingMs;
   return {
     via: 'typed',
