@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import { checkMessage, sanitizeMessage, similarity, contentWords, drawStyleHabits } from '../src/game/formGate.js';
 import type { GateContext, GateReason, StyleHabits } from '../src/game/formGate.js';
 import { drawStyleProfile } from '../src/game/aiSpeech.js';
+// probeProfiled has an even length: this file has always used the upper median there, not the averaged one.
+import { makeSeededRng as seeded, upperMedian as median } from './testkit.js';
 
 // Thresholds of the corpus run (spec B-realisme-forme R13: a gate that cries wolf gets unplugged).
 const HUMAN_MAX_REJECTED = 0;
@@ -17,17 +19,6 @@ function ctx(over: Partial<GateContext> = {}): GateContext {
 // Exactly what GameRoom.addMessage passes as its last net.
 const NET_CTX: GateContext = { channel: 'discussion', caseProfile: 'raw', dropFinalPeriodProb: 0, ownRecent: [], otherAIRecent: [] };
 const NET_DROPS: GateReason[] = ['structure', 'json_leak', 'ai_admission', 'empty'];
-
-function seeded(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 function ok(text: string, over: Partial<GateContext> = {}): string {
   const v = checkMessage(text, ctx(over));
@@ -296,7 +287,6 @@ for (const t of [...human.map((h) => h.text), ...bot.map((b) => b.text)]) {
 // habits (maxWords, brevity): the median under drawn profiles is asserted, the distribution printed next to the human one.
 const probe = load<{ source: string; lines: string[] }>('form-gate-model-probe.json').lines;
 const words = (t: string) => t.split(/\s+/).filter(Boolean).length;
-const median = (xs: number[]) => [...xs].sort((x, y) => x - y)[Math.floor(xs.length / 2)];
 const share = (xs: number[], n: number) => xs.filter((x) => x > n).length / xs.length;
 const probeBare = probe.map((t) => checkMessage(t, ctx()));
 const probeProfiled: number[] = [];

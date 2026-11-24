@@ -6,17 +6,7 @@
  */
 import assert from 'node:assert/strict';
 import { ROOM_ID_MAX, fields, languageOf, roomIdOf, text } from '../src/packets.js';
-
-let failures = 0;
-const check = (name: string, fn: () => void) => {
-  try {
-    fn();
-    console.log(`  ✓ ${name}`);
-  } catch (e: any) {
-    failures++;
-    console.log(`  ✗ ${name} — ${e.message}`);
-  }
-};
+import { check, finishGreen } from './testkit.js';
 
 console.log('client packets');
 
@@ -44,5 +34,4 @@ check('language: fr or en, else none', () => {
   for (const v of ['de', '', null, 1]) assert.equal(languageOf(v), undefined);
 });
 
-console.log(failures ? `\n${failures} échec(s)` : '\nTout est vert');
-process.exit(failures ? 1 : 0);
+finishGreen();

@@ -16,26 +16,7 @@ import {
   voteDelay,
   type ResponseStyle,
 } from '../src/game/humanTiming.js';
-
-const failures: string[] = [];
-let passed = 0;
-
-function test(name: string, fn: () => void): void {
-  try {
-    fn();
-    passed++;
-    console.log(`✅ ${name}`);
-  } catch (err) {
-    failures.push(name);
-    console.log(`❌ ${name}\n   ${err instanceof Error ? err.message : String(err)}`);
-  }
-}
-
-function median(values: number[]): number {
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-}
+import { finishTotals, median, test } from './testkit.js';
 
 function draws(n: number, rng: () => number, f: () => number): number[] {
   return Array.from({ length: n }, () => f());
@@ -374,8 +355,4 @@ test('globalGapMs bounds [2500, 4000] over 2000 draws', () => {
   assert.ok(Math.max(...values) < 4000, `max ${Math.max(...values)} >= 4000`);
 });
 
-console.log(`\n${passed} passed, ${failures.length} failed, ${passed + failures.length} total`);
-if (failures.length > 0) {
-  console.error(`Failed cases: ${failures.join(' | ')}`);
-  process.exit(1);
-}
+finishTotals();

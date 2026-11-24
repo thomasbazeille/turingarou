@@ -8,76 +8,19 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createHash, webcrypto } from 'node:crypto';
-import { GameRoom, MIN_LAUNCH_HUMANS, RoomEmitter, TableOptions, USERNAME_MAX, aiCountFor, cleanUsername, parseTableChoice } from '../src/game/GameRoom.js';
-import type { GameLogData } from '../src/game/GameLogger.js';
+import { MIN_LAUNCH_HUMANS, TableOptions, USERNAME_MAX, aiCountFor, cleanUsername, parseTableChoice } from '../src/game/GameRoom.js';
 import { REMATCH_WINDOW_MS, ROOM_CODE_ALPHABET, newRoomCode, rematchTable, routeRematch } from '../src/game/rematch.js';
-import type { ChatProvider } from '../src/llm/chatClient.js';
-import { makeSeededRng } from '../src/game/humanTiming.js';
+import { check, finishGreen, frozenClock, makeSeededRng, NAMES_18, targetEmits, testRoom } from './testkit.js';
 
-let failures = 0;
-const check = async (name: string, fn: () => void | Promise<void>) => {
-  try {
-    await fn();
-    console.log(`  ✓ ${name}`);
-  } catch (e: any) {
-    failures++;
-    console.log(`  ✗ ${name} — ${e.message}`);
-  }
-};
-
-const clock = {
-  now: () => 1_800_000_000_000,
-  setTimeout: () => 0,
-  clearTimeout: () => {},
-};
-
-const quietModel: ChatProvider = {
-  name: 'Fake/quiet',
-  model: 'quiet',
-  supportsJson: true,
-  chat: async () => ({ text: 'SKIP', finishReason: 'stop', latencyMs: 1, provider: 'Fake/quiet', model: 'quiet' }),
-};
+const clock = frozenClock();
 
 type Emit = { target: string; payload: Record<string, any> };
 
+// Seed 11, the 18-name pool, the random picker over the same RNG and asserting joins: this file's own flavour.
 function makeRoom(roomId: string, table: TableOptions = {}) {
-  const emits: Emit[] = [];
-  const io: RoomEmitter = { to: (target) => ({ emit: (event: string, payload: unknown) => (event === 'gameState' ? emits.push({ target, payload: JSON.parse(JSON.stringify(payload)) }) : 0) }) };
-  const pool = ['ana', 'ben', 'cleo', 'dan', 'eva', 'fred', 'gina', 'hugo', 'ivy', 'jo', 'kim', 'lou', 'max', 'nina', 'otto', 'pia', 'quin', 'rita'];
-  const used = new Set<string>();
-  const picks: string[][] = [];
-  const saved: GameLogData[] = [];
-  const rng = makeSeededRng(11);
-  const room = new GameRoom(
-    roomId,
-    io,
-    [quietModel],
-    3,
-    {
-      clock,
-      rng,
-      names: {
-        add: (n) => used.add(n),
-        pick: (ex) => {
-          picks.push([...ex]);
-          const free = pool.filter((n) => !used.has(n) && !ex.includes(n));
-          return free[Math.floor(rng() * free.length)] ?? 'zed';
-        },
-      },
-      strategies: { aiPlayer: async () => ({ name: 'test', content: 'play' }), inspector: async () => 'inspect' },
-      persistence: { saveGameLog: async (d) => void saved.push(d), updateHumanProfiles: async () => {}, saveMessageFlag: async () => {}, saveGameFeedback: async () => {}, getRandomHumanProfile: async () => null },
-      log: () => {},
-    },
-    table
-  );
-  const sockets: string[] = [];
-  const join = async (name: string) => {
-    const socket = `${roomId}-sock-${sockets.length}`;
-    sockets.push(socket);
-    assert.equal(await room.addHumanPlayer(socket, name, 'fr'), true, `${name} could not join`);
-    return socket;
-  };
-  return { room, emits, sockets, join, picks, saved };
+  const { io, emits } = targetEmits();
+  const r = testRoom(roomId, io, { clock, rng: makeSeededRng(11), names: NAMES_18, pick: 'random', table, assertJoin: true });
+  return { ...r, emits };
 }
 
 const lastTo = (emits: Emit[], target: string) => [...emits].reverse().find((e) => e.target === target)?.payload;
@@ -371,5 +314,4 @@ await check('a stop mid-game writes it as aborted with every line and its ids; a
   assert.equal(saved.length, 1, 'written twice');
 });
 
-console.log(failures ? `\n${failures} échec(s)` : '\nTout est vert');
-process.exit(failures ? 1 : 0);
+finishGreen();

@@ -7,63 +7,11 @@
  *   npx tsx scripts/test-review.ts
  */
 import assert from 'node:assert/strict';
-import { DISCUSSION_PHASE_MS, ENDROUND_MS, GameRoom, QUESTION_PHASE_MS, RoomEmitter } from '../src/game/GameRoom.js';
+import { DISCUSSION_PHASE_MS, ENDROUND_MS, QUESTION_PHASE_MS } from '../src/game/GameRoom.js';
 import { buildTranscript, flagResults, scoreVotes, shareText } from '../src/game/gameReview.js';
 import { modelLabel } from '../src/llm/providerRegistry.js';
-import type { ChatProvider } from '../src/llm/chatClient.js';
 import { makeSeededRng } from '../src/game/humanTiming.js';
-
-let failures = 0;
-const check = async (name: string, fn: () => void | Promise<void>) => {
-  try {
-    await fn();
-    console.log(`  ✓ ${name}`);
-  } catch (e: any) {
-    failures++;
-    console.log(`  ✗ ${name} — ${e.message}`);
-  }
-};
-
-class ManualClock {
-  t = 1_800_000_000_000;
-  private seq = 0;
-  private timers = new Map<number, { at: number; fn: () => void }>();
-  now = (): number => this.t;
-  setTimeout = (fn: () => void, ms: number): number => {
-    this.timers.set(++this.seq, { at: this.t + Math.max(0, ms), fn });
-    return this.seq;
-  };
-  clearTimeout = (h: unknown): void => {
-    this.timers.delete(h as number);
-  };
-  /** Fires every timer due within ms, in order, then lands exactly ms later. */
-  advance(ms: number): void {
-    const end = this.t + ms;
-    for (;;) {
-      let next: [number, { at: number; fn: () => void }] | null = null;
-      for (const e of this.timers) if (e[1].at <= end && (!next || e[1].at < next[1].at || (e[1].at === next[1].at && e[0] < next[0]))) next = e;
-      if (!next) break;
-      this.timers.delete(next[0]);
-      this.t = next[1].at;
-      next[1].fn();
-    }
-    this.t = end;
-  }
-}
-
-// Bots answer SKIP and their decisions fail to parse: every answer, line and vote below is placed by the test.
-const quietModel: ChatProvider = {
-  name: 'Fake/quiet',
-  model: 'quiet',
-  supportsJson: true,
-  chat: async () => ({ text: 'SKIP', finishReason: 'stop', latencyMs: 1, provider: 'Fake/quiet', model: 'quiet' }),
-};
-
-interface Emit {
-  target: string;
-  event: string;
-  payload: any;
-}
+import { check, eventEmits, finishGreen, ManualClock, testRoomWithHumans } from './testkit.js';
 
 /**
  * A full game of 5 humans and 3 AIs: each round every seat but one answers, two humans and an AI talk (each quoting
@@ -72,23 +20,9 @@ interface Emit {
  */
 async function finished(roomId: string) {
   const clock = new ManualClock();
-  const emits: Emit[] = [];
-  const io: RoomEmitter = { to: (target: string) => ({ emit: (event: string, payload: unknown) => emits.push({ target, event, payload: JSON.parse(JSON.stringify(payload)) }) }) };
-  const pool = ['ana', 'ben', 'cleo', 'dan', 'eva', 'fred', 'gina', 'hugo', 'ivy', 'jo'];
-  const used = new Set<string>();
-  const room = new GameRoom(roomId, io, [quietModel], 3, {
-    clock,
-    rng: makeSeededRng(5),
-    names: { add: (n) => used.add(n), pick: (ex) => pool.find((n) => !used.has(n) && !ex.includes(n)) ?? 'zed' },
-    strategies: { aiPlayer: async () => ({ name: 'test', content: 'play' }), inspector: async () => 'inspect' },
-    persistence: { saveGameLog: async () => {}, updateHumanProfiles: async () => {}, saveMessageFlag: async () => {}, saveGameFeedback: async () => {}, getRandomHumanProfile: async () => null },
-    log: () => {},
-  });
-  const sockets: string[] = [];
-  for (let i = 0; i < 5; i++) {
-    sockets.push(`${roomId}-sock-${i}`);
-    await room.addHumanPlayer(sockets[i], `h${i}`, 'fr');
-  }
+  const { io, emits } = eventEmits();
+  // Seed 5, the 10-name pool and the first-free picker.
+  const { room, sockets } = await testRoomWithHumans(roomId, io, { clock, rng: makeSeededRng(5), humans: 5 });
   const st = () => room.getState();
   const humanIds = sockets.map((s) => room.playerIdBySocket(s)!);
   const aiIds = st().players.filter((p) => p.type === 'ai').map((p) => p.id);
@@ -316,5 +250,4 @@ await check('a player back with their token after the game over gets the same tr
   assert.deepEqual(game.room.reviewOf(game.humanIds[2]), sent, 'the review sent on resume differs from the one sent at the game over');
 });
 
-console.log(failures ? `\n${failures} échec(s)` : '\nTout est vert');
-process.exit(failures ? 1 : 0);
+finishGreen();

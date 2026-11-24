@@ -2,17 +2,7 @@ import assert from 'node:assert/strict';
 import { buildProviderPool, modelLabel, parsePoolSpec, PROVIDER_CATALOG } from '../src/llm/providerRegistry.js';
 import { OpenAICompatProvider, stripReasoning } from '../src/llm/OpenAICompatProvider.js';
 import { ProviderError } from '../src/llm/chatClient.js';
-
-let failures = 0;
-const check = async (name: string, fn: () => void | Promise<void>) => {
-  try {
-    await fn();
-    console.log(`  ✓ ${name}`);
-  } catch (e: any) {
-    failures++;
-    console.log(`  ✗ ${name} — ${e.message}`);
-  }
-};
+import { check, finishGreen } from './testkit.js';
 
 const names = (env: Record<string, string>) => buildProviderPool(env).providers.map((p) => p.name);
 
@@ -109,5 +99,4 @@ await check('modelLabel: the model as players read it in the end-of-game reveal'
   for (const spec of PROVIDER_CATALOG) assert.match(modelLabel(`${spec.vendor}/${spec.model}`), /^[A-Z0-9][\w. ]+$/, spec.id);
 });
 
-console.log(failures ? `\n${failures} échec(s)` : '\nTout est vert');
-process.exit(failures ? 1 : 0);
+finishGreen();

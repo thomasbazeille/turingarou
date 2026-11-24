@@ -1,15 +1,14 @@
 import { strict as assert } from 'node:assert/strict';
-import type { AddressInfo } from 'node:net';
-import express from 'express';
 import { AudioCache, RateWindow } from '../src/voice/cache.js';
 import { GradiumStt, GradiumTts, providersFromEnv, wavDurationSec } from '../src/voice/providers.js';
-import type { Lang, SttProvider, SttResult, TtsProvider, TtsResult } from '../src/voice/providers.js';
+import type { Lang, SttProvider, SttResult, TtsResult } from '../src/voice/providers.js';
 import { registerVoiceRoutes, type VoiceOptions, type VoiceRoom } from '../src/voice/routes.js';
 import { normalizeTranscript, spokenText, wordSimilarity } from '../src/voice/text.js';
 import { assignVoices, loadGradiumVoices, VoiceBook, voicePool, type VoiceDef } from '../src/voice/voices.js';
+import { FakeTts, finishTotals, test as runTest, withHttpServer } from './testkit.js';
 
-const failures: string[] = [];
-let passed = 0;
+// The cases are declared here and run at the end, one at a time: many swap globalThis.fetch, so they must not
+// overlap.
 const queue: { name: string; fn: () => void | Promise<void> }[] = [];
 
 function test(name: string, fn: () => void | Promise<void>): void {
@@ -130,18 +129,6 @@ test('voice is off by default and needs the chosen provider key', () => {
 
 // --- routes ---
 
-class FakeTts implements TtsProvider {
-  readonly name = 'cartesia';
-  readonly model = 'fake';
-  calls: { text: string; voiceId: string; lang: Lang }[] = [];
-  delayMs = 0;
-  async synthesize(text: string, voiceId: string, lang: Lang): Promise<TtsResult> {
-    this.calls.push({ text, voiceId, lang });
-    if (this.delayMs) await new Promise((r) => setTimeout(r, this.delayMs));
-    return { audio: Buffer.from(`${voiceId}|${text}`), mime: 'audio/mpeg' };
-  }
-}
-
 class FakeStt implements SttProvider {
   readonly name = 'deepgram';
   readonly model = 'fake';
@@ -205,18 +192,14 @@ function makeRooms() {
   return { a, b, map: new Map<string, VoiceRoom>([['room-a', a], ['room-b', b]]) };
 }
 
-async function withServer(opts: VoiceOptions, rooms: Map<string, VoiceRoom>, fn: (base: string) => Promise<void>): Promise<void> {
-  const app = express();
-  app.use(express.json());
-  registerVoiceRoutes(app, rooms, opts);
-  const server = app.listen(0);
-  await new Promise<void>((r) => server.once('listening', () => r()));
-  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  try {
-    await fn(base);
-  } finally {
-    await new Promise<void>((r) => server.close(() => r()));
-  }
+function withServer(opts: VoiceOptions, rooms: Map<string, VoiceRoom>, fn: (base: string) => Promise<void>): Promise<void> {
+  return withHttpServer(
+    (app) => {
+      registerVoiceRoutes(app, rooms, opts);
+    },
+    fn,
+    { json: true }
+  );
 }
 
 function tts(base: string, body: unknown, room = 'room-a', socket = 'sock-h1'): Promise<Response> {
@@ -526,19 +509,6 @@ test('config says sttFormat wav for a gradium STT', async () => {
   });
 });
 
-for (const { name, fn } of queue) {
-  try {
-    await fn();
-    passed++;
-    console.log(`✅ ${name}`);
-  } catch (err) {
-    failures.push(name);
-    console.log(`❌ ${name}\n   ${err instanceof Error ? err.message : String(err)}`);
-  }
-}
+for (const { name, fn } of queue) await runTest(name, fn);
 
-console.log(`\n${passed} passed, ${failures.length} failed, ${passed + failures.length} total`);
-if (failures.length > 0) {
-  console.error(`Failed cases: ${failures.join(' | ')}`);
-  process.exit(1);
-}
+finishTotals();

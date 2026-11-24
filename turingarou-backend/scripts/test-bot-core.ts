@@ -6,52 +6,9 @@ import { BotDirector, CANNED, DirectorRoom, silenceMs, tableScale } from '../src
 import { buildGameContext, stableBucket, visibleMessages, BotView } from '../src/game/botContext.js';
 import { answerPrompt, decisionPrompt, systemPrompt, votePrompt, PromptIdentity } from '../src/game/botPrompts.js';
 import { getInspectorPromptContent, getRandomAIPlayerStrategy } from '../src/game/StrategyLoader.js';
-import { Clock } from '../src/game/clock.js';
 import { ChatProvider, ChatRequest, ChatResult } from '../src/llm/chatClient.js';
 import type { GameFormat, GameMessage, GameRoomState } from '../src/types/game.types.js';
-
-let passed = 0;
-const failures: string[] = [];
-async function test(name: string, fn: () => Promise<void> | void): Promise<void> {
-  try {
-    await fn();
-    passed++;
-    console.log(`✅ ${name}`);
-  } catch (err) {
-    failures.push(name);
-    console.log(`❌ ${name}\n   ${err instanceof Error ? err.message : String(err)}`);
-  }
-}
-
-// ---- manual clock: timers fire only when the test advances time ----
-class ManualClock implements Clock {
-  t = 1_000_000;
-  private seq = 0;
-  private timers = new Map<number, { at: number; fn: () => void }>();
-  now = () => this.t;
-  setTimeout = (fn: () => void, ms: number) => {
-    const id = ++this.seq;
-    this.timers.set(id, { at: this.t + Math.max(0, ms), fn });
-    return id;
-  };
-  clearTimeout = (id: unknown) => {
-    this.timers.delete(id as number);
-  };
-  async advance(ms: number): Promise<void> {
-    const end = this.t + ms;
-    for (;;) {
-      await new Promise<void>((r) => setImmediate(r));
-      let next: [number, { at: number; fn: () => void }] | null = null;
-      for (const e of this.timers) if (e[1].at <= end && (!next || e[1].at < next[1].at || (e[1].at === next[1].at && e[0] < next[0]))) next = e;
-      if (!next) break;
-      this.timers.delete(next[0]);
-      this.t = next[1].at;
-      next[1].fn();
-    }
-    this.t = end;
-    await new Promise<void>((r) => setImmediate(r));
-  }
-}
+import { finishPassed, ManualClock, test } from './testkit.js';
 
 // ---- provider whose calls resolve only when the test says so ----
 class DeferredProvider implements ChatProvider {
@@ -70,7 +27,8 @@ class DeferredProvider implements ChatProvider {
 const format: GameFormat = { maxPlayers: 8, humanCount: 5, aiCount: 3, questionSec: 20, discussionSec: 100, voteSec: 30, maxRounds: 7, language: 'fr' };
 
 function setup(rng: () => number = () => 0.5) {
-  const clock = new ManualClock();
+  // start near zero and flush setImmediate: the bot continuations must run between two due timers.
+  const clock = new ManualClock({ start: 1_000_000, flush: true });
   const provider = new DeferredProvider();
   const state: GameRoomState = {
     roomId: 'r',
@@ -583,5 +541,4 @@ await test('pauses scale with the table: 1 at 8 or more players, 8/n below, neve
   assert.equal(silenceMs(5), 19200);
 });
 
-console.log(`\n${passed} passed, ${failures.length} failed`);
-if (failures.length > 0) process.exit(1);
+finishPassed();

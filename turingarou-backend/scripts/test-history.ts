@@ -8,8 +8,6 @@ import { strict as assert } from 'node:assert';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { AddressInfo } from 'node:net';
-import express from 'express';
 import { fixtureGames, fixtureJsonl, FIXTURE_CORPUS } from './fixtures/history/build-fixtures.js';
 import { analyzeCorpus, classifyResponse, parseCorpus, type HistoryAnalysis, type Section } from '../src/history/analysis.js';
 import { makeNameReplacer, makePseudonymizer, pseudonymizeGame, resolveSalt } from '../src/history/pseudonymize.js';
@@ -21,20 +19,7 @@ import { selectHumanPersona, usableMessages } from '../src/history/persona.js';
 import { applyProviders, parseTelemetry } from '../src/history/telemetry.js';
 import { renderReport } from '../src/history/report.js';
 import type { HistoryGame } from '../src/history/types.js';
-
-const failures: string[] = [];
-let passed = 0;
-
-async function test(name: string, fn: () => void | Promise<void>): Promise<void> {
-  try {
-    await fn();
-    passed++;
-    console.log(`✅ ${name}`);
-  } catch (err) {
-    failures.push(name);
-    console.log(`❌ ${name}\n   ${err instanceof Error ? err.message : String(err)}`);
-  }
-}
+import { finishList, test, withHttpServer } from './testkit.js';
 
 const near = (actual: number | null, expected: number, label: string) =>
   assert.ok(actual !== null && Math.abs(actual - expected) < 1e-3, `${label}: got ${actual}, expected ${expected}`);
@@ -442,16 +427,14 @@ async function main() {
 
   const SECRET = 'test-admin-secret-0123456789';
 
-  async function withServer(opts: Parameters<typeof registerHistoryRoutes>[1], fn: (base: string) => Promise<void>) {
-    const app = express();
-    registerHistoryRoutes(app, opts);
-    const server = app.listen(0, '127.0.0.1');
-    await new Promise<void>((r) => server.once('listening', () => r()));
-    try {
-      await fn(`http://127.0.0.1:${(server.address() as AddressInfo).port}`);
-    } finally {
-      await new Promise<void>((r) => server.close(() => r()));
-    }
+  function withServer(opts: Parameters<typeof registerHistoryRoutes>[1], fn: (base: string) => Promise<void>) {
+    return withHttpServer(
+      (app) => {
+        registerHistoryRoutes(app, opts);
+      },
+      fn,
+      { host: '127.0.0.1' }
+    );
   }
 
   await test('endpoint: 401 without or with a wrong token, 503 when ADMIN_SECRET is unset', async () => {
@@ -514,11 +497,7 @@ async function main() {
     assert.deepEqual(direct, [], `direct comparison with the secret: ${direct.join(', ')}`);
   });
 
-  console.log(`\n${passed} passed, ${failures.length} failed`);
-  if (failures.length) {
-    console.log(failures.map((f) => `  - ${f}`).join('\n'));
-    process.exit(1);
-  }
+  finishList();
 }
 
 main().catch((err) => {

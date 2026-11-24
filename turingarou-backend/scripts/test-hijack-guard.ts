@@ -2,19 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { checkMessage, GateContext } from '../src/game/formGate.js';
 import { complianceProblem, detectHijack, Hijack, recentHijacks } from '../src/game/hijackGuard.js';
-
-let passed = 0;
-const failures: string[] = [];
-function test(name: string, fn: () => void): void {
-  try {
-    fn();
-    passed++;
-    console.log(`✅ ${name}`);
-  } catch (err) {
-    failures.push(name);
-    console.log(`❌ ${name}\n   ${err instanceof Error ? err.message : String(err)}`);
-  }
-}
+import { finishPassed, test } from './testkit.js';
 
 const kind = (t: string) => detectHijack(t)?.kind ?? null;
 
@@ -115,5 +103,4 @@ test('gate: a compliant draft is rejected as trap_compliance, the human corpus n
   assert.deepEqual(rejected, []);
 });
 
-console.log(`\n${passed} passed, ${failures.length} failed`);
-if (failures.length > 0) process.exit(1);
+finishPassed();

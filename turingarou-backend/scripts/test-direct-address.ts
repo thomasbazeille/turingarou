@@ -1,16 +1,6 @@
 import assert from 'node:assert/strict';
 import { addressedTo } from '../src/game/directAddress.js';
-
-let failures = 0;
-const check = (name: string, fn: () => void) => {
-  try {
-    fn();
-    console.log(`  ✓ ${name}`);
-  } catch (e: any) {
-    failures++;
-    console.log(`  ✗ ${name} — ${e.message}`);
-  }
-};
+import { check, finishGreen } from './testkit.js';
 
 check('nom en mot entier = direct', () => assert.equal(addressedTo('lucas tu en penses quoi', 'Lucas').direct, true));
 check('nom avec accent, saisi sans accent', () => assert.equal(addressedTo('helene t ou', 'Hélène').direct, true));
@@ -23,5 +13,4 @@ check('vocabulaire IA sans cible = non', () => assert.deepEqual(addressedTo("y a
 check('réponse au joueur sans accusation = non', () => assert.equal(addressedTo('mdr trop bien', 'Lucas', { repliesToPlayer: true }).direct, false));
 check('suspicion nommée = accusation', () => assert.equal(addressedTo('je trouve emma louche', 'Emma').accusation, true));
 
-console.log(failures ? `\n${failures} échec(s)` : '\nTout est vert');
-process.exit(failures ? 1 : 0);
+finishGreen();

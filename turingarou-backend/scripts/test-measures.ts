@@ -17,20 +17,7 @@ import {
   VOTE_REASONS,
 } from '../src/game/measures.js';
 import { styleReferencePlayers, updateHumanProfiles, writeHumanProfiles, type GameLogData, type Queryable } from '../src/game/GameLogger.js';
-
-const failures: string[] = [];
-let passed = 0;
-
-async function test(name: string, fn: () => void | Promise<void>): Promise<void> {
-  try {
-    await fn();
-    passed++;
-    console.log(`✅ ${name}`);
-  } catch (err) {
-    failures.push(name);
-    console.log(`❌ ${name}\n   ${err instanceof Error ? err.message : String(err)}`);
-  }
-}
+import { finishTotals, test } from './testkit.js';
 
 class RecordingClient implements Queryable {
   calls: { text: string; values: unknown[] }[] = [];
@@ -149,11 +136,7 @@ async function main(): Promise<void> {
     await updateHumanProfiles(game());
   });
 
-  console.log(`\n${passed} passed, ${failures.length} failed, ${passed + failures.length} total`);
-  if (failures.length > 0) {
-    console.error(`Failed cases: ${failures.join(' | ')}`);
-    process.exit(1);
-  }
+  finishTotals();
 }
 
 main();

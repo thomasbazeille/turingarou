@@ -5,74 +5,18 @@
  *   npx tsx scripts/test-round.ts
  */
 import assert from 'node:assert/strict';
-import { DISCUSSION_PHASE_MS, GameRoom, QUESTION_MIN_MS, QUESTION_PHASE_MS, RoomEmitter } from '../src/game/GameRoom.js';
-import type { ChatProvider } from '../src/llm/chatClient.js';
+import { DISCUSSION_PHASE_MS, type GameRoom, QUESTION_MIN_MS, QUESTION_PHASE_MS } from '../src/game/GameRoom.js';
 import { makeSeededRng } from '../src/game/humanTiming.js';
-
-let failures = 0;
-const check = async (name: string, fn: () => void | Promise<void>) => {
-  try {
-    await fn();
-    console.log(`  ✓ ${name}`);
-  } catch (e: any) {
-    failures++;
-    console.log(`  ✗ ${name} — ${e.message}`);
-  }
-};
-
-class ManualClock {
-  t = 1_800_000_000_000;
-  private seq = 0;
-  private timers = new Map<number, { at: number; fn: () => void }>();
-  now = (): number => this.t;
-  setTimeout = (fn: () => void, ms: number): number => {
-    this.timers.set(++this.seq, { at: this.t + Math.max(0, ms), fn });
-    return this.seq;
-  };
-  clearTimeout = (h: unknown): void => {
-    this.timers.delete(h as number);
-  };
-  /** Fires every timer due within ms, in order, then lands exactly ms later. */
-  advance(ms: number): void {
-    const end = this.t + ms;
-    for (;;) {
-      let next: [number, { at: number; fn: () => void }] | null = null;
-      for (const e of this.timers) if (e[1].at <= end && (!next || e[1].at < next[1].at || (e[1].at === next[1].at && e[0] < next[0]))) next = e;
-      if (!next) break;
-      this.timers.delete(next[0]);
-      this.t = next[1].at;
-      next[1].fn();
-    }
-    this.t = end;
-  }
-}
-
-// Bots answer SKIP and their decisions fail to parse: every answer, line and vote below is placed by the test.
-const quietModel: ChatProvider = {
-  name: 'Fake/quiet',
-  model: 'quiet',
-  supportsJson: true,
-  chat: async () => ({ text: 'SKIP', finishReason: 'stop', latencyMs: 1, provider: 'Fake/quiet', model: 'quiet' }),
-};
+import { check, finishGreen, ManualClock, payloadEmits, testRoomWithHumans } from './testkit.js';
 
 async function started(roomId: string) {
   const clock = new ManualClock();
-  const emits: Record<string, any>[] = [];
-  const io: RoomEmitter = { to: () => ({ emit: (event: string, payload: unknown) => (event === 'gameState' ? emits.push(payload as Record<string, any>) : 0) }) };
-  const pool = ['ana', 'ben', 'cleo', 'dan', 'eva', 'fred', 'gina', 'hugo', 'ivy', 'jo'];
-  const used = new Set<string>();
-  const room = new GameRoom(roomId, io, [quietModel], 3, {
-    clock,
-    rng: makeSeededRng(11),
-    names: { add: (n) => used.add(n), pick: (ex) => pool.find((n) => !used.has(n) && !ex.includes(n)) ?? 'zed' },
-    strategies: { aiPlayer: async () => ({ name: 'test', content: 'play' }), inspector: async () => 'inspect' },
-    persistence: { saveGameLog: async () => {}, updateHumanProfiles: async () => {}, saveMessageFlag: async () => {}, saveGameFeedback: async () => {}, getRandomHumanProfile: async () => null },
-    log: () => {},
-  });
-  for (let i = 0; i < 5; i++) await room.addHumanPlayer(`${roomId}-sock-${i}`, `h${i}`, 'fr');
-  assert.equal(room.getState().phase, 'question', 'the room did not start');
-  const ids = () => room.getState().players.filter((p) => !p.isEliminated).map((p) => p.id);
-  return { room, clock, emits, ids, last: () => emits[emits.length - 1] };
+  const { io, emits } = payloadEmits();
+  // Seed 11, the 10-name pool and the first-free picker: the other builders differ, this one keeps these.
+  const r = await testRoomWithHumans(roomId, io, { clock, rng: makeSeededRng(11), humans: 5 });
+  assert.equal(r.room.getState().phase, 'question', 'the room did not start');
+  const ids = () => r.room.getState().players.filter((p) => !p.isEliminated).map((p) => p.id);
+  return { ...r, clock, emits, ids, last: () => emits[emits.length - 1] };
 }
 
 async function atVote(roomId: string) {
@@ -278,5 +222,4 @@ await check('one answer missing: no early end, the question runs its full time',
   assert.equal(room.getState().phase, 'discussion');
 });
 
-console.log(failures ? `\n${failures} échec(s)` : '\nTout est vert');
-process.exit(failures ? 1 : 0);
+finishGreen();
