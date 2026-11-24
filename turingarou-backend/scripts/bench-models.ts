@@ -17,6 +17,7 @@ import { pathToFileURL } from 'url';
 import dotenv from 'dotenv';
 import { AIPlayer, OwnAnswer } from '../src/game/AIPlayer.js';
 import { drawStyleProfile, AISpeechEvent } from '../src/game/aiSpeech.js';
+import { makeSeededRng } from '../src/game/humanTiming.js';
 import { getQuestionsForLanguage } from '../src/game/QuestionBank.js';
 import type { HumanPersona } from '../src/game/GameLogger.js';
 import { ChatProvider, ChatRequest, ChatResult, ProviderError } from '../src/llm/chatClient.js';
@@ -209,22 +210,11 @@ const SITUATIONS: Situation[] = [
   },
 ];
 
-function mulberry32(seed: number): () => number {
-  return () => {
-    seed |= 0;
-    seed = (seed + 0x6d2b79f5) | 0;
-    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 // ---------- one situation ----------
 type Outcome = 'message' | 'regen_message' | 'silent' | 'regen_silent' | 'dropped' | 'failed' | 'skip';
 interface SituationResult {
   provider: string;
   situation: string;
-  lang: string;
   kind: Kind;
   outcome: Outcome;
   text: string | null;
@@ -248,7 +238,7 @@ async function runSituation(s: Situation, idx: number, provider: Metered, strate
     messageHistory: messages.filter((m) => m.playerId === 'ai-bench'),
   };
   const events: AISpeechEvent[] = [];
-  const profile = drawStyleProfile(mulberry32(idx + 1));
+  const profile = drawStyleProfile(makeSeededRng(idx + 1));
   const ai = new AIPlayer(data, provider, strategies[idx % strategies.length], s.persona ? PERSONAS[s.lang] : null, {
     pool: [provider],
     profile,
@@ -260,7 +250,7 @@ async function runSituation(s: Situation, idx: number, provider: Metered, strate
   const started = Date.now();
   const gateReasons = () => events.filter((e) => e.kind === 'gate_regen' || e.kind === 'gate_drop' || e.kind === 'answer_drop').map((e) => e.reason ?? '?');
   const firstTry = () => events.find((e) => e.kind === 'gate_regen')?.detail;
-  const base = { provider: provider.name, situation: s.id, lang: s.lang, kind: s.kind };
+  const base = { provider: provider.name, situation: s.id, kind: s.kind };
 
   if (s.kind === 'answer') {
     const text = await ai.answerQuestion(s.question, s.ownAnswers ?? []);
