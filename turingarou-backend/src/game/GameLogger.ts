@@ -333,6 +333,15 @@ export async function initDB(): Promise<void> {
   console.log('[GameLogger] Postgres DB ready');
 }
 
+/** One row, columns named by its keys, values in the same order; an existing row is left as it is. */
+function insertRow(db: Queryable, table: string, row: Record<string, unknown>): Promise<unknown> {
+  const cols = Object.keys(row);
+  return db.query(
+    `INSERT INTO ${table} (${cols.join(', ')}) VALUES (${cols.map((_, i) => `$${i + 1}`).join(', ')}) ON CONFLICT DO NOTHING`,
+    Object.values(row)
+  );
+}
+
 // ─── Persona ──────────────────────────────────────────────────────────────────
 
 /**
@@ -427,12 +436,14 @@ export async function saveGameLog(data: GameLogData): Promise<void> {
 
       // players
       for (const p of data.players) {
-        await db.query(
-          `INSERT INTO game_players (game_id, player_name, player_type, strategy, eliminated, eliminated_round)
-           VALUES ($1, $2, $3, $4, $5, $6)
-           ON CONFLICT DO NOTHING`,
-          [data.gameId, p.name, p.type, p.strategy ?? null, p.eliminated ? 1 : 0, p.eliminatedRound ?? null]
-        );
+        await insertRow(db, 'game_players', {
+          game_id: data.gameId,
+          player_name: p.name,
+          player_type: p.type,
+          strategy: p.strategy ?? null,
+          eliminated: p.eliminated ? 1 : 0,
+          eliminated_round: p.eliminatedRound ?? null,
+        });
       }
 
       for (const p of data.players) {
@@ -447,69 +458,80 @@ export async function saveGameLog(data: GameLogData): Promise<void> {
       const voice = data.voice;
       for (const p of voice ? data.players.filter((pl) => pl.type === 'human') : []) {
         const clips = p.pttClips ?? 0;
-        await db.query(
-          `INSERT INTO player_voice (game_id, player_name, voice_enabled, ptt_enabled, used_ptt, ptt_clips) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING`,
-          [data.gameId, p.name, voice?.tts ? 1 : 0, voice?.stt ? 1 : 0, clips > 0 ? 1 : 0, clips]
-        );
+        await insertRow(db, 'player_voice', {
+          game_id: data.gameId,
+          player_name: p.name,
+          voice_enabled: voice?.tts ? 1 : 0,
+          ptt_enabled: voice?.stt ? 1 : 0,
+          used_ptt: clips > 0 ? 1 : 0,
+          ptt_clips: clips,
+        });
       }
 
       // rounds
       for (const r of data.rounds) {
         if (r.question) {
-          await db.query(
-            `INSERT INTO round_questions (game_id, round, question) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
-            [data.gameId, r.round, r.question]
-          );
+          await insertRow(db, 'round_questions', { game_id: data.gameId, round: r.round, question: r.question });
         }
         for (const a of r.answers) {
-          await db.query(
-            `INSERT INTO round_answers (game_id, round, player_name, player_type, answer) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING`,
-            [data.gameId, r.round, a.player, a.type, a.answer]
-          );
+          await insertRow(db, 'round_answers', {
+            game_id: data.gameId,
+            round: r.round,
+            player_name: a.player,
+            player_type: a.type,
+            answer: a.answer,
+          });
         }
         for (const v of r.votes) {
-          await db.query(
-            `INSERT INTO round_votes (game_id, round, voter, target) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
-            [data.gameId, r.round, v.voter, v.target]
-          );
+          await insertRow(db, 'round_votes', { game_id: data.gameId, round: r.round, voter: v.voter, target: v.target });
         }
         for (const a of r.abstentions ?? []) {
-          await db.query(
-            `INSERT INTO round_abstentions (game_id, round, voter, explicit) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
-            [data.gameId, r.round, a.voter, a.explicit ? 1 : 0]
-          );
+          await insertRow(db, 'round_abstentions', {
+            game_id: data.gameId,
+            round: r.round,
+            voter: a.voter,
+            explicit: a.explicit ? 1 : 0,
+          });
         }
         for (const v of r.reasons ?? []) {
-          await db.query(
-            `INSERT INTO vote_reasons (game_id, round, voter, reason) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
-            [data.gameId, r.round, v.voter, v.reason]
-          );
+          await insertRow(db, 'vote_reasons', { game_id: data.gameId, round: r.round, voter: v.voter, reason: v.reason });
         }
         if (r.eliminated) {
-          await db.query(
-            `INSERT INTO round_eliminations (game_id, round, player_name, is_ai) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
-            [data.gameId, r.round, r.eliminated.name, r.eliminated.isAI ? 1 : 0]
-          );
+          await insertRow(db, 'round_eliminations', {
+            game_id: data.gameId,
+            round: r.round,
+            player_name: r.eliminated.name,
+            is_ai: r.eliminated.isAI ? 1 : 0,
+          });
         }
       }
 
       // messages
       for (const m of data.messages) {
-        await db.query(
-          `INSERT INTO messages (game_id, round, player_name, player_type, content, ts, message_id, reply_to)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-           ON CONFLICT DO NOTHING`,
-          [data.gameId, m.round, m.player, m.type, m.content, m.timestamp, m.id ?? null, m.replyToId ?? null]
-        );
+        await insertRow(db, 'messages', {
+          game_id: data.gameId,
+          round: m.round,
+          player_name: m.player,
+          player_type: m.type,
+          content: m.content,
+          ts: m.timestamp,
+          message_id: m.id ?? null,
+          reply_to: m.replyToId ?? null,
+        });
       }
 
       for (const i of data.lineInputs ?? []) {
-        await db.query(
-          `INSERT INTO message_inputs (game_id, round, player_name, ts, via, pasted, typing_ms, chars, ms_per_char)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-           ON CONFLICT DO NOTHING`,
-          [data.gameId, i.round, i.player, i.timestamp, i.via, i.pasted ? 1 : 0, i.typingMs, i.chars, i.msPerChar]
-        );
+        await insertRow(db, 'message_inputs', {
+          game_id: data.gameId,
+          round: i.round,
+          player_name: i.player,
+          ts: i.timestamp,
+          via: i.via,
+          pasted: i.pasted ? 1 : 0,
+          typing_ms: i.typingMs,
+          chars: i.chars,
+          ms_per_char: i.msPerChar,
+        });
       }
     });
     console.log(`[GameLogger] Game ${data.gameId} saved to DB`);
@@ -545,20 +567,14 @@ export async function writeHumanProfiles(db: Queryable, data: GameLogData): Prom
     for (const m of data.messages.filter((msg) => msg.player === p.name)) {
       const trimmed = m.content.trim();
       if (trimmed) {
-        await db.query(
-          `INSERT INTO human_messages (username, content) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-          [p.name, trimmed]
-        );
+        await insertRow(db, 'human_messages', { username: p.name, content: trimmed });
       }
     }
 
     for (const r of data.rounds) {
       const ans = r.answers.find((a) => a.player === p.name);
       if (ans?.answer.trim()) {
-        await db.query(
-          `INSERT INTO human_answers (username, question, answer) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
-          [p.name, r.question, ans.answer.trim()]
-        );
+        await insertRow(db, 'human_answers', { username: p.name, question: r.question, answer: ans.answer.trim() });
       }
     }
   }
