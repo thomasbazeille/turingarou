@@ -85,7 +85,6 @@ const QUESTIONS_EN_POOL = [
   "What color are your shoes right now?",
   "Are you sitting or standing?",
   "Describe what you see out your window",
-  "What's the weather like at your place?",
   "Are your hands cold or warm right now?",
   "What are you wearing today?",
   "Where are you physically right now?",

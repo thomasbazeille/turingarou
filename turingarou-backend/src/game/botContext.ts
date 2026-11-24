@@ -91,8 +91,11 @@ export function visibleMessages(messages: readonly GameMessage[], self: { id: st
   });
 }
 
+// Players are mostly in France: without this, a bot wishes a good day at 11 pm or guesses the weekday wrong.
+const PARIS_TIME = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Paris', weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+
 export function buildGameContext(view: BotView, self: { id: string; name: string; role: BotRole }): string {
-  let context = `# GAME CONTEXT - Round ${view.round}\n\nCurrent phase: ${view.phase}\n\n`;
+  let context = `# GAME CONTEXT - Round ${view.round}\n\nNow, Paris time: ${PARIS_TIME.format(view.now)}\nCurrent phase: ${view.phase}\n\n`;
 
   if (view.eliminatedNames.length > 0) {
     context += `## Eliminated (out of the game, ignore them): ${view.eliminatedNames.join(', ')}\n`;
