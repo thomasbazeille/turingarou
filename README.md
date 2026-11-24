@@ -40,6 +40,8 @@ Every push to `main` runs `.github/workflows/deploy-railway.yml`: build + server
 | `DEEPSEEK_API_KEY` | Deepseek API key |
 | `MISTRAL_API_KEY` | Mistral API key |
 | `ANTHROPIC_API_KEY` | Anthropic API key |
+| `CEREBRAS_API_KEY` | Cerebras API key |
+| `LLM_POOL` | Weighted model pool, e.g. `cerebras-qwen:3,anthropic-haiku:2,cerebras-gpt-oss:1,deepseek:1` (ids in `turingarou-backend/src/llm/providerRegistry.ts`) |
 | `AI_COUNT` | Number of AI players per game (default: 3) |
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` — reference to the project's Postgres |
 | `FRONTEND_URL` | Socket.io CORS origin for the GitHub Pages copy (`https://thomasbazeille.github.io`) |

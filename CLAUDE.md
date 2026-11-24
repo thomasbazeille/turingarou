@@ -86,7 +86,9 @@ src/llm/                (Deepseek / Mistral / Anthropic adapters)
 - `turingarou-backend/scripts/tells-knowledge.md` — auto-maintained AI detection knowledge base
 
 ### Configuration
-- `DEEPSEEK_API_KEY`, `MISTRAL_API_KEY`, `ANTHROPIC_API_KEY` — LLM providers (all configured ones are used; each AI picks at random per game)
+- `LLM_POOL` — `id[:weight],…` over the catalogue in `src/llm/providerRegistry.ts`; each AI draws one per game, weighted. An entry whose key is missing is skipped with a warning; with no usable entry the default pool (`deepseek`, `mistral-small`, `anthropic-haiku`) is used with whichever keys exist. `/health` lists the live pool (`llmProviders`)
+- `DEEPSEEK_API_KEY`, `MISTRAL_API_KEY`, `ANTHROPIC_API_KEY`, `CEREBRAS_API_KEY` (also `GROQ_`, `GEMINI_`, `OPENAI_`) — provider keys, used only through the pool
+- `ANTHROPIC_WORKSPACE_ID` — only for an organisation key that needs the `anthropic-workspace-id` header. Paired with any other key, every Anthropic call returns 404 and the AI silently falls back to another provider
 - `AI_COUNT` — number of AI players per game (default: 3)
 - `DATABASE_URL` — Postgres connection string. Set by Railway in prod (`${{Postgres.DATABASE_URL}}`); optional locally — without it the game runs and nothing is persisted
 - `VOICE_ENABLED=1` + `CARTESIA_API_KEY` + `DEEPGRAM_API_KEY` — optional voice mode (`src/voice/`): every chat line spoken in its author's assigned voice, push-to-talk transcribed into a normal chat line. Off when unset. Other vendors: `VOICE_TTS_PROVIDER` (`cartesia`|`elevenlabs`|`openai`|`gradium`), `VOICE_STT_PROVIDER` (`deepgram`|`openai`|`gradium`). `GRADIUM_API_KEY` — Gradium for both (client records WAV; voice pool read from its catalogue at boot). Live check: `npx tsx scripts/probe-voice.ts`
