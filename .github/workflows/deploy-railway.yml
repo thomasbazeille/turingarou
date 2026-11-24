@@ -8,7 +8,8 @@
 #   1. Railway dashboard → project `turingarou` → Settings → Tokens →
 #      Create a Project Token (environment: production).
 #   2. GitHub → repo settings → Secrets and variables → Actions →
-#      New repository secret RAILWAY_TOKEN = <the token from step 1>.
+#      New repository secret RAILWAY_PROD_TOKEN_TUR = <the token from step 1>.
+#      The deploy step hands it to the CLI as RAILWAY_TOKEN.
 #
 # The `checks` job also runs on pull requests, so the signal is visible
 # before merge. It reproduces CLAUDE.md's mandatory verification: build, boot
@@ -73,5 +74,12 @@ jobs:
         run: echo "${GITHUB_SHA}" > turingarou-backend/version.txt
       - name: Deploy to Railway
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        run: npx -y @railway/cli@latest up --service turingarou --detach
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_PROD_TOKEN_TUR }}
+        # Pinned: from v5.3.0, `railway up` with a project token fails in CI with
+        # "Not signed in" (https://station.railway.com/questions/cli-v5-3-0-railway-up-fails-with-no-1b04e9fc).
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "::error::Secret RAILWAY_PROD_TOKEN_TUR is empty or missing: set it in repo Settings → Secrets and variables → Actions (Railway project token, environment production)"
+            exit 1
+          fi
+          npx -y @railway/cli@5.2.0 up --service turingarou --detach

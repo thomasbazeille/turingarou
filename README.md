@@ -31,7 +31,7 @@ cd turingarou-backend && node test-client.js
 
 ## Deploy to production (Railway)
 
-Every push to `main` runs `.github/workflows/deploy-railway.yml`: build + server boot + test client, then `railway up --service turingarou`. CI red ⇒ nothing ships. Build and start commands live in `railway.json`. The workflow needs a `RAILWAY_TOKEN` repository secret (Railway project token, environment production).
+Every push to `main` runs `.github/workflows/deploy-railway.yml`: build + server boot + test client, then `railway up --service turingarou`. CI red ⇒ nothing ships. Build and start commands live in `railway.json`. The workflow needs a `RAILWAY_PROD_TOKEN_TUR` repository secret (Railway project token, environment production), passed to the CLI as `RAILWAY_TOKEN`; the CLI is pinned to 5.2.0.
 
 ### Env vars (Railway service `turingarou`)
 
