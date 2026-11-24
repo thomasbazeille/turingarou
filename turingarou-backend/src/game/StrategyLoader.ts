@@ -52,10 +52,6 @@ export async function getRandomAIPlayerStrategy(playerName?: string): Promise<St
   return chosen;
 }
 
-export function getAllStrategyNames(): string[] {
-  return STRATEGY_FILES.map((s) => s.name);
-}
-
 let cachedInspectorPrompt: string | null = null;
 
 export async function getInspectorPromptContent(): Promise<string> {
