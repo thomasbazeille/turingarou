@@ -7,7 +7,7 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #000; color: #fff; overflow: hidden; }
-    .screen { display: none; width: 100vw; height: 100vh; height: 100svh; }
+    .screen { display: none; width: 100%; height: 100%; }
     .screen.active { display: flex; }
 
     /* Force scrollbar to always show */
@@ -19,7 +19,7 @@
 
     /* WAITING ROOM */
     .waiting-room { flex-direction: column; align-items: center; justify-content: flex-start; background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 15px; overflow-y: auto; position: relative; }
-    .ai-silhouette { position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); pointer-events: none; z-index: 0; width: clamp(220px, 52vw, 340px); opacity: 1; filter: drop-shadow(0 0 28px rgba(6,182,212,0.22)); }
+    .ai-silhouette { position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); pointer-events: none; z-index: 0; width: clamp(220px, 52cqw, 340px); opacity: 1; filter: drop-shadow(0 0 28px rgba(6,182,212,0.22)); }
     .waiting-title { font-size: 40px; color: #06b6d4; margin: 15px 0 8px; text-align: center; text-shadow: 0 0 20px rgba(6,182,212,0.6); line-height: 1.2; }
     .waiting-subtitle { font-size: 15px; color: #94a3b8; margin-bottom: 20px; font-style: italic; }
     .player-setup { background: rgba(15,23,42,0.9); border: 1px solid rgba(6,182,212,0.3); border-radius: 10px; padding: 18px; max-width: 420px; width: 100%; margin-bottom: 18px; }
@@ -210,7 +210,7 @@
     .replay-tag.human { color: #22c55e; }
     .replay-quote { color: #64748b; margin-right: 4px; }
     .replay-out { color: #94a3b8; margin-top: 4px; }
-    @media (max-width: 600px) { .reveal-grid { grid-template-columns: repeat(2, 1fr); } }
+    @container (max-width: 600px) { .reveal-grid { grid-template-columns: repeat(2, 1fr); } }
     @media (prefers-reduced-motion: reduce) { .reveal-card { animation: none; opacity: 1; } }
     /* Connection notice, shown to this player only */
     .conn-toast { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(24,24,27,0.92); border: 1px solid rgba(34,197,94,0.45); color: #86efac; font-size: 11px; padding: 5px 12px; border-radius: 5px; z-index: 3000; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
@@ -221,17 +221,17 @@
     @keyframes ai-sneak {
       0%   { transform: translateX(-320px) translateY(0px)   rotate(-10deg) scaleX(-1); opacity:0; }
       4%   { opacity: 0.28; }
-      10%  { transform: translateX(calc(-320px + 10vw))  translateY(-14px) rotate(-9deg)  scaleX(-1); }
-      20%  { transform: translateX(calc(-320px + 20vw))  translateY(0px)   rotate(-10deg) scaleX(-1); }
-      30%  { transform: translateX(calc(-320px + 30vw))  translateY(-14px) rotate(-9deg)  scaleX(-1); }
-      40%  { transform: translateX(calc(-320px + 40vw))  translateY(0px)   rotate(-10deg) scaleX(-1); }
-      50%  { transform: translateX(calc(-320px + 50vw))  translateY(-14px) rotate(-9deg)  scaleX(-1); }
-      60%  { transform: translateX(calc(-320px + 60vw))  translateY(0px)   rotate(-10deg) scaleX(-1); }
-      70%  { transform: translateX(calc(-320px + 70vw))  translateY(-14px) rotate(-9deg)  scaleX(-1); }
-      80%  { transform: translateX(calc(-320px + 80vw))  translateY(0px)   rotate(-10deg) scaleX(-1); }
-      90%  { transform: translateX(calc(-320px + 90vw))  translateY(-14px) rotate(-9deg)  scaleX(-1); opacity:0.28; }
+      10%  { transform: translateX(calc(-320px + 10cqw))  translateY(-14px) rotate(-9deg)  scaleX(-1); }
+      20%  { transform: translateX(calc(-320px + 20cqw))  translateY(0px)   rotate(-10deg) scaleX(-1); }
+      30%  { transform: translateX(calc(-320px + 30cqw))  translateY(-14px) rotate(-9deg)  scaleX(-1); }
+      40%  { transform: translateX(calc(-320px + 40cqw))  translateY(0px)   rotate(-10deg) scaleX(-1); }
+      50%  { transform: translateX(calc(-320px + 50cqw))  translateY(-14px) rotate(-9deg)  scaleX(-1); }
+      60%  { transform: translateX(calc(-320px + 60cqw))  translateY(0px)   rotate(-10deg) scaleX(-1); }
+      70%  { transform: translateX(calc(-320px + 70cqw))  translateY(-14px) rotate(-9deg)  scaleX(-1); }
+      80%  { transform: translateX(calc(-320px + 80cqw))  translateY(0px)   rotate(-10deg) scaleX(-1); }
+      90%  { transform: translateX(calc(-320px + 90cqw))  translateY(-14px) rotate(-9deg)  scaleX(-1); opacity:0.28; }
       96%  { opacity:0; }
-      100% { transform: translateX(calc(100vw + 320px))  translateY(0px)   rotate(-10deg) scaleX(-1); opacity:0; }
+      100% { transform: translateX(calc(100cqw + 320px))  translateY(0px)   rotate(-10deg) scaleX(-1); opacity:0; }
     }
     @keyframes ai-eye-triumph {
       0%,100% { opacity:1; }
@@ -239,7 +239,7 @@
       60%     { opacity:1; }
     }
     #ai-win-bg { position:absolute; inset:0; pointer-events:none; z-index:0; overflow:hidden; display:none; }
-    #ai-win-figure { position:absolute; bottom:2%; width:clamp(160px,22vw,240px);
+    #ai-win-figure { position:absolute; bottom:2%; width:clamp(160px,22cqw,240px);
       animation: ai-sneak 16s ease-in-out infinite;
       filter: drop-shadow(0 0 18px rgba(239,68,68,0.35)); }
     #ai-win-figure .eye-triumph { animation: ai-eye-triumph 2.2s ease-in-out infinite; }
@@ -280,11 +280,7 @@
     /* ============================================================
        RESPONSIVE MOBILE  (≤ 600px)
        ============================================================ */
-    @media (max-width: 600px) {
-
-      /* --- Viewport height: svh excludes browser chrome bar ---
-         Fallback: 100vh for browsers that don't support svh yet  */
-      .screen { height: 100svh; }
+    @container (max-width: 600px) {
 
       /* --- Hide desktop scrollbars on touch --- */
       ::-webkit-scrollbar { width: 0 !important; height: 0 !important; }
@@ -346,16 +342,16 @@
       .return-home-btn { padding: 10px 18px; font-size: 13px; }
 
       /* --- Clamp large text to prevent overflow at 320px --- */
-      .waiting-title      { font-size: clamp(22px, 7vw, 40px); }
-      .disconnected-title { font-size: clamp(22px, 8vw, 38px); letter-spacing: 1px; }
-      .ai-unplugged       { font-size: clamp(15px, 5vw, 23px); letter-spacing: 1px; }
-      .round-complete     { font-size: clamp(14px, 4vw, 20px); letter-spacing: 1px; }
-      .eliminated-name    { font-size: clamp(18px, 5vw, 24px); }
+      .waiting-title      { font-size: clamp(22px, 7cqw, 40px); }
+      .disconnected-title { font-size: clamp(22px, 8cqw, 38px); letter-spacing: 1px; }
+      .ai-unplugged       { font-size: clamp(15px, 5cqw, 23px); letter-spacing: 1px; }
+      .round-complete     { font-size: clamp(14px, 4cqw, 20px); letter-spacing: 1px; }
+      .eliminated-name    { font-size: clamp(18px, 5cqw, 24px); }
 
       /* --- Vote overlay VOTE text --- */
       #vote-phase-overlay > div {
-        font-size: clamp(40px, 18vw, 72px) !important;
-        letter-spacing: clamp(4px, 2vw, 10px) !important;
+        font-size: clamp(40px, 18cqw, 72px) !important;
+        letter-spacing: clamp(4px, 2cqw, 10px) !important;
       }
 
       /* --- Username overflow in avatar header --- */
@@ -399,7 +395,7 @@
 
     }
     /* Desktop: hide toggle button entirely */
-    @media (min-width: 601px) {
+    @container (min-width: 601px) {
       .chat-toggle-btn { display: none; }
     }
 
@@ -476,10 +472,10 @@
     .feedback-clue { width: 100%; background: rgba(39,39,42,0.8); border: 1px solid rgba(6,182,212,0.3); color: #fff; padding: 8px; border-radius: 6px; font-size: 13px; font-family: inherit; resize: vertical; }
     .feedback-send { margin-top: 6px; background: none; border: 1px solid #06b6d4; color: #06b6d4; border-radius: 6px; padding: 0 16px; min-height: 36px; font-size: 12px; cursor: pointer; }
     .feedback-thanks { color: #22c55e; font-size: 13px; padding: 6px 0; }
-    @media (max-width: 600px) { .vote-choice { flex-basis: 40%; font-size: 15px; } }
+    @container (max-width: 600px) { .vote-choice { flex-basis: 40%; font-size: 15px; } }
 
     /* ---- Staged elimination: vote count, then the name, then human or AI ---- */
-    .vote-tally { width: min(360px, 86vw); margin: 0 auto 14px; display: flex; flex-direction: column; gap: 5px; }
+    .vote-tally { width: min(360px, 86cqw); margin: 0 auto 14px; display: flex; flex-direction: column; gap: 5px; }
     .tally-row { display: grid; grid-template-columns: minmax(70px, 120px) 1fr 24px; align-items: center; gap: 8px; font-size: 13px; color: #e2e8f0; }
     .tally-name { display: flex; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
     .tally-bar { height: 10px; background: rgba(255,255,255,0.08); border-radius: 5px; overflow: hidden; }
@@ -490,7 +486,7 @@
     .eliminated-type { font-size: 13px; font-weight: 900; letter-spacing: 2px; text-align: center; margin-bottom: 9px; min-height: 18px; }
     .stage-hidden { visibility: hidden; }
     .stage-in { animation: fadeIn 0.45s ease-out; }
-    @media (max-width: 600px) {
+    @container (max-width: 600px) {
       #end-round-screen .stats-bar { padding: 50px 20px 4px; }
       #end-round-screen .elimination-content { padding: 6px 20px; }
       #end-round-screen .disconnected-title { margin-bottom: 10px; }
@@ -501,9 +497,25 @@
       .stage-in { animation: none; }
       #endround-peek { animation: none; opacity: 0; }
     }
+  
+    /* The page lives in #app-frame, a size container: the phone layout (@container ≤ 600px) follows its width, not the
+       window's, so a computer can show it in a phone-sized frame. Same size as the window otherwise. */
+    #app-frame { position: relative; width: 100vw; height: 100vh; height: 100svh; container-type: size; overflow: hidden; }
+    body.phone-view { display: flex; align-items: center; justify-content: center; height: 100vh; height: 100svh; background: radial-gradient(circle at 50% 35%, #1e293b 0%, #020617 70%); }
+    body.phone-view #app-frame { width: 410px; height: min(864px, calc(100svh - 32px)); border: 10px solid #0a0a0f; border-radius: 42px; box-shadow: 0 0 0 2px #27272a, 0 30px 80px rgba(0,0,0,0.65); }
+    .phone-view-btn { position: fixed; left: 12px; bottom: 12px; z-index: 10000; width: 36px; height: 36px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.18); background: rgba(15,23,42,0.85); color: #fff; font-size: 17px; line-height: 1; cursor: pointer; opacity: 0.6; transition: opacity 0.2s; }
+    .phone-view-btn:hover, .phone-view-btn:focus-visible { opacity: 1; }
+    @media (max-width: 600px) {
+      .phone-view-btn { display: none; }
+      body.phone-view #app-frame { width: 100vw; height: 100svh; border: 0; border-radius: 0; box-shadow: none; }
+    }
+    .table-choice { display: flex; gap: 10px; justify-content: center; margin-top: 12px; max-width: 420px; width: 100%; }
+    .table-choice label { flex: 1; display: flex; align-items: center; gap: 8px; color: #94a3b8; font-size: 12px; }
+    .table-choice .setup-input { flex: 1; margin: 0; cursor: pointer; }
   </style>
 </head>
 <body>
+<div id="app-frame">
 
   <!-- WAITING ROOM -->
   <div id="waiting-screen" class="screen active waiting-room">
@@ -616,6 +628,10 @@
       <p style="font-size:10px;color:#64748b;margin-top:6px;">One bot will join as a human and try to catch the AIs.</p>
     </div>
     <button class="start-btn" id="start-btn" onclick="startGame()" disabled>ENTER YOUR USERNAME TO START</button>
+    <div class="table-choice" id="table-choice">
+      <label><span id="tc-humans-label">Humans</span><select id="tc-humans" class="setup-input"></select></label>
+      <label><span id="tc-ais-label">AIs</span><select id="tc-ais" class="setup-input"></select></label>
+    </div>
     <button type="button" class="return-home-btn" id="private-btn" onclick="createPrivateRoom()" style="width:100%;max-width:420px;margin-top:12px;" disabled>CREATE A PRIVATE ROOM</button>
   </div>
 
@@ -806,6 +822,8 @@
   </div>
 
   <div id="conn-toast" class="conn-toast" role="status" aria-live="polite"></div>
+</div>
+<button type="button" id="phone-view-btn" class="phone-view-btn" onclick="togglePhoneView()" aria-pressed="false">📱</button>
 
   <!-- Socket.io Client -->
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
@@ -1721,7 +1739,13 @@ window.addEventListener('beforeunload', () => {
 function init(){
 document.getElementById('username-input').oninput=updateLocalPlayer;
 document.getElementById('username-input').onkeydown=function(e){if(e.key==='Enter'){e.preventDefault();startGame();}};
-document.getElementById('lang-select').onchange=function(){refreshHome();renderWaitingRoom();};
+document.getElementById('lang-select').onchange=function(){refreshHome();renderWaitingRoom();applyPhoneView(document.body.classList.contains('phone-view'));};
+fillTableChoice(loadTableChoice());
+document.getElementById('tc-humans').onchange=syncTableChoice;
+document.getElementById('tc-ais').onchange=syncTableChoice;
+let phone=false;
+try{phone=new URLSearchParams(location.search).get('phone')==='1'||localStorage.getItem('tg-phone-view')==='1';}catch(e){}
+applyPhoneView(phone);
 const sc=document.getElementById('style-consent');
 sc.checked=loadStyleConsent();
 sc.onchange=function(){saveStyleConsent(sc.checked);};
@@ -1755,7 +1779,10 @@ if(!playerId)applyPageLanguage(fr);
 const sb=document.getElementById('start-btn');
 if(sb&&!playerId){sb.disabled=!G.ui;sb.textContent=startLabel();}
 const pb=document.getElementById('private-btn');
-if(pb){pb.disabled=!G.ui;pb.textContent=fr?'CRÉER UNE SALLE PRIVÉE (DÈS 3 AMIS)':'CREATE A PRIVATE ROOM (FROM 3 FRIENDS)';}
+const tc=tableChoice();
+if(pb){pb.disabled=!G.ui;pb.textContent=fr?'CRÉER UNE SALLE PRIVÉE ('+tc.humans+' HUMAIN'+(tc.humans>1?'S':'')+' + '+tc.ais+' IA)':'CREATE A PRIVATE ROOM ('+tc.humans+' HUMAN'+(tc.humans>1?'S':'')+' + '+tc.ais+' AI'+(tc.ais>1?'S':'')+')';}
+document.getElementById('tc-humans-label').textContent=fr?'Humains':'Humans';
+document.getElementById('tc-ais-label').textContent=fr?'IA':'AIs';
 const t=fr?NOTICE.fr:NOTICE.en;
 document.getElementById('ai-notice').textContent=t.notice;
 document.getElementById('style-consent-text').textContent=t.styleConsent;
@@ -1852,6 +1879,8 @@ const sb=document.getElementById('start-btn');
 if(sb)sb.style.display=inRoom?'none':'';
 const pb=document.getElementById('private-btn');
 if(pb)pb.style.display=inRoom||inviteCode?'none':'';
+const tcw=document.getElementById('table-choice');
+if(tcw)tcw.style.display=inRoom||inviteCode?'none':'';
 const note=document.getElementById('invite-note');
 if(note)note.style.display=!inRoom&&inviteCode?'block':'none';
 const isPrivate=!!(lobby&&lobby.private);
@@ -1864,7 +1893,9 @@ if(isPrivate){
   const sh=document.getElementById('share-link-btn');
   sh.style.display=navigator.share?'':'none';
   sh.textContent=fr?'Partager':'Share';
-  document.getElementById('room-code-hint').textContent=fr?'Envoie le lien à tes amis : il ouvre directement cette salle.':'Send the link to your friends: it opens this room.';
+  const tb=lobby.table;
+  const auto=tb?(fr?'Départ automatique à '+tb.humans+' humain'+(tb.humans>1?'s':'')+' ('+tb.ais+' IA). ':'Starts by itself at '+tb.humans+' human'+(tb.humans>1?'s':'')+' ('+tb.ais+' AI'+(tb.ais>1?'s':'')+'). '):'';
+  document.getElementById('room-code-hint').textContent=auto+(fr?'Envoie le lien à tes amis : il ouvre directement cette salle.':'Send the link to your friends: it opens this room.');
 }
 renderInviteQr(isPrivate);
 const fresh=document.getElementById('fresh-name-note');
@@ -1931,8 +1962,59 @@ if(!navigator.share)return copyInviteLink();
 navigator.share({title:'Turingarou',text:G.lang==='fr'?'Rejoins ma partie de Turingarou':'Join my Turingarou game',url:inviteLink(roomId)}).catch(function(){});
 }
 
+// Private table set at home: humans awaited and AIs, kept per browser; the server holds the same bounds (parseTableChoice).
+const TABLE_MAX=8;
+let pendingTable=null;
+function tableOk(t){return !!t&&t.humans>=1&&t.ais>=1&&t.humans+t.ais>=3&&t.humans+t.ais<=TABLE_MAX;}
+function loadTableChoice(){
+try{const t=JSON.parse(localStorage.getItem('tg-table')||'null');if(tableOk(t))return {humans:t.humans,ais:t.ais};}catch(e){}
+return {humans:3,ais:2};
+}
+function tableChoice(){
+const hs=document.getElementById('tc-humans'),as=document.getElementById('tc-ais');
+const t={humans:parseInt(hs&&hs.value,10),ais:parseInt(as&&as.value,10)};
+return tableOk(t)?t:loadTableChoice();
+}
+function fillTableChoice(t){
+const hs=document.getElementById('tc-humans'),as=document.getElementById('tc-ais');
+hs.innerHTML='';as.innerHTML='';
+for(let h=1;h<=6;h++)hs.add(new Option(String(h),String(h)));
+for(let a=1;a<TABLE_MAX;a++)as.add(new Option(String(a),String(a)));
+hs.value=String(t.humans);as.value=String(t.ais);
+syncTableChoice();
+}
+/** Only AI counts the server accepts for the humans picked: 3 to TABLE_MAX seats in all. */
+function syncTableChoice(){
+const hs=document.getElementById('tc-humans'),as=document.getElementById('tc-ais');
+const h=parseInt(hs.value,10);
+for(const o of as.options){const n=h+parseInt(o.value,10);o.disabled=n<3||n>TABLE_MAX;}
+const a=Math.min(Math.max(parseInt(as.value,10),3-h),TABLE_MAX-h);
+as.value=String(a);
+try{localStorage.setItem('tg-table',JSON.stringify({humans:h,ais:a}));}catch(e){}
+refreshHome();
+}
+
+// Phone view: on a computer, the page as a phone shows it (phone frame, phone layout, single chat ☰). Kept per browser; ?phone=1 opens it.
+function applyPhoneView(on){
+document.body.classList.toggle('phone-view',on);
+const b=document.getElementById('phone-view-btn');
+if(!b)return;
+const fr=homeFr();
+b.textContent=on?'🖥':'📱';
+b.title=on?(fr?'Revenir à la vue ordinateur':'Back to the desktop view'):(fr?'Vue téléphone':'Phone view');
+b.setAttribute('aria-label',b.title);
+b.setAttribute('aria-pressed',on?'true':'false');
+}
+function togglePhoneView(){
+const on=!document.body.classList.contains('phone-view');
+try{localStorage.setItem('tg-phone-view',on?'1':'0');}catch(e){}
+applyPhoneView(on);
+if(G.s!=='waiting'){try{renderMessages();}catch(e){}}
+}
+
 function createPrivateRoom(){
 if(!G.ui)return;
+pendingTable=tableChoice();
 inviteCode=newRoomCode();
 document.getElementById('room-input').value=inviteCode;
 try{history.replaceState(null,'',inviteLink(inviteCode));}catch(e){}
@@ -1977,7 +2059,9 @@ function startGame(){
     username: username,
     language: lang,
     styleConsent: document.getElementById('style-consent').checked,
-    notice: NOTICE.version
+    notice: NOTICE.version,
+    // Read by the server only when this join creates the private room.
+    table: customRoom && pendingTable ? pendingTable : undefined
   });
   
   // Nettoyer les timeouts quand la connexion réussit
