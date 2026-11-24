@@ -11,20 +11,16 @@ export interface SqlClient {
   query<R extends Record<string, any> = Record<string, any>>(text: string, values?: unknown[]): Promise<{ rows: R[] }>;
   release(err?: Error | boolean): void;
 }
-
-export interface SqlPool {
-  connect(): Promise<SqlClient>;
-}
+export interface SqlPool { connect(): Promise<SqlClient> }
 
 export const BEGIN_READ_ONLY = 'BEGIN READ ONLY';
-const STATEMENT_TIMEOUT = "SET LOCAL statement_timeout = '15s'";
 
 export async function withReadOnly<T>(pool: SqlPool, fn: (client: SqlClient) => Promise<T>): Promise<T> {
   const client = await pool.connect();
   let broken: Error | undefined;
   try {
     await client.query(BEGIN_READ_ONLY);
-    await client.query(STATEMENT_TIMEOUT);
+    await client.query("SET LOCAL statement_timeout = '15s'");
     const out = await fn(client);
     await client.query('COMMIT');
     return out;

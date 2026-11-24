@@ -21,13 +21,11 @@ export interface OpenAICompatConfig {
 /** Visible text of a reply: string content, or the text parts of a content array (Mistral returns thinking parts there). */
 function contentText(content: unknown): string {
   if (typeof content === 'string') return content;
-  if (Array.isArray(content)) {
-    return content
-      .filter((part: any) => part && part.type === 'text' && typeof part.text === 'string')
-      .map((part: any) => part.text)
-      .join('');
-  }
-  return '';
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter((p: any) => p?.type === 'text' && typeof p.text === 'string')
+    .map((p: any) => p.text)
+    .join('');
 }
 
 /** Removes reasoning written inline: complete <think>…</think> blocks, and an unclosed one (its answer never came). */
@@ -65,11 +63,11 @@ export class OpenAICompatProvider implements ChatProvider {
     const timer = setTimeout(() => controller.abort(), req.timeoutMs ?? 8000);
     try {
       const body: Record<string, unknown> = {
-        model: this.config.model,
+        model: this.model,
         messages: req.messages,
         temperature: resolveTemperature(req, this.config.defaultTemperature ?? 1.0, this.config.maxTemperature ?? 2),
         [this.config.maxTokensParam ?? 'max_tokens']: (req.maxTokens ?? 300) + (this.config.reasoningHeadroom ?? 0),
-        ...(this.config.extraBody ?? {}),
+        ...this.config.extraBody,
       };
       if (req.json && this.supportsJson) body.response_format = { type: 'json_object' };
 

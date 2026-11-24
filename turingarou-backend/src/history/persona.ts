@@ -1,14 +1,13 @@
 /**
- * Picks a real human player whose messages serve as a writing-style reference for an AI
+ * Picks a real human player's messages as a writing-style reference for an AI
  * (GameLogger.getRandomHumanProfile → AIPlayer.buildPersonaBlock). Read side only.
  *
- * Reads the messages table (not human_messages) because only it knows each message's game, hence its
- * language and date. Candidates: same language as the game, enough distinct messages, seen recently;
- * the requirements relax in steps (all-time, then 2 messages) but never across languages.
- * Messages naming a player of their own game are dropped: pasted into another game's prompt, a
- * "lucas t'es un bot" would make the AI address someone who is not there.
- * Lines from a game where their author refused to serve as a style example (player_consents.style_examples = 0) are
- * never read. Games from before the home-screen notice have no consent row and stay in the pool: Thomas's call.
+ * Reads messages (not human_messages) because only it knows the message's game, hence language and date.
+ * Candidates share the game's language, have enough distinct recent messages, and relax in steps
+ * (all-time, then 2 messages) but never across languages. Messages naming a player of their own game are
+ * dropped: pasted into another game, "lucas t'es un bot" would make the AI address someone absent.
+ * Games where the author refused style reuse (player_consents.style_examples = 0) are never read; games
+ * from before the home-screen notice have no consent row and stay in the pool: Thomas's call.
  */
 
 import { addressedTo } from '../game/directAddress.js';
@@ -16,24 +15,15 @@ import type { SqlClient } from './readonly.js';
 import type { Language } from './types.js';
 
 export interface HumanPersona {
-  username: string;
-  sampleMessages: string[];
-  sampleAnswers: { question: string; answer: string }[];
+  username: string; sampleMessages: string[]; sampleAnswers: { question: string; answer: string }[];
 }
 
 export interface PersonaQuery {
-  /** Game language; omitted = any language (previous behaviour). */
-  language?: Language;
-  /** Distinct usable messages wanted (default 5). */
-  minMessages?: number;
-  /** "Recent" window in days (default 90). */
-  recentDays?: number;
-  /** Usernames already used in this game (case-insensitive). */
-  exclude?: string[];
-  sampleMessages?: number;
-  sampleAnswers?: number;
-  now?: number;
-  rng?: () => number;
+  language?: Language; // game language; omitted = any language (previous behaviour)
+  minMessages?: number; // distinct usable messages wanted (default 5)
+  recentDays?: number; // "recent" window in days (default 90)
+  exclude?: string[]; // usernames already used in this game (case-insensitive)
+  sampleMessages?: number; sampleAnswers?: number; now?: number; rng?: () => number;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;

@@ -14,80 +14,43 @@ export interface Rate { k: number; n: number; rate: number | null }
 export interface Dist { n: number; p10: number | null; p50: number | null; p90: number | null; mean: number | null }
 
 export interface GroupOutcome {
-  key: string;
-  aiPlayers: number;
-  survived: Rate;
-  teamWins: Rate;
-  meanEliminationRound: number | null;
-  accusationsPerRound: number | null;
+  key: string; aiPlayers: number; survived: Rate; teamWins: Rate;
+  meanEliminationRound: number | null; accusationsPerRound: number | null;
 }
 
 export interface StyleStats {
-  messages: number;
-  chars: Dist;
-  words: Dist;
-  startsLower: Rate;
-  allLower: Rate;
-  endsWithPunctuation: Rate;
-  question: Rate;
-  exclamation: Rate;
-  emoji: Rate;
-  ellipsis: Rate;
-  commasPerMessage: number | null;
+  messages: number; chars: Dist; words: Dist; startsLower: Rate; allLower: Rate; endsWithPunctuation: Rate;
+  question: Rate; exclamation: Rate; emoji: Rate; ellipsis: Rate; commasPerMessage: number | null;
 }
 
 export interface AnswerStats { answers: number; words: Dist; chars: Dist; startsLower: Rate; endsWithPunctuation: Rate }
-
 export interface LexItem { word: string; aiMessages: number; humanMessages: number; aiShare: number; humanShare: number; ratio: number; games: number }
 
 export interface QuestionExposure {
-  question: string;
-  rounds: number;
-  aiEliminated: Rate;
-  humanVotesOnAI: Rate;
-  answerWordsAI: number | null;
-  answerWordsHuman: number | null;
+  question: string; rounds: number; aiEliminated: Rate; humanVotesOnAI: Rate;
+  answerWordsAI: number | null; answerWordsHuman: number | null;
 }
 
 export type ResponseKind = 'silence' | 'counter_accusation' | 'denial' | 'humour' | 'question' | 'other';
 export const RESPONSE_KINDS: ResponseKind[] = ['silence', 'counter_accusation', 'denial', 'humour', 'question', 'other'];
 
 export interface CounterMove {
-  target: 'ai' | 'human';
-  response: ResponseKind;
-  n: number;
-  survived: Rate;
-  meanVoteShare: number | null;
-  replyLatencyMs: Dist;
+  target: 'ai' | 'human'; response: ResponseKind; n: number; survived: Rate;
+  meanVoteShare: number | null; replyLatencyMs: Dist;
 }
 
 export interface EliminationCase {
-  gameId: string;
-  round: number;
-  player: string;
-  strategy: string | null;
-  provider: string | null;
-  votesReceived: number;
-  totalVotes: number;
-  accusationsReceived: number;
-  ownMessages: number;
-  ownAnswer: string | null;
+  gameId: string; round: number; player: string; strategy: string | null; provider: string | null;
+  votesReceived: number; totalVotes: number; accusationsReceived: number; ownMessages: number; ownAnswer: string | null;
   preceding: { player: string; type: PlayerKind; content: string }[];
 }
 
 export interface FeatureComparison { feature: string; eliminated: number | null; survivors: number | null; nEliminated: number; nSurvivors: number }
 
 export interface InspectorImpact {
-  gamesWith: number;
-  gamesWithout: number;
-  humanWinWith: Rate;
-  humanWinWithout: Rate;
-  eliminationAccuracyWith: Rate;
-  eliminationAccuracyWithout: Rate;
-  inspectorVotesOnAI: Rate;
-  humanVotesOnAIWith: Rate;
-  humanVotesOnAIWithout: Rate;
-  inspectorEliminated: Rate;
+  gamesWith: number; gamesWithout: number; humanWinWith: Rate; humanWinWithout: Rate;
+  eliminationAccuracyWith: Rate; eliminationAccuracyWithout: Rate; inspectorVotesOnAI: Rate;
+  humanVotesOnAIWith: Rate; humanVotesOnAIWithout: Rate; inspectorEliminated: Rate;
 }
 
 export interface Section {
@@ -97,22 +60,18 @@ export interface Section {
   byProvider: GroupOutcome[];
   eliminations: {
     byRound: { round: number; ai: number; human: number; inspector: number; none: number }[];
-    /** Eliminations that hit an AI. */
-    accuracy: Rate;
+    accuracy: Rate; // eliminations that hit an AI
     humanVotesOnAI: Rate;
     aiVotesOnHumans: Rate;
-    /** Per round, AIs voted out that round vs AIs that survived it. */
-    predictors: FeatureComparison[];
+    predictors: FeatureComparison[]; // per round: AIs voted out that round vs AIs that survived it
     cases: EliminationCase[];
   };
   /** Text features are computed with player names removed, so raw and pseudonymized corpora agree. */
   style: {
     messages: Record<PlayerKind, StyleStats>;
     answers: Record<PlayerKind, AnswerStats>;
-    /** Time since the previous message of the round, when written by someone else. */
-    latencyMs: Record<PlayerKind, Dist>;
-    /** Mean, over rounds with ≥ 2 such answers, of the standard deviation of answer length in words. */
-    answerSpread: { ai: number | null; human: number | null };
+    latencyMs: Record<PlayerKind, Dist>; // time since the previous message of the round, when written by someone else
+    answerSpread: { ai: number | null; human: number | null }; // mean word-count std over rounds with ≥ 2 answers
   };
   lexical: { aiOverused: LexItem[]; humanMarkers: LexItem[] };
   questions: QuestionExposure[];
@@ -125,27 +84,17 @@ export interface HistoryAnalysis {
   schema: typeof ANALYSIS_SCHEMA;
   generatedAt: string;
   corpus: {
-    games: number;
-    excluded: number;
-    synthetic: number;
+    games: number; excluded: number; synthetic: number;
     languages: Partial<Record<Language, number>>;
     dateRange: { from: string; to: string } | null;
-    aiPlayers: number;
-    aiPlayersWithProvider: number;
+    aiPlayers: number; aiPlayersWithProvider: number;
   };
   overall: Section;
   byLanguage: Partial<Record<Language, Section>>;
   notMeasured: string[];
 }
 
-export interface AnalysisOptions {
-  includeSuspect?: boolean;
-  maxCases?: number;
-  minLexCount?: number;
-  now?: () => Date;
-}
-
-// ─── Small numeric helpers ────────────────────────────────────────────────────
+export interface AnalysisOptions { includeSuspect?: boolean; maxCases?: number; minLexCount?: number; now?: () => Date }
 
 const r4 = (x: number) => Math.round(x * 10000) / 10000;
 export const rate = (k: number, n: number): Rate => ({ k, n, rate: n > 0 ? r4(k / n) : null });
@@ -168,28 +117,30 @@ function std(xs: number[]): number {
   return Math.sqrt(xs.reduce((a, b) => a + (b - m) ** 2, 0) / xs.length);
 }
 
-// ─── Text features ────────────────────────────────────────────────────────────
+/** Get-or-create: the accumulator pattern used by every tally below. */
+function ensure<K, V>(m: Map<K, V>, k: K, init: () => V): V {
+  let v = m.get(k);
+  if (v === undefined) m.set(k, (v = init()));
+  return v;
+}
 
 const norm = (s: string) => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().replace(/[’‘]/g, "'");
 const words = (s: string) => s.trim().split(/\s+/).filter(Boolean).length;
-const chars = (s: string) => [...s.trim()].length;
 const EMOJI = /\p{Extended_Pictographic}/u;
 const PSEUDONYM = /^p_[0-9a-f]{10}$/;
 /** Function words: a difference in "je" or "the" is not something a prompt can act on. */
 const STOPWORDS = new Set(
-  (
-    "le la les un une des de du et ou est c'est je tu il elle on nous vous ils elles me te se moi toi lui ça ce cette en au aux dans pour par sur avec que qui ne pas plus mais si mon ma mes ton ta tes son sa ses j'ai " +
-    "the an and or is are am be it it's that this to of in on for with at so too just my me we they he she not no do don't was were have has been but if what i'm you you're your"
-  ).split(' ')
+  ("le la les un une des de du et ou est c'est je tu il elle on nous vous ils elles me te se moi toi lui ça ce cette en au aux dans pour par sur avec que qui ne pas plus mais si mon ma mes ton ta tes son sa ses j'ai " +
+    "the an and or is are am be it it's that this to of in on for with at so too just my me we they he she not no do don't was were have has been but if what i'm you you're your").split(' ')
 );
 const ANY_PSEUDONYM = /(?<![\p{L}\p{N}])p_[0-9a-f]{10}(?![\p{L}\p{N}])/giu;
 
 export function textFeatures(content: string) {
   const t = content.trim();
-  const firstLetter = [...t].find((c) => /\p{L}/u.test(c));
   const letters = [...t].filter((c) => /\p{L}/u.test(c));
+  const firstLetter = letters[0];
   return {
-    chars: chars(t),
+    chars: [...t].length,
     words: words(t),
     hasLetter: firstLetter !== undefined,
     startsLower: firstLetter !== undefined && firstLetter === firstLetter.toLowerCase() && firstLetter !== firstLetter.toUpperCase(),
@@ -269,14 +220,11 @@ export function classifyResponse(text: string | null, self: string, others: stri
   return 'other';
 }
 
-// ─── Per-game derived facts ───────────────────────────────────────────────────
-
 interface Accusation { round: number; ts: number; accuser: string; target: string }
 
 interface GameFacts {
   game: HistoryGame;
-  /** Content without player names: input of every text feature. */
-  clean: (content: string) => string;
+  clean: (content: string) => string; // content without player names: input of every text feature
   kind: (name: string) => PlayerKind;
   elimRound: Map<string, number>;
   alive: (name: string, round: number) => boolean;
@@ -299,28 +247,32 @@ function factsOf(game: HistoryGame): GameFacts {
     return e === undefined || e >= round;
   };
   const accusations: Accusation[] = [];
-  for (const m of game.messages) {
+  for (const m of game.messages)
     for (const p of game.players) {
       if (p.name === m.player || !alive(p.name, m.round)) continue;
       if (addressedTo(m.content, p.name).accusation) accusations.push({ round: m.round, ts: m.ts, accuser: m.player, target: p.name });
     }
-  }
   const names = new Set(game.players.map((p) => norm(p.name).trim()));
   const strip = makeNameReplacer(new Map(game.players.map((p) => [p.name, ''])));
   const clean = (content: string) => strip(content).replace(ANY_PSEUDONYM, '').replace(/\s+/g, ' ').trim();
   return { game, clean, kind, elimRound, alive, accusations, names, hasInspector: game.players.some((p) => p.type === 'inspector') };
 }
 
-// ─── Section ──────────────────────────────────────────────────────────────────
+function* eachRound(facts: GameFacts[]) {
+  for (const f of facts) for (const r of f.game.rounds) yield { f, r };
+}
+function* eachMessage(facts: GameFacts[]) {
+  for (const f of facts) for (const m of f.game.messages) yield { f, m };
+}
 
 function groupOutcomes(facts: GameFacts[], keyOf: (p: HistoryGame['players'][number]) => string): GroupOutcome[] {
-  const groups = new Map<string, { ai: number; survived: number; wins: number; elimRounds: number[]; accusations: number; roundsAlive: number }>();
+  interface Group { ai: number; survived: number; wins: number; elimRounds: number[]; accusations: number; roundsAlive: number }
+  const groups = new Map<string, Group>();
   for (const f of facts) {
     const lastRound = f.game.rounds.length ? Math.max(...f.game.rounds.map((r) => r.round)) : 0;
     for (const p of f.game.players) {
       if (p.type !== 'ai') continue;
-      const key = keyOf(p);
-      const g = groups.get(key) ?? { ai: 0, survived: 0, wins: 0, elimRounds: [], accusations: 0, roundsAlive: 0 };
+      const g = ensure(groups, keyOf(p), () => ({ ai: 0, survived: 0, wins: 0, elimRounds: [], accusations: 0, roundsAlive: 0 }));
       g.ai++;
       const e = f.elimRound.get(p.name);
       if (e === undefined) g.survived++;
@@ -328,17 +280,12 @@ function groupOutcomes(facts: GameFacts[], keyOf: (p: HistoryGame['players'][num
       if (f.game.result === 'ai_win') g.wins++;
       g.accusations += f.accusations.filter((a) => a.target === p.name).length;
       g.roundsAlive += e ?? lastRound;
-      groups.set(key, g);
     }
   }
-  return [...groups.entries()]
+  return [...groups]
     .map(([key, g]) => ({
-      key,
-      aiPlayers: g.ai,
-      survived: rate(g.survived, g.ai),
-      teamWins: rate(g.wins, g.ai),
-      meanEliminationRound: mean(g.elimRounds),
-      accusationsPerRound: g.roundsAlive ? r4(g.accusations / g.roundsAlive) : null,
+      key, aiPlayers: g.ai, survived: rate(g.survived, g.ai), teamWins: rate(g.wins, g.ai),
+      meanEliminationRound: mean(g.elimRounds), accusationsPerRound: g.roundsAlive ? r4(g.accusations / g.roundsAlive) : null,
     }))
     .sort((a, b) => b.aiPlayers - a.aiPlayers || a.key.localeCompare(b.key));
 }
@@ -346,25 +293,23 @@ function groupOutcomes(facts: GameFacts[], keyOf: (p: HistoryGame['players'][num
 function votesOn(facts: GameFacts[], voterKind: PlayerKind, hit: (target: PlayerKind) => boolean): Rate {
   let k = 0;
   let n = 0;
-  for (const f of facts)
-    for (const r of f.game.rounds)
-      for (const v of r.votes) {
-        if (f.kind(v.voter) !== voterKind) continue;
-        n++;
-        if (hit(f.kind(v.target))) k++;
-      }
+  for (const { f, r } of eachRound(facts))
+    for (const v of r.votes) {
+      if (f.kind(v.voter) !== voterKind) continue;
+      n++;
+      if (hit(f.kind(v.target))) k++;
+    }
   return rate(k, n);
 }
 
 function eliminationAccuracy(facts: GameFacts[]): Rate {
   let k = 0;
   let n = 0;
-  for (const f of facts)
-    for (const r of f.game.rounds)
-      if (r.eliminated) {
-        n++;
-        if (f.kind(r.eliminated.name) === 'ai') k++;
-      }
+  for (const { f, r } of eachRound(facts))
+    if (r.eliminated) {
+      n++;
+      if (f.kind(r.eliminated.name) === 'ai') k++;
+    }
   return rate(k, n);
 }
 
@@ -374,13 +319,11 @@ function section(facts: GameFacts[], opts: Required<Pick<AnalysisOptions, 'maxCa
 
   // Eliminations by round
   const byRoundMap = new Map<number, { round: number; ai: number; human: number; inspector: number; none: number }>();
-  for (const f of facts)
-    for (const r of f.game.rounds) {
-      const row = byRoundMap.get(r.round) ?? { round: r.round, ai: 0, human: 0, inspector: 0, none: 0 };
-      if (r.eliminated) row[f.kind(r.eliminated.name)]++;
-      else row.none++;
-      byRoundMap.set(r.round, row);
-    }
+  for (const { f, r } of eachRound(facts)) {
+    const row = ensure(byRoundMap, r.round, () => ({ round: r.round, ai: 0, human: 0, inspector: 0, none: 0 }));
+    if (r.eliminated) row[f.kind(r.eliminated.name)]++;
+    else row.none++;
+  }
 
   // Predictors and cases
   const elimFeat: Record<string, number[]> = {};
@@ -390,57 +333,44 @@ function section(facts: GameFacts[], opts: Required<Pick<AnalysisOptions, 'maxCa
     (bucket[k] ??= []).push(v);
   };
   const cases: EliminationCase[] = [];
-  for (const f of facts) {
-    for (const r of f.game.rounds) {
-      if (r.votes.length === 0) continue;
-      const roundMsgs = f.game.messages.filter((m) => m.round === r.round);
-      for (const p of f.game.players) {
-        if (p.type !== 'ai' || !f.alive(p.name, r.round)) continue;
-        const own = roundMsgs.filter((m) => m.player === p.name);
-        const ownF = own.map((m) => textFeatures(f.clean(m.content)));
-        const answer = r.answers.find((a) => a.player === p.name)?.answer ?? null;
-        const accused = f.accusations.filter((a) => a.round === r.round && a.target === p.name).length;
-        const votes = r.votes.filter((v) => v.target === p.name).length;
-        const out = r.eliminated?.name === p.name;
-        const bucket = out ? elimFeat : survFeat;
-        push(bucket, 'messages_sent', own.length);
-        push(bucket, 'mean_message_chars', ownF.length ? ownF.reduce((a, x) => a + x.chars, 0) / ownF.length : null);
-        push(bucket, 'ends_with_punctuation_share', ownF.length ? ownF.filter((x) => x.endsWithPunctuation).length / ownF.length : null);
-        push(bucket, 'accusations_received', accused);
-        push(bucket, 'answer_words', answer === null ? null : words(f.clean(answer)));
-        push(bucket, 'vote_share', votes / r.votes.length);
-        if (out) {
-          const others = roundMsgs.filter((m) => m.player !== p.name);
-          const mentioning = others.filter((m) => addressedTo(m.content, p.name).direct);
-          cases.push({
-            gameId: f.game.gameId,
-            round: r.round,
-            player: p.name,
-            strategy: p.strategy,
-            provider: p.provider,
-            votesReceived: votes,
-            totalVotes: r.votes.length,
-            accusationsReceived: accused,
-            ownMessages: own.length,
-            ownAnswer: answer,
-            preceding: (mentioning.length ? mentioning : others).slice(-3).map((m) => ({ player: m.player, type: m.type, content: m.content.slice(0, 160) })),
-          });
-        }
+  for (const { f, r } of eachRound(facts)) {
+    if (r.votes.length === 0) continue;
+    const roundMsgs = f.game.messages.filter((m) => m.round === r.round);
+    for (const p of f.game.players) {
+      if (p.type !== 'ai' || !f.alive(p.name, r.round)) continue;
+      const own = roundMsgs.filter((m) => m.player === p.name);
+      const ownF = own.map((m) => textFeatures(f.clean(m.content)));
+      const answer = r.answers.find((a) => a.player === p.name)?.answer ?? null;
+      const accused = f.accusations.filter((a) => a.round === r.round && a.target === p.name).length;
+      const votes = r.votes.filter((v) => v.target === p.name).length;
+      const out = r.eliminated?.name === p.name;
+      const bucket = out ? elimFeat : survFeat;
+      push(bucket, 'messages_sent', own.length);
+      push(bucket, 'mean_message_chars', ownF.length ? ownF.reduce((a, x) => a + x.chars, 0) / ownF.length : null);
+      push(bucket, 'ends_with_punctuation_share', ownF.length ? ownF.filter((x) => x.endsWithPunctuation).length / ownF.length : null);
+      push(bucket, 'accusations_received', accused);
+      push(bucket, 'answer_words', answer === null ? null : words(f.clean(answer)));
+      push(bucket, 'vote_share', votes / r.votes.length);
+      if (out) {
+        const others = roundMsgs.filter((m) => m.player !== p.name);
+        const mentioning = others.filter((m) => addressedTo(m.content, p.name).direct);
+        cases.push({
+          gameId: f.game.gameId, round: r.round, player: p.name, strategy: p.strategy, provider: p.provider,
+          votesReceived: votes, totalVotes: r.votes.length, accusationsReceived: accused, ownMessages: own.length, ownAnswer: answer,
+          preceding: (mentioning.length ? mentioning : others).slice(-3).map((m) => ({ player: m.player, type: m.type, content: m.content.slice(0, 160) })),
+        });
       }
     }
   }
-  const predictors: FeatureComparison[] = ['vote_share', 'accusations_received', 'messages_sent', 'mean_message_chars', 'ends_with_punctuation_share', 'answer_words'].map(
-    (feature) => ({
-      feature,
-      eliminated: mean(elimFeat[feature] ?? []),
-      survivors: mean(survFeat[feature] ?? []),
-      nEliminated: (elimFeat[feature] ?? []).length,
-      nSurvivors: (survFeat[feature] ?? []).length,
-    })
-  );
+  const predictors: FeatureComparison[] = ['vote_share', 'accusations_received', 'messages_sent', 'mean_message_chars', 'ends_with_punctuation_share', 'answer_words'].map((feature) => {
+    const e = elimFeat[feature] ?? [];
+    const s = survFeat[feature] ?? [];
+    return { feature, eliminated: mean(e), survivors: mean(s), nEliminated: e.length, nSurvivors: s.length };
+  });
 
   // Style
   const kinds: PlayerKind[] = ['human', 'ai', 'inspector'];
+  const byKind = <T>(f: (k: PlayerKind) => T): Record<PlayerKind, T> => Object.fromEntries(kinds.map((k) => [k, f(k)])) as Record<PlayerKind, T>;
   const msgsBy = (k: PlayerKind) => facts.flatMap((f) => f.game.messages.filter((m) => f.kind(m.player) === k).map((m) => f.clean(m.content)));
   const answersBy = (k: PlayerKind) => facts.flatMap((f) => f.game.rounds.flatMap((r) => r.answers.filter((a) => f.kind(a.player) === k).map((a) => f.clean(a.answer))));
   const latency: Record<PlayerKind, number[]> = { human: [], ai: [], inspector: [] };
@@ -455,11 +385,10 @@ function section(facts: GameFacts[], opts: Required<Pick<AnalysisOptions, 'maxCa
   }
   const spread = (k: PlayerKind) => {
     const stds: number[] = [];
-    for (const f of facts)
-      for (const r of f.game.rounds) {
-        const lens = r.answers.filter((a) => f.kind(a.player) === k).map((a) => words(f.clean(a.answer)));
-        if (lens.length >= 2) stds.push(std(lens));
-      }
+    for (const { f, r } of eachRound(facts)) {
+      const lens = r.answers.filter((a) => f.kind(a.player) === k).map((a) => words(f.clean(a.answer)));
+      if (lens.length >= 2) stds.push(std(lens));
+    }
     return mean(stds);
   };
 
@@ -467,29 +396,22 @@ function section(facts: GameFacts[], opts: Required<Pick<AnalysisOptions, 'maxCa
   const df = { ai: new Map<string, number>(), human: new Map<string, number>() };
   const gamesOf = new Map<string, Set<string>>();
   const nMsgs = { ai: 0, human: 0 };
-  for (const f of facts)
-    for (const m of f.game.messages) {
-      const k = f.kind(m.player);
-      if (k !== 'ai' && k !== 'human') continue;
-      nMsgs[k]++;
-      for (const t of tokens(f.clean(m.content), f.names)) {
-        df[k].set(t, (df[k].get(t) ?? 0) + 1);
-        const g = gamesOf.get(t) ?? new Set<string>();
-        g.add(f.game.gameId);
-        gamesOf.set(t, g);
-      }
+  for (const { f, m } of eachMessage(facts)) {
+    const k = f.kind(m.player);
+    if (k !== 'ai' && k !== 'human') continue;
+    nMsgs[k]++;
+    for (const t of tokens(f.clean(m.content), f.names)) {
+      df[k].set(t, (df[k].get(t) ?? 0) + 1);
+      ensure(gamesOf, t, () => new Set<string>()).add(f.game.gameId);
     }
+  }
   const lex: LexItem[] = [...new Set([...df.ai.keys(), ...df.human.keys()])].map((w) => {
     const a = df.ai.get(w) ?? 0;
     const h = df.human.get(w) ?? 0;
     return {
-      word: w,
-      aiMessages: a,
-      humanMessages: h,
-      aiShare: nMsgs.ai ? r4(a / nMsgs.ai) : 0,
-      humanShare: nMsgs.human ? r4(h / nMsgs.human) : 0,
-      ratio: r4((a + 0.5) / (nMsgs.ai + 1) / ((h + 0.5) / (nMsgs.human + 1))),
-      games: gamesOf.get(w)?.size ?? 0,
+      word: w, aiMessages: a, humanMessages: h,
+      aiShare: nMsgs.ai ? r4(a / nMsgs.ai) : 0, humanShare: nMsgs.human ? r4(h / nMsgs.human) : 0,
+      ratio: r4((a + 0.5) / (nMsgs.ai + 1) / ((h + 0.5) / (nMsgs.human + 1))), games: gamesOf.get(w)?.size ?? 0,
     };
   });
   const aiOverused = lex
@@ -503,33 +425,26 @@ function section(facts: GameFacts[], opts: Required<Pick<AnalysisOptions, 'maxCa
 
   // Questions
   const qMap = new Map<string, { rounds: number; aiOut: number; hv: number; hvAI: number; aiW: number[]; hW: number[] }>();
-  for (const f of facts)
-    for (const r of f.game.rounds) {
-      if (!r.question) continue;
-      const key = r.question.trim();
-      const q = qMap.get(key) ?? { rounds: 0, aiOut: 0, hv: 0, hvAI: 0, aiW: [], hW: [] };
-      q.rounds++;
-      if (r.eliminated && f.kind(r.eliminated.name) === 'ai') q.aiOut++;
-      for (const v of r.votes)
-        if (f.kind(v.voter) === 'human') {
-          q.hv++;
-          if (f.kind(v.target) === 'ai') q.hvAI++;
-        }
-      for (const a of r.answers) {
-        const k = f.kind(a.player);
-        if (k === 'ai') q.aiW.push(words(f.clean(a.answer)));
-        else if (k === 'human') q.hW.push(words(f.clean(a.answer)));
+  for (const { f, r } of eachRound(facts)) {
+    if (!r.question) continue;
+    const q = ensure(qMap, r.question.trim(), () => ({ rounds: 0, aiOut: 0, hv: 0, hvAI: 0, aiW: [], hW: [] }));
+    q.rounds++;
+    if (r.eliminated && f.kind(r.eliminated.name) === 'ai') q.aiOut++;
+    for (const v of r.votes)
+      if (f.kind(v.voter) === 'human') {
+        q.hv++;
+        if (f.kind(v.target) === 'ai') q.hvAI++;
       }
-      qMap.set(key, q);
+    for (const a of r.answers) {
+      const k = f.kind(a.player);
+      if (k === 'ai') q.aiW.push(words(f.clean(a.answer)));
+      else if (k === 'human') q.hW.push(words(f.clean(a.answer)));
     }
+  }
   const questions: QuestionExposure[] = [...qMap.entries()]
     .map(([question, q]) => ({
-      question,
-      rounds: q.rounds,
-      aiEliminated: rate(q.aiOut, q.rounds),
-      humanVotesOnAI: rate(q.hvAI, q.hv),
-      answerWordsAI: quantile(q.aiW, 0.5),
-      answerWordsHuman: quantile(q.hW, 0.5),
+      question, rounds: q.rounds, aiEliminated: rate(q.aiOut, q.rounds), humanVotesOnAI: rate(q.hvAI, q.hv),
+      answerWordsAI: quantile(q.aiW, 0.5), answerWordsHuman: quantile(q.hW, 0.5),
     }))
     .sort((a, b) => (b.humanVotesOnAI.rate ?? -1) - (a.humanVotesOnAI.rate ?? -1) || b.rounds - a.rounds || a.question.localeCompare(b.question));
 
@@ -537,6 +452,7 @@ function section(facts: GameFacts[], opts: Required<Pick<AnalysisOptions, 'maxCa
   const cm = new Map<string, { target: 'ai' | 'human'; response: ResponseKind; n: number; survived: number; shares: number[]; lat: number[] }>();
   for (const f of facts) {
     const seen = new Set<string>();
+    const players = f.game.players.map((p) => p.name);
     for (const a of [...f.accusations].sort((x, y) => x.ts - y.ts)) {
       const key = `${a.round}|${a.target}`;
       if (seen.has(key)) continue;
@@ -546,14 +462,13 @@ function section(facts: GameFacts[], opts: Required<Pick<AnalysisOptions, 'maxCa
       const reply: HistoryMessage | undefined = f.game.messages
         .filter((m) => m.round === a.round && m.player === a.target && m.ts > a.ts && m.ts - a.ts <= REPLY_WINDOW_MS)
         .sort((x, y) => x.ts - y.ts)[0];
-      const response = classifyResponse(reply?.content ?? null, a.target, f.game.players.map((p) => p.name));
+      const response = classifyResponse(reply?.content ?? null, a.target, players);
       const round = f.game.rounds.find((r) => r.round === a.round);
-      const g = cm.get(`${k}|${response}`) ?? { target: k, response, n: 0, survived: 0, shares: [], lat: [] };
+      const g = ensure(cm, `${k}|${response}`, () => ({ target: k, response, n: 0, survived: 0, shares: [], lat: [] }));
       g.n++;
       if (f.elimRound.get(a.target) !== a.round) g.survived++;
       if (round && round.votes.length) g.shares.push(round.votes.filter((v) => v.target === a.target).length / round.votes.length);
       if (reply) g.lat.push(reply.ts - a.ts);
-      cm.set(`${k}|${response}`, g);
     }
   }
   const counterMoves: CounterMove[] = [...cm.values()]
@@ -572,40 +487,30 @@ function section(facts: GameFacts[], opts: Required<Pick<AnalysisOptions, 'maxCa
   return {
     games: games.length,
     outcomes: {
-      humansWin: rate(count('humans_win'), games.length),
-      aiWin: rate(count('ai_win'), games.length),
-      draw: rate(count('draw'), games.length),
-      meanRounds: mean(games.map((g) => g.rounds.length)),
+      humansWin: rate(count('humans_win'), games.length), aiWin: rate(count('ai_win'), games.length),
+      draw: rate(count('draw'), games.length), meanRounds: mean(games.map((g) => g.rounds.length)),
     },
     byStrategy: groupOutcomes(facts, (p) => p.strategy ?? 'unknown'),
     byProvider: groupOutcomes(facts, (p) => p.provider ?? 'unknown'),
     eliminations: {
       byRound: [...byRoundMap.values()].sort((a, b) => a.round - b.round),
-      accuracy: eliminationAccuracy(facts),
-      humanVotesOnAI: votesOn(facts, 'human', (t) => t === 'ai'),
-      aiVotesOnHumans: votesOn(facts, 'ai', (t) => t !== 'ai'),
-      predictors,
-      cases: cases.slice(0, opts.maxCases),
+      accuracy: eliminationAccuracy(facts), humanVotesOnAI: votesOn(facts, 'human', (t) => t === 'ai'),
+      aiVotesOnHumans: votesOn(facts, 'ai', (t) => t !== 'ai'), predictors, cases: cases.slice(0, opts.maxCases),
     },
     style: {
-      messages: Object.fromEntries(kinds.map((k) => [k, styleStats(msgsBy(k))])) as Record<PlayerKind, StyleStats>,
-      answers: Object.fromEntries(kinds.map((k) => [k, answerStats(answersBy(k))])) as Record<PlayerKind, AnswerStats>,
-      latencyMs: Object.fromEntries(kinds.map((k) => [k, dist(latency[k])])) as Record<PlayerKind, Dist>,
-      answerSpread: { ai: spread('ai'), human: spread('human') },
+      messages: byKind((k) => styleStats(msgsBy(k))), answers: byKind((k) => answerStats(answersBy(k))),
+      latencyMs: byKind((k) => dist(latency[k])), answerSpread: { ai: spread('ai'), human: spread('human') },
     },
     lexical: { aiOverused, humanMarkers },
     questions,
     counterMoves,
     inspector: {
-      gamesWith: withI.length,
-      gamesWithout: withoutI.length,
+      gamesWith: withI.length, gamesWithout: withoutI.length,
       humanWinWith: rate(withI.filter((f) => f.game.result === 'humans_win').length, withI.length),
       humanWinWithout: rate(withoutI.filter((f) => f.game.result === 'humans_win').length, withoutI.length),
-      eliminationAccuracyWith: eliminationAccuracy(withI),
-      eliminationAccuracyWithout: eliminationAccuracy(withoutI),
+      eliminationAccuracyWith: eliminationAccuracy(withI), eliminationAccuracyWithout: eliminationAccuracy(withoutI),
       inspectorVotesOnAI: votesOn(withI, 'inspector', (t) => t === 'ai'),
-      humanVotesOnAIWith: votesOn(withI, 'human', (t) => t === 'ai'),
-      humanVotesOnAIWithout: votesOn(withoutI, 'human', (t) => t === 'ai'),
+      humanVotesOnAIWith: votesOn(withI, 'human', (t) => t === 'ai'), humanVotesOnAIWithout: votesOn(withoutI, 'human', (t) => t === 'ai'),
       inspectorEliminated: rate(inspectors.filter(Boolean).length, inspectors.length),
     },
     flags: { total: flags.length, resolved: resolved.length, onAI: rate(resolved.filter((x) => x.f.kind(x.fl.target!.player) === 'ai').length, resolved.length) },
@@ -643,13 +548,9 @@ export function analyzeCorpus(all: HistoryGame[], options: AnalysisOptions = {})
     schema: ANALYSIS_SCHEMA,
     generatedAt: (options.now ?? (() => new Date()))().toISOString(),
     corpus: {
-      games: kept.length,
-      excluded: all.length - kept.length,
-      synthetic: kept.filter((g) => g.synthetic).length,
-      languages,
-      dateRange: dates.length ? { from: dates[0], to: dates[dates.length - 1] } : null,
-      aiPlayers: aiPlayers.length,
-      aiPlayersWithProvider: withProvider,
+      games: kept.length, excluded: all.length - kept.length, synthetic: kept.filter((g) => g.synthetic).length,
+      languages, dateRange: dates.length ? { from: dates[0], to: dates[dates.length - 1] } : null,
+      aiPlayers: aiPlayers.length, aiPlayersWithProvider: withProvider,
     },
     overall,
     byLanguage,
@@ -660,13 +561,13 @@ export function analyzeCorpus(all: HistoryGame[], options: AnalysisOptions = {})
 /** Parses a JSONL corpus; blank lines skipped, a malformed line throws with its number. */
 export function parseCorpus(text: string): HistoryGame[] {
   const games: HistoryGame[] = [];
-  text.split('\n').forEach((line, i) => {
-    if (!line.trim()) return;
+  for (const [i, line] of text.split('\n').entries()) {
+    if (!line.trim()) continue;
     try {
       games.push(JSON.parse(line) as HistoryGame);
     } catch (err) {
       throw new Error(`corpus line ${i + 1}: ${err instanceof Error ? err.message : err}`);
     }
-  });
+  }
   return games;
 }

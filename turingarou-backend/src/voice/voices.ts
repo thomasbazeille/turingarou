@@ -71,9 +71,7 @@ const OPENAI: VoiceDef[] = [
 ];
 
 const POOLS: Record<string, Record<Lang, VoiceDef[]>> = {
-  cartesia: CARTESIA,
-  elevenlabs: { fr: ELEVENLABS_PREMADE, en: ELEVENLABS_PREMADE },
-  openai: { fr: OPENAI, en: OPENAI },
+  cartesia: CARTESIA, elevenlabs: { fr: ELEVENLABS_PREMADE, en: ELEVENLABS_PREMADE }, openai: { fr: OPENAI, en: OPENAI },
 };
 
 const GRADIUM_LOCALE: Record<Lang, string> = { fr: 'fr-fr', en: 'en-us' };

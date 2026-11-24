@@ -16,12 +16,9 @@ import { streamGames, type GameQuery } from './reader.js';
 import { makePseudonymizer, pseudonymizeGame, resolveSalt } from './pseudonymize.js';
 
 export interface HistoryRouteOptions {
-  /** Defaults to process.env.ADMIN_SECRET. */
-  secret?: string | null;
-  /** Defaults to resolveSalt(process.env). */
-  salt?: string | null;
-  /** Defaults to the read-only pool on DATABASE_URL. */
-  pool?: SqlPool | null;
+  secret?: string | null; // defaults to process.env.ADMIN_SECRET
+  salt?: string | null; // defaults to resolveSalt(process.env)
+  pool?: SqlPool | null; // defaults to the read-only pool on DATABASE_URL
   rateLimit?: { max: number; windowMs: number };
   now?: () => number;
 }
@@ -38,8 +35,7 @@ export function tokenMatches(given: string | undefined, secret: string): boolean
 
 function bearer(req: Request): string | undefined {
   const h = req.headers.authorization;
-  if (!h || !h.startsWith('Bearer ')) return undefined;
-  return h.slice('Bearer '.length).trim();
+  return h?.startsWith('Bearer ') ? h.slice('Bearer '.length).trim() : undefined;
 }
 
 /** Fixed window per client address, failed and successful requests alike. */

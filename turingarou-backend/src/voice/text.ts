@@ -18,10 +18,8 @@ export function spokenText(content: string, maxChars: number): string {
 // Pure hesitation tokens only: "bah", "ben", "genre" carry meaning in typed chat and stay.
 const FILLER_RE = /(^|[\s,;])(?:euh+|heu+|hum+|hm+|mmh*|uh+|um+|uhm+|erm+)(?=$|[\s,.;!?…])[,]?/gi;
 
-export interface TranscriptStyle {
-  /** The two typed-chat casings an AI line can carry (formGate): all lower-case, or a capital only at the start. */
-  casing: 'lower' | 'sentence';
-}
+/** The two typed-chat casings an AI line can carry (formGate): all lower-case, or a capital only at the start. */
+export type TranscriptStyle = { casing: 'lower' | 'sentence' };
 
 /** The discussion cap of an AI line (formGate): a longer line would read as "certainly a human". */
 export const TRANSCRIPT_CAP = { chars: 140, words: 25 };

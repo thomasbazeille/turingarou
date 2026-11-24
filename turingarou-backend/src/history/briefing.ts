@@ -1,11 +1,9 @@
 /**
- * Learned briefing: a short, prompt-ready digest of what real games showed (tells to avoid, replies that
- * survived an accusation, human style targets with numbers). Written by scripts/analyze-history.ts to
- * strategies/learned/briefing.<lang>.md, read back by getLearnedBriefing.
- *
- * First line of the file: <!-- learned-briefing lang=fr games=42 synthetic=false generated=YYYY-MM-DD -->
- * getLearnedBriefing returns null for a synthetic briefing (fixtures) or one built on too few games:
- * a briefing of invented or noisy numbers must never reach a prompt.
+ * Prompt-ready digest of what real games showed, written by scripts/analyze-history.ts to
+ * strategies/learned/briefing.<lang>.md and read back by getLearnedBriefing. The first line is
+ * <!-- learned-briefing lang=fr games=42 synthetic=false generated=YYYY-MM-DD -->.
+ * getLearnedBriefing returns null for a synthetic or under-sampled briefing: invented or noisy
+ * numbers must never reach a prompt.
  */
 
 import fs from 'node:fs';
@@ -15,12 +13,9 @@ import type { CounterMove, HistoryAnalysis, Rate, Section } from './analysis.js'
 import type { Language } from './types.js';
 
 export interface BriefingThresholds {
-  /** Messages per group (humans, AIs) before a style figure is used. */
-  minStyleMessages: number;
-  /** Accusations per reply kind before a counter-move is cited. */
-  minCounterMoves: number;
-  /** AIs on each side (voted out / survived) before a predictor is cited. */
-  minPredictor: number;
+  minStyleMessages: number; // messages per group (humans, AIs) before a style figure is used
+  minCounterMoves: number; // accusations per reply kind before a counter-move is cited
+  minPredictor: number; // AIs on each side (voted out / survived) before a predictor is cited
 }
 
 export const DEFAULT_THRESHOLDS: BriefingThresholds = { minStyleMessages: 15, minCounterMoves: 3, minPredictor: 3 };
@@ -44,10 +39,7 @@ const T = {
     longer: (ai: number | string, h: number | string) => `- Messages IA trop longs : médiane ${ai} caractères contre ${h} chez les humains.`,
     shorter: (ai: number | string, h: number | string) => `- Messages IA trop courts : médiane ${ai} caractères contre ${h} chez les humains.`,
     share: (what: string, ai: number, h: number) => `- ${what} : ${ai} % des messages IA contre ${h} % chez les humains.`,
-    punct: 'Ponctuation finale',
-    lower: 'Minuscule en début de message',
-    emoji: 'Emoji',
-    question: 'Question (« ? »)',
+    punct: 'Ponctuation finale', lower: 'Minuscule en début de message', emoji: 'Emoji', question: 'Question (« ? »)',
     latency: (ai: number | string, h: number | string) => `- Délai après le message précédent : médiane ${ai} s chez les IA contre ${h} s chez les humains.`,
     answerLen: (ai: number | string, h: number | string) => `- Réponses à la question : médiane ${ai} mots chez les IA contre ${h} chez les humains.`,
     spread: (ai: number | string, h: number | string) => `- Réponses des IA trop semblables entre elles : écart-type ${ai} mot(s) contre ${h} chez les humains.`,
@@ -76,10 +68,7 @@ const T = {
     longer: (ai: number | string, h: number | string) => `- AI messages too long: median ${ai} characters vs ${h} for humans.`,
     shorter: (ai: number | string, h: number | string) => `- AI messages too short: median ${ai} characters vs ${h} for humans.`,
     share: (what: string, ai: number, h: number) => `- ${what}: ${ai}% of AI messages vs ${h}% for humans.`,
-    punct: 'Ending punctuation',
-    lower: 'Lowercase first letter',
-    emoji: 'Emoji',
-    question: 'Question mark',
+    punct: 'Ending punctuation', lower: 'Lowercase first letter', emoji: 'Emoji', question: 'Question mark',
     latency: (ai: number | string, h: number | string) => `- Delay after the previous message: median ${ai} s for AIs vs ${h} s for humans.`,
     answerLen: (ai: number | string, h: number | string) => `- Question answers: median ${ai} words for AIs vs ${h} for humans.`,
     spread: (ai: number | string, h: number | string) => `- AI answers too alike: standard deviation ${ai} word(s) vs ${h} for humans.`,
@@ -143,9 +132,9 @@ function moveLines(s: Section, t: (typeof T)['fr'], th: BriefingThresholds): str
     .filter((c): c is CounterMove & { survived: { rate: number } } => c.target === 'ai' && c.n >= th.minCounterMoves && c.survived.rate !== null)
     .sort((a, b) => b.survived.rate - a.survived.rate || b.n - a.n);
   for (const c of aiMoves) out.push(t.move(t.response[c.response], c.survived.k, c.survived.n, P(c.survived)));
-  const humanLat = s.counterMoves.filter((c) => c.target === 'human' && c.response !== 'silence').flatMap((c) => (c.replyLatencyMs.p50 === null ? [] : [{ p50: c.replyLatencyMs.p50, n: c.n }]));
-  const nHuman = humanLat.reduce((a, x) => a + x.n, 0);
-  if (nHuman >= th.minCounterMoves) out.push(t.humanReply(t.n(humanLat.reduce((a, x) => a + x.p50 * x.n, 0) / nHuman / 1000)));
+  const humanLat = s.counterMoves.filter((c): c is CounterMove & { replyLatencyMs: { p50: number } } => c.target === 'human' && c.response !== 'silence' && c.replyLatencyMs.p50 !== null);
+  const nHuman = humanLat.reduce((a, c) => a + c.n, 0);
+  if (nHuman >= th.minCounterMoves) out.push(t.humanReply(t.n(humanLat.reduce((a, c) => a + c.replyLatencyMs.p50 * c.n, 0) / nHuman / 1000)));
   return out;
 }
 
@@ -210,7 +199,7 @@ export function getLearnedBriefing(lang: Language, opts: { minGames?: number; di
     const h = parseBriefingHeader(text);
     if (h && !h.synthetic && h.lang === lang && h.games >= minGames) out = text.replace(/^<!--.*?-->\s*/, '').trim();
   } catch {
-    out = null;
+    // missing or unreadable file: no briefing
   }
   cache.set(key, out);
   return out;

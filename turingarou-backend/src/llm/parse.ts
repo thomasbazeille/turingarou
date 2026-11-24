@@ -71,6 +71,5 @@ export function matchPlayerName<T extends { username: string }>(raw: string, can
   const inside = named.filter((x) => x.n.split(' ').every((w) => words.has(w)));
   if (inside.length === 1) return inside[0].c;
   const close = named.filter((x) => levenshtein(x.n, answer) <= 2);
-  if (close.length === 1) return close[0].c;
-  return null;
+  return close.length === 1 ? close[0].c : null;
 }

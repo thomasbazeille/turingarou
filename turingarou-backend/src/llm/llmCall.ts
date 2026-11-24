@@ -31,9 +31,9 @@ export interface CallOptions {
 }
 
 /**
- * One LLM call with a time budget, one retry on transient errors (429, 5xx, network, timeout) and a fallback
- * to another configured provider for THIS call. Returns null when every attempt failed: callers treat null
- * as a named failure (logged), never as "the AI chose to stay silent".
+ * One LLM call with a time budget, one retry on transient errors (429, 5xx, network, timeout) and a
+ * fallback provider for THIS call. Returns null when every attempt failed: callers treat null as a named
+ * failure (logged), never as "the AI chose to stay silent".
  */
 export async function callLLM(primary: ChatProvider, req: ChatRequest, opts: CallOptions): Promise<ChatResult | null> {
   const promptChars = req.messages.reduce((n, m) => n + m.content.length, 0);
@@ -42,37 +42,31 @@ export async function callLLM(primary: ChatProvider, req: ChatRequest, opts: Cal
   let lastError: string | null = null;
 
   const attempt = async (p: ChatProvider): Promise<ChatResult | null> => {
-    attempts++;
-    try {
-      return await p.chat(req);
-    } catch (err) {
-      const e = err as ProviderError;
-      lastError = e?.message?.slice(0, 200) ?? String(err);
-      if (e instanceof ProviderError && e.retryable) {
+    for (let i = 0; i < 2; i++) {
+      attempts++;
+      try {
+        return await p.chat(req);
+      } catch (err) {
+        const e = err as ProviderError;
+        lastError = e?.message?.slice(0, 200) ?? String(err);
+        if (i > 0 || !(e instanceof ProviderError && e.retryable)) return null;
         await sleep(300 + Math.random() * 300);
-        attempts++;
-        try {
-          return await p.chat(req);
-        } catch (err2: any) {
-          lastError = err2?.message?.slice(0, 200) ?? String(err2);
-        }
       }
-      return null;
     }
+    return null;
   };
 
   let result = await attempt(primary);
   let fallback = false;
   if (!result) {
     const alternatives = opts.pool.filter((p) => p.name !== primary.name);
-    if (alternatives.length > 0) {
-      const alt = alternatives[Math.floor(Math.random() * alternatives.length)];
+    if (alternatives.length) {
       fallback = true;
-      result = await attempt(alt);
+      result = await attempt(alternatives[Math.floor(Math.random() * alternatives.length)]);
     }
   }
 
-  const event: LLMCallEvent = {
+  opts.sink?.({
     role: opts.role,
     player: opts.player,
     provider: result?.provider ?? primary.name,
@@ -86,8 +80,7 @@ export async function callLLM(primary: ChatProvider, req: ChatRequest, opts: Cal
     promptChars,
     outputChars: result?.text.length ?? 0,
     at: started,
-  };
-  opts.sink?.(event);
-  if (!event.ok) console.error(`[llm] ${opts.role} ${opts.player} failed after ${attempts} attempt(s): ${lastError}`);
+  });
+  if (!result) console.error(`[llm] ${opts.role} ${opts.player} failed after ${attempts} attempt(s): ${lastError}`);
   return result;
 }

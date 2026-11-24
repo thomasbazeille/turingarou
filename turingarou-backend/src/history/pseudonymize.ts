@@ -1,22 +1,18 @@
 /**
  * Pseudonymization of exported games. Player messages are personal data: an exported record keeps no
- * username, no room code, no id. Names become `p_<hmac>` (stable for a given salt, so one player keeps
- * the same pseudonym across games) and every mention of a player's name inside the game's free text
- * (messages, answers, flag reasons) is replaced by the same pseudonym, accents and case ignored.
+ * username, no room code, no id. Names become `p_<hmac>`, stable per salt, and every mention inside the
+ * game's free text (messages, answers, flag reasons) is replaced by the same pseudonym, accents and case
+ * ignored.
  */
 
 import { createHmac } from 'node:crypto';
 import type { HistoryGame } from './types.js';
 
-export interface Pseudonymizer {
-  name(raw: string): string;
-  game(raw: string): string;
-}
+export interface Pseudonymizer { name(raw: string): string; game(raw: string): string }
 
 const hmac = (salt: string, value: string) => createHmac('sha256', salt).update(value).digest('hex');
 
-const canonical = (s: string) =>
-  s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim();
+const canonical = (s: string) => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim();
 
 export function makePseudonymizer(salt: string): Pseudonymizer {
   if (!salt) throw new Error('pseudonymization salt is empty');
@@ -37,14 +33,7 @@ export function resolveSalt(env: NodeJS.ProcessEnv = process.env): string | null
 }
 
 const ACCENTS: Record<string, string> = {
-  a: 'aàâäáãå',
-  c: 'cç',
-  e: 'eéèêë',
-  i: 'iîïíì',
-  n: 'nñ',
-  o: 'oôöóòõ',
-  u: 'uùûüú',
-  y: 'yÿý',
+  a: 'aàâäáãå', c: 'cç', e: 'eéèêë', i: 'iîïíì', n: 'nñ', o: 'oôöóòõ', u: 'uùûüú', y: 'yÿý',
 };
 const escapeChar = (ch: string) => ch.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
 
@@ -61,10 +50,9 @@ export function makeNameReplacer(mapping: Map<string, string>): (text: string) =
   if (names.length === 0) return (text) => text;
   const re = new RegExp(`(?<![\\p{L}\\p{N}])(?:${names.map((n) => `(${namePattern(n)})`).join('|')})(?![\\p{L}\\p{N}])`, 'giu');
   return (text) =>
-    text.replace(re, (...args) => {
-      const groups = args.slice(1, names.length + 1);
-      const idx = groups.findIndex((g) => g !== undefined);
-      return idx >= 0 ? mapping.get(names[idx])! : args[0];
+    text.replace(re, (match, ...groups) => {
+      const idx = groups.slice(0, names.length).findIndex((g) => g !== undefined);
+      return idx >= 0 ? mapping.get(names[idx])! : match;
     });
 }
 

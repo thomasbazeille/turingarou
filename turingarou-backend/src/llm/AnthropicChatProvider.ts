@@ -16,11 +16,7 @@ export class AnthropicChatProvider implements ChatProvider {
   readonly supportsJson = false;
   private client: Anthropic;
 
-  constructor(
-    apiKey: string,
-    model = 'claude-haiku-4-5',
-    private readonly options: AnthropicOptions = {}
-  ) {
+  constructor(apiKey: string, model = 'claude-haiku-4-5', private readonly options: AnthropicOptions = {}) {
     this.model = model;
     this.name = `Anthropic/${model}`;
     // Retries are ours (llmCall.ts): the SDK must not retry behind our back.
@@ -35,12 +31,13 @@ export class AnthropicChatProvider implements ChatProvider {
     const started = Date.now();
     const system = req.messages.filter((m) => m.role === 'system').map((m) => m.content).join('\n\n');
     const turns: { role: 'user' | 'assistant'; content: string }[] = [];
-    for (const m of req.messages.filter((m) => m.role !== 'system')) {
+    for (const m of req.messages) {
+      if (m.role === 'system') continue;
       const last = turns[turns.length - 1];
       if (last && last.role === m.role) last.content += '\n\n' + m.content;
       else turns.push({ role: m.role as 'user' | 'assistant', content: m.content });
     }
-    if (turns.length === 0) throw new ProviderError(`${this.name}: no user turn`, 400, false);
+    if (!turns.length) throw new ProviderError(`${this.name}: no user turn`, 400, false);
 
     try {
       const response = await this.client.messages.create(
@@ -57,16 +54,16 @@ export class AnthropicChatProvider implements ChatProvider {
       );
       // Thinking blocks come first when the model thinks: read the first text block, not the first block.
       const block = response.content.find((b) => b.type === 'text');
+      const usage = response.usage;
       return {
-        text: block && block.type === 'text' ? block.text : '',
+        text: block?.type === 'text' ? block.text : '',
         finishReason: response.stop_reason ?? null,
         latencyMs: Date.now() - started,
         provider: this.name,
         model: this.model,
         usage: {
-          inputTokens:
-            response.usage.input_tokens + (response.usage.cache_creation_input_tokens ?? 0) + (response.usage.cache_read_input_tokens ?? 0),
-          outputTokens: response.usage.output_tokens,
+          inputTokens: usage.input_tokens + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0),
+          outputTokens: usage.output_tokens,
         },
       };
     } catch (err: any) {

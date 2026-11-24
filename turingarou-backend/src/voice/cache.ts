@@ -17,14 +17,12 @@ export class AudioCache {
   }
 
   set(key: string, value: TtsResult): void {
-    if (value.audio.length > this.maxBytes) return;
-    const previous = this.entries.get(key);
-    if (previous) {
-      this.bytes -= previous.audio.length;
-      this.entries.delete(key);
-    }
+    const size = value.audio.length;
+    if (size > this.maxBytes) return;
+    this.bytes -= this.entries.get(key)?.audio.length ?? 0;
+    this.entries.delete(key);
     this.entries.set(key, value);
-    this.bytes += value.audio.length;
+    this.bytes += size;
     for (const [oldKey, old] of this.entries) {
       if (this.bytes <= this.maxBytes) break;
       this.entries.delete(oldKey);
@@ -52,13 +50,9 @@ export class RateWindow {
     const t = this.now();
     if (++this.takes % 500 === 0) this.sweep(t);
     const list = (this.hits.get(key) ?? []).filter((h) => t - h.t < this.windowMs);
-    const used = list.reduce((sum, h) => sum + h.cost, 0);
-    if (used + cost > this.limit) {
-      this.hits.set(key, list);
-      return false;
-    }
-    list.push({ t, cost });
     this.hits.set(key, list);
+    if (list.reduce((sum, h) => sum + h.cost, 0) + cost > this.limit) return false;
+    list.push({ t, cost });
     return true;
   }
 

@@ -10,51 +10,29 @@ export type GameResult = 'humans_win' | 'ai_win' | 'draw';
 export type PlayerKind = 'human' | 'ai' | 'inspector';
 
 export interface HistoryPlayer {
-  name: string;
-  type: PlayerKind;
-  strategy: string | null;
-  /** LLM provider; null when unknown (not persisted by the game, see readStrategy). */
-  provider: string | null;
-  eliminated: boolean;
-  eliminatedRound: number | null;
+  name: string; type: PlayerKind; strategy: string | null;
+  provider: string | null; // LLM provider; null when unknown (not persisted by the game, see readStrategy)
+  eliminated: boolean; eliminatedRound: number | null;
 }
 
-export interface HistoryAnswer {
-  player: string;
-  type: PlayerKind;
-  answer: string;
-}
-
-export interface HistoryVote {
-  voter: string;
-  target: string;
-}
+export interface HistoryAnswer { player: string; type: PlayerKind; answer: string }
+export interface HistoryVote { voter: string; target: string }
 
 export interface HistoryRound {
   round: number;
   question: string | null;
   answers: HistoryAnswer[];
   votes: HistoryVote[];
-  /** null: nobody eliminated (tie or no vote). isAI is what the game recorded (an inspector counts as human). */
-  eliminated: { name: string; isAI: boolean } | null;
+  eliminated: { name: string; isAI: boolean } | null; // null: nobody eliminated (tie or no vote); isAI counts an inspector as human
 }
 
 export interface HistoryMessage {
-  round: number;
-  player: string;
-  type: PlayerKind;
-  content: string;
-  /** Epoch milliseconds. */
-  ts: number;
+  round: number; player: string; type: PlayerKind; content: string; ts: number; // ts: epoch milliseconds
 }
 
 export interface HistoryFlag {
-  round: number;
-  flaggedBy: string;
-  ts: number;
-  reason: string | null;
-  /** The flagged message, matched on the timestamp embedded in its in-game id; null when not found. */
-  target: { player: string; ts: number } | null;
+  round: number; flaggedBy: string; ts: number; reason: string | null;
+  target: { player: string; ts: number } | null; // the flagged message, matched on the ts in its in-game id; null when not found
 }
 
 export interface HistoryGame {
@@ -75,6 +53,5 @@ export interface HistoryGame {
      */
     suspectMerged: boolean;
   };
-  /** Set on invented fixture games only; never on records read from the database. */
-  synthetic?: boolean;
+  synthetic?: boolean; // set on invented fixture games only; never on records read from the database
 }

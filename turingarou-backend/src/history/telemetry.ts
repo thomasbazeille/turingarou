@@ -1,8 +1,6 @@
-/**
- * The database does not hold each AI's LLM provider; GameRoom prints it at game end in a
- * `[game-telemetry] {"room":…,"providers":{name: provider}}` log line. These helpers join those lines back
- * onto raw (not yet pseudonymized) games, keyed by room id = game id.
- */
+/** The database does not hold each AI's LLM provider; GameRoom logs it at game end as
+ * `[game-telemetry] {"room":…,"providers":{…}}`. These helpers join those lines onto raw (not yet
+ * pseudonymized) games, keyed by room id = game id. */
 
 import type { HistoryGame } from './types.js';
 

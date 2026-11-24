@@ -23,11 +23,7 @@ export interface ChatResult {
 }
 
 export class ProviderError extends Error {
-  constructor(
-    message: string,
-    public readonly status: number | null,
-    public readonly retryable: boolean
-  ) {
+  constructor(message: string, public readonly status: number | null, public readonly retryable: boolean) {
     super(message);
   }
 }
@@ -41,8 +37,7 @@ export interface ChatProvider {
 }
 
 export function resolveTemperature(req: ChatRequest, providerDefault: number, max: number): number {
-  const base = req.temperature ?? providerDefault;
-  const t = base * (req.temperatureScale ?? 1) + (req.temperatureOffset ?? 0);
+  const t = (req.temperature ?? providerDefault) * (req.temperatureScale ?? 1) + (req.temperatureOffset ?? 0);
   return Math.max(0, Math.min(max, Math.round(t * 100) / 100));
 }
 

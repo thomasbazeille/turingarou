@@ -29,20 +29,17 @@ export interface SttProvider {
 const TTS_TIMEOUT_MS = 10_000;
 const STT_TIMEOUT_MS = 15_000;
 
-async function okBytes(res: Response, who: string): Promise<Buffer> {
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`${who} HTTP ${res.status}: ${body.slice(0, 200)}`);
-  }
-  return Buffer.from(await res.arrayBuffer());
+/** POST to a vendor; any non-2xx becomes an error carrying the first 200 bytes of its body. */
+async function post(url: string, headers: Record<string, string>, body: string | Uint8Array | FormData, timeoutMs: number, who: string): Promise<Response> {
+  const res = await fetch(url, { method: 'POST', headers, body, signal: AbortSignal.timeout(timeoutMs) });
+  if (res.ok) return res;
+  const text = await res.text().catch(() => '');
+  throw new Error(`${who} HTTP ${res.status}: ${text.slice(0, 200)}`);
 }
 
-async function okJson(res: Response, who: string): Promise<any> {
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`${who} HTTP ${res.status}: ${body.slice(0, 200)}`);
-  }
-  return res.json();
+async function postJsonForAudio(url: string, headers: Record<string, string>, body: unknown, mime: string, who: string): Promise<TtsResult> {
+  const res = await post(url, headers, JSON.stringify(body), TTS_TIMEOUT_MS, who);
+  return { audio: Buffer.from(await res.arrayBuffer()), mime };
 }
 
 export class CartesiaTts implements TtsProvider {
@@ -50,19 +47,12 @@ export class CartesiaTts implements TtsProvider {
   constructor(private readonly apiKey: string, readonly model = 'sonic-3') {}
 
   async synthesize(text: string, voiceId: string, lang: Lang): Promise<TtsResult> {
-    const res = await fetch('https://api.cartesia.ai/tts/bytes', {
-      method: 'POST',
-      headers: { 'X-API-Key': this.apiKey, 'Cartesia-Version': '2025-04-16', 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model_id: this.model,
-        transcript: text,
-        voice: { mode: 'id', id: voiceId },
-        language: lang,
-        output_format: { container: 'mp3', sample_rate: 44100, bit_rate: 64000 },
-      }),
-      signal: AbortSignal.timeout(TTS_TIMEOUT_MS),
-    });
-    return { audio: await okBytes(res, 'cartesia'), mime: 'audio/mpeg' };
+    return postJsonForAudio(
+      'https://api.cartesia.ai/tts/bytes',
+      { 'X-API-Key': this.apiKey, 'Cartesia-Version': '2025-04-16', 'Content-Type': 'application/json' },
+      { model_id: this.model, transcript: text, voice: { mode: 'id', id: voiceId }, language: lang, output_format: { container: 'mp3', sample_rate: 44100, bit_rate: 64000 } },
+      'audio/mpeg', 'cartesia'
+    );
   }
 }
 
@@ -71,13 +61,12 @@ export class ElevenLabsTts implements TtsProvider {
   constructor(private readonly apiKey: string, readonly model = 'eleven_flash_v2_5') {}
 
   async synthesize(text: string, voiceId: string, lang: Lang): Promise<TtsResult> {
-    const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_64`, {
-      method: 'POST',
-      headers: { 'xi-api-key': this.apiKey, 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
-      body: JSON.stringify({ text, model_id: this.model, language_code: lang }),
-      signal: AbortSignal.timeout(TTS_TIMEOUT_MS),
-    });
-    return { audio: await okBytes(res, 'elevenlabs'), mime: 'audio/mpeg' };
+    return postJsonForAudio(
+      `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_64`,
+      { 'xi-api-key': this.apiKey, 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
+      { text, model_id: this.model, language_code: lang },
+      'audio/mpeg', 'elevenlabs'
+    );
   }
 }
 
@@ -86,22 +75,12 @@ export class OpenAITts implements TtsProvider {
   constructor(private readonly apiKey: string, readonly model = 'gpt-4o-mini-tts') {}
 
   async synthesize(text: string, voiceId: string, lang: Lang): Promise<TtsResult> {
-    const res = await fetch('https://api.openai.com/v1/audio/speech', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: this.model,
-        voice: voiceId,
-        input: text,
-        response_format: 'mp3',
-        instructions:
-          lang === 'fr'
-            ? 'Native French speaker from France, casual and relaxed, like chatting with friends in a group game.'
-            : 'Casual and relaxed, like chatting with friends in a group game.',
-      }),
-      signal: AbortSignal.timeout(TTS_TIMEOUT_MS),
-    });
-    return { audio: await okBytes(res, 'openai-tts'), mime: 'audio/mpeg' };
+    return postJsonForAudio('https://api.openai.com/v1/audio/speech', { Authorization: `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' }, {
+      model: this.model, voice: voiceId, input: text, response_format: 'mp3',
+      instructions: lang === 'fr'
+        ? 'Native French speaker from France, casual and relaxed, like chatting with friends in a group game.'
+        : 'Casual and relaxed, like chatting with friends in a group game.',
+    }, 'audio/mpeg', 'openai-tts');
   }
 }
 
@@ -111,13 +90,8 @@ export class DeepgramStt implements SttProvider {
 
   async transcribe(audio: Buffer, mime: string, lang: Lang): Promise<SttResult> {
     const qs = new URLSearchParams({ model: this.model, language: lang, smart_format: 'true' });
-    const res = await fetch(`https://api.deepgram.com/v1/listen?${qs}`, {
-      method: 'POST',
-      headers: { Authorization: `Token ${this.apiKey}`, 'Content-Type': mime },
-      body: new Uint8Array(audio),
-      signal: AbortSignal.timeout(STT_TIMEOUT_MS),
-    });
-    const json = await okJson(res, 'deepgram');
+    const res = await post(`https://api.deepgram.com/v1/listen?${qs}`, { Authorization: `Token ${this.apiKey}`, 'Content-Type': mime }, new Uint8Array(audio), STT_TIMEOUT_MS, 'deepgram');
+    const json: any = await res.json();
     const text = json?.results?.channels?.[0]?.alternatives?.[0]?.transcript;
     const duration = json?.metadata?.duration;
     return { text: typeof text === 'string' ? text : '', durationSec: typeof duration === 'number' ? duration : null };
@@ -125,14 +99,8 @@ export class DeepgramStt implements SttProvider {
 }
 
 const EXT_BY_MIME: Record<string, string> = {
-  'audio/webm': 'webm',
-  'video/webm': 'webm',
-  'audio/ogg': 'ogg',
-  'audio/mp4': 'mp4',
-  'video/mp4': 'mp4',
-  'audio/x-m4a': 'm4a',
-  'audio/mpeg': 'mp3',
-  'audio/wav': 'wav',
+  'audio/webm': 'webm', 'video/webm': 'webm', 'audio/ogg': 'ogg', 'audio/mp4': 'mp4',
+  'video/mp4': 'mp4', 'audio/x-m4a': 'm4a', 'audio/mpeg': 'mp3', 'audio/wav': 'wav',
 };
 
 export class OpenAIStt implements SttProvider {
@@ -145,24 +113,15 @@ export class OpenAIStt implements SttProvider {
     form.append('model', this.model);
     form.append('language', lang);
     form.append('response_format', 'json');
-    const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${this.apiKey}` },
-      body: form,
-      signal: AbortSignal.timeout(STT_TIMEOUT_MS),
-    });
-    const json = await okJson(res, 'openai-stt');
+    const res = await post('https://api.openai.com/v1/audio/transcriptions', { Authorization: `Bearer ${this.apiKey}` }, form, STT_TIMEOUT_MS, 'openai-stt');
+    const json: any = await res.json();
     return { text: typeof json?.text === 'string' ? json.text : '', durationSec: null };
   }
 }
 
 const GRADIUM_STT_MIME: Record<string, string> = {
-  'audio/wav': 'audio/wav',
-  'audio/x-wav': 'audio/wav',
-  'audio/wave': 'audio/wav',
-  'audio/pcm': 'audio/pcm',
-  'audio/ogg': 'audio/ogg',
-  'audio/opus': 'audio/opus',
+  'audio/wav': 'audio/wav', 'audio/x-wav': 'audio/wav', 'audio/wave': 'audio/wav',
+  'audio/pcm': 'audio/pcm', 'audio/ogg': 'audio/ogg', 'audio/opus': 'audio/opus',
 };
 
 /** Duration of a PCM WAV from its header: byteRate at offset 28, `data` chunk found by walking the chunk list. */
@@ -189,20 +148,12 @@ export class GradiumTts implements TtsProvider {
   constructor(readonly apiKey: string, readonly model = 'default') {}
 
   async synthesize(text: string, voiceId: string, lang: Lang): Promise<TtsResult> {
-    const res = await fetch('https://api.gradium.ai/api/post/speech/tts', {
-      method: 'POST',
-      headers: { 'x-api-key': this.apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text,
-        voice_id: voiceId,
-        output_format: 'wav',
-        only_audio: true,
-        model_name: this.model,
-        json_config: JSON.stringify({ rewrite_rules: lang }),
-      }),
-      signal: AbortSignal.timeout(TTS_TIMEOUT_MS),
-    });
-    return { audio: await okBytes(res, 'gradium-tts'), mime: 'audio/wav' };
+    return postJsonForAudio(
+      'https://api.gradium.ai/api/post/speech/tts',
+      { 'x-api-key': this.apiKey, 'Content-Type': 'application/json' },
+      { text, voice_id: voiceId, output_format: 'wav', only_audio: true, model_name: this.model, json_config: JSON.stringify({ rewrite_rules: lang }) },
+      'audio/wav', 'gradium-tts'
+    );
   }
 }
 
@@ -214,20 +165,10 @@ export class GradiumStt implements SttProvider {
     const sent = GRADIUM_STT_MIME[mime.split(';')[0].trim().toLowerCase()];
     if (!sent) throw new Error(`gradium-stt accepts wav, pcm, ogg or opus audio, not ${mime || 'unknown'}`);
     const qs = new URLSearchParams({ json_config: JSON.stringify({ language: lang }), model: this.model });
-    const res = await fetch(`https://api.gradium.ai/api/post/speech/asr?${qs}`, {
-      method: 'POST',
-      headers: { 'x-api-key': this.apiKey, 'Content-Type': sent },
-      body: new Uint8Array(audio),
-      signal: AbortSignal.timeout(STT_TIMEOUT_MS),
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`gradium-stt HTTP ${res.status}: ${body.slice(0, 200)}`);
-    }
+    const res = await post(`https://api.gradium.ai/api/post/speech/asr?${qs}`, { 'x-api-key': this.apiKey, 'Content-Type': sent }, new Uint8Array(audio), STT_TIMEOUT_MS, 'gradium-stt');
     const parts: string[] = [];
     let stop: number | null = null;
     for (const line of (await res.text()).split('\n')) {
-      if (!line.trim()) continue;
       let msg: any;
       try {
         msg = JSON.parse(line);

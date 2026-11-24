@@ -41,46 +41,36 @@ function styleTable(s: Section, kinds: PlayerKind[] = ['human', 'ai', 'inspector
 }
 
 const RESPONSE_LABEL: Record<string, string> = {
-  silence: 'silence',
-  counter_accusation: 'contre-accusation',
-  denial: 'dénégation',
-  humour: 'humour',
-  question: 'question en retour',
-  other: 'autre',
+  silence: 'silence', counter_accusation: 'contre-accusation', denial: 'dénégation',
+  humour: 'humour', question: 'question en retour', other: 'autre',
 };
 
 export function renderReport(a: HistoryAnalysis): string {
   const s = a.overall;
-  const out: string[] = [];
-  out.push(`# Turingarou — analyse de l'historique des parties\n`);
-  out.push(
+  const out: string[] = [
+    `# Turingarou — analyse de l'historique des parties\n`,
     `Généré le ${a.generatedAt.slice(0, 10)} · ${a.corpus.games} parties analysées` +
       (a.corpus.excluded ? ` (${a.corpus.excluded} écartées : vides ou fusion suspecte d'un code de salle réutilisé)` : '') +
       ` · ${Object.entries(a.corpus.languages).map(([l, n]) => `${l} ${n}`).join(', ') || 'aucune langue'}` +
       (a.corpus.dateRange ? ` · du ${a.corpus.dateRange.from.slice(0, 10)} au ${a.corpus.dateRange.to.slice(0, 10)}` : '') +
-      '\n'
-  );
+      '\n',
+  ];
   if (a.corpus.synthetic) out.push(`> ⚠️ ${a.corpus.synthetic} parties SYNTHÉTIQUES (fixtures inventées) : aucun chiffre ci-dessous ne décrit de vrais joueurs.\n`);
   out.push(`## Non mesuré\n\n${a.notMeasured.map((x) => `- ${x}`).join('\n')}\n`);
 
-  out.push(`## 1. Résultats\n`);
-  out.push(table(['victoire humains', 'victoire IA', 'nul', 'rounds / partie'], [[pct(s.outcomes.humansWin), pct(s.outcomes.aiWin), pct(s.outcomes.draw), num(s.outcomes.meanRounds)]]));
+  out.push(`## 1. Résultats\n`, table(['victoire humains', 'victoire IA', 'nul', 'rounds / partie'], [[pct(s.outcomes.humansWin), pct(s.outcomes.aiWin), pct(s.outcomes.draw), num(s.outcomes.meanRounds)]]));
 
-  const groupRows = (g: Section['byStrategy']) =>
-    g.map((x) => [x.key, String(x.aiPlayers), pct(x.survived), pct(x.teamWins), num(x.meanEliminationRound), num(x.accusationsPerRound, 2)]);
+  const groupRows = (g: Section['byStrategy']) => g.map((x) => [x.key, String(x.aiPlayers), pct(x.survived), pct(x.teamWins), num(x.meanEliminationRound), num(x.accusationsPerRound, 2)]);
   const groupHead = ['clé', 'IA', 'survie', 'victoire équipe IA', 'round moyen d’élimination', 'accusations / round vivant'];
-  out.push(`## 2. Par stratégie\n\n${table(groupHead, groupRows(s.byStrategy))}`);
-  out.push(`## 3. Par provider\n\n${table(groupHead, groupRows(s.byProvider))}`);
+  out.push(`## 2. Par stratégie\n\n${table(groupHead, groupRows(s.byStrategy))}`, `## 3. Par provider\n\n${table(groupHead, groupRows(s.byProvider))}`);
 
-  out.push(`## 4. Éliminations : quand et pourquoi\n`);
   out.push(
+    `## 4. Éliminations : quand et pourquoi\n`,
     `- Éliminations qui touchent une IA : ${pct(s.eliminations.accuracy)}\n` +
       `- Votes humains sur une IA : ${pct(s.eliminations.humanVotesOnAI)}\n` +
-      `- Votes IA sur un non-IA : ${pct(s.eliminations.aiVotesOnHumans)}\n`
-  );
-  out.push(table(['round', 'IA', 'humain', 'inspecteur', 'personne'], s.eliminations.byRound.map((r) => [String(r.round), String(r.ai), String(r.human), String(r.inspector), String(r.none)])));
-  out.push(`\nIA éliminées au round vs IA qui l'ont passé (moyennes par IA et par round) :\n\n`);
-  out.push(
+      `- Votes IA sur un non-IA : ${pct(s.eliminations.aiVotesOnHumans)}\n`,
+    table(['round', 'IA', 'humain', 'inspecteur', 'personne'], s.eliminations.byRound.map((r) => [String(r.round), String(r.ai), String(r.human), String(r.inspector), String(r.none)])),
+    `\nIA éliminées au round vs IA qui l'ont passé (moyennes par IA et par round) :\n\n`,
     table(
       ['indicateur', 'éliminées', 'survivantes'],
       s.eliminations.predictors.map((p) => [p.feature, `${num(p.eliminated, 2)} (n=${p.nEliminated})`, `${num(p.survivors, 2)} (n=${p.nSurvivors})`])
@@ -107,21 +97,22 @@ export function renderReport(a: HistoryAnalysis): string {
 
   const lexRows = (xs: Section['lexical']['aiOverused']) =>
     xs.map((x) => [x.word, `${Math.round(x.aiShare * 100)} % (${x.aiMessages})`, `${Math.round(x.humanShare * 100)} % (${x.humanMessages})`, num(x.ratio, 2)]);
+  const lexHead = ['mot', 'IA', 'humains', 'ratio'];
   out.push(`\n## 6. Tells lexicaux (part des messages contenant le mot)\n\nSur-employés par les IA :\n\n`);
-  out.push(table(['mot', 'IA', 'humains', 'ratio'], lexRows(s.lexical.aiOverused)));
+  out.push(table(lexHead, lexRows(s.lexical.aiOverused)));
   out.push(`\nMarqueurs humains que les IA n'emploient pas :\n\n`);
-  out.push(table(['mot', 'IA', 'humains', 'ratio'], lexRows(s.lexical.humanMarkers)));
+  out.push(table(lexHead, lexRows(s.lexical.humanMarkers)));
 
-  out.push(`\n## 7. Questions qui exposent le mieux les IA\n\n`);
   out.push(
+    `\n## 7. Questions qui exposent le mieux les IA\n\n`,
     table(
       ['question', 'rounds', 'votes humains sur IA', 'IA éliminée', 'mots IA', 'mots humains'],
       s.questions.slice(0, 10).map((q) => [q.question, String(q.rounds), pct(q.humanVotesOnAI), pct(q.aiEliminated), num(q.answerWordsAI), num(q.answerWordsHuman)])
     )
   );
 
-  out.push(`\n## 8. Accusé : quelle réplique survit au vote du round\n\n`);
   out.push(
+    `\n## 8. Accusé : quelle réplique survit au vote du round\n\n`,
     table(
       ['cible', 'réplique', 'n', 'survie au round', 'part des votes reçus', 'délai de réplique'],
       s.counterMoves.map((c) => [c.target === 'ai' ? 'IA' : 'humain', RESPONSE_LABEL[c.response], String(c.n), pct(c.survived), num(c.meanVoteShare, 2), distStr(c.replyLatencyMs, sec)])
@@ -129,8 +120,8 @@ export function renderReport(a: HistoryAnalysis): string {
   );
 
   const i = s.inspector;
-  out.push(`\n## 9. Effet de l'inspecteur\n\n`);
   out.push(
+    `\n## 9. Effet de l'inspecteur\n\n`,
     table(
       ['', 'avec inspecteur', 'sans'],
       [
