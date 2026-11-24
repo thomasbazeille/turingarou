@@ -11,7 +11,7 @@ import { DISCUSSION_PHASE_MS, ENDROUND_MS, QUESTION_PHASE_MS } from '../src/game
 import { buildTranscript, flagResults, scoreVotes, shareText } from '../src/game/gameReview.js';
 import { modelLabel } from '../src/llm/providerRegistry.js';
 import { makeSeededRng } from '../src/game/humanTiming.js';
-import { check, eventEmits, finishGreen, ManualClock, testRoomWithHumans } from './testkit.js';
+import { eventEmits, finish, ManualClock, test, testRoomWithHumans } from './testkit.js';
 
 /**
  * A full game of 5 humans and 3 AIs: each round every seat but one answers, two humans and an AI talk (each quoting
@@ -75,7 +75,7 @@ async function finished(roomId: string) {
 
 // ====== TRANSCRIPT ======
 
-await check('transcript: answers in seat order without time, system lines out, reply quotes kept', () => {
+await test('transcript: answers in seat order without time, system lines out, reply quotes kept', () => {
   const players = [
     { id: 'p-b', name: 'ben', color: '#111', isAI: true, model: 'Mistral Small' },
     { id: 'p-a', name: 'ana', color: '#222', isAI: false },
@@ -99,7 +99,7 @@ await check('transcript: answers in seat order without time, system lines out, r
 
 const game = await finished('T1');
 
-await check('the game over carries the whole game: every round, question, answer and line, each author revealed', () => {
+await test('the game over carries the whole game: every round, question, answer and line, each author revealed', () => {
   const t = game.gameover.transcript;
   assert.ok(t, 'no transcript in the game over state');
   const state = game.room.getState();
@@ -121,14 +121,14 @@ await check('the game over carries the whole game: every round, question, answer
   assert.ok(game.posted.some((m) => m.replyToId), 'the scenario never quoted a line');
 });
 
-await check('no transcript in any state before the game over', () => {
+await test('no transcript in any state before the game over', () => {
   const early = game.roomStates.filter((s) => s.phase !== 'gameover' && 'transcript' in s);
   assert.equal(early.length, 0, `transcript sent in ${early.map((s) => s.phase).join(', ')}`);
 });
 
 // ====== FLAGS ======
 
-await check('flags: in the order flagged, each with its author and whether it was an AI; unknown and system ids out', () => {
+await test('flags: in the order flagged, each with its author and whether it was an AI; unknown and system ids out', () => {
   const messages = [
     { id: 'm1', playerId: 'p-a', playerName: 'ana', content: 'salut', timestamp: 1, phase: 'discussion' as const, round: 1 },
     { id: 's1', playerId: 'system', playerName: '', content: 'info', timestamp: 2, phase: 'discussion' as const, round: 1 },
@@ -140,7 +140,7 @@ await check('flags: in the order flagged, each with its author and whether it wa
   ]);
 });
 
-await check("each human gets their own review on their own socket at the game over, nobody else's, never the room", () => {
+await test("each human gets their own review on their own socket at the game over, nobody else's, never the room", () => {
   const reviews = game.emits.filter((e) => e.event === 'myReview');
   assert.equal(reviews.filter((e) => e.target === 'T1').length, 0, 'a review was broadcast to the room');
   assert.deepEqual(reviews.map((e) => e.target).sort(), [...game.sockets].sort(), 'not one review per human socket');
@@ -154,7 +154,7 @@ await check("each human gets their own review on their own socket at the game ov
   assert.equal(game.room.reviewOf(game.aiIds[0]), null, 'an AI seat has a review');
 });
 
-await check("the flagger sees their flags with the truth (an AI's line, a human's), duplicates and their own line out; the others none", () => {
+await test("the flagger sees their flags with the truth (an AI's line, a human's), duplicates and their own line out; the others none", () => {
   const first = game.room.reviewOf(game.humanIds[0])!;
   assert.deepEqual(first.flags.map((f) => f.messageId), game.flagged);
   assert.deepEqual(first.flags.map((f) => f.isAI), [true, false]);
@@ -165,7 +165,7 @@ await check("the flagger sees their flags with the truth (an AI's line, a human'
 
 // ====== SCORE ======
 
-await check('score: AIs found and false accusations kept apart, abstentions in neither, no round after being voted out', () => {
+await test('score: AIs found and false accusations kept apart, abstentions in neither, no round after being voted out', () => {
   const v = (voterId: string, targetId: string | null) => ({ voterId, targetId });
   const history = [
     { round: 2, votes: [v('me', 'h1'), v('ai1', 'me')], eliminatedId: 'h1' },
@@ -188,7 +188,7 @@ await check('score: AIs found and false accusations kept apart, abstentions in n
   assert.deepEqual(scoreVotes('nobody', history, isAI), { aiFound: 0, falseAccusations: 0, rounds: [] });
 });
 
-await check("each human's score at the game over follows their own votes, against the seats revealed", () => {
+await test("each human's score at the game over follows their own votes, against the seats revealed", () => {
   const rounds = game.room.getState().currentRound;
   for (const id of game.humanIds) {
     const expected = [];
@@ -209,7 +209,7 @@ await check("each human's score at the game over follows their own votes, agains
 
 // ====== SHARE ======
 
-await check('share text: the score, one line per round with its mark, in the game language', () => {
+await test('share text: the score, one line per round with its mark, in the game language', () => {
   const score = {
     aiFound: 2,
     falseAccusations: 1,
@@ -226,7 +226,7 @@ await check('share text: the score, one line per round with its mark, in the gam
   assert.equal(shareText({ aiFound: 0, falseAccusations: 2, rounds: [] }, 'en'), 'Turingarou · 0 AIs found · 2 false accusations');
 });
 
-await check('share text of every player of a full game: no name, no model, no room, one line per round played', () => {
+await test('share text of every player of a full game: no name, no model, no room, one line per round played', () => {
   const t = game.gameover.transcript;
   const models = ['Anthropic/claude-haiku-4-5', 'Deepseek/deepseek-chat', 'Mistral/mistral-small-latest', 'Fake/quiet'].map(modelLabel);
   for (const id of game.humanIds) {
@@ -240,7 +240,7 @@ await check('share text of every player of a full game: no name, no model, no ro
   }
 });
 
-await check('a player back with their token after the game over gets the same transcript', () => {
+await test('a player back with their token after the game over gets the same transcript', () => {
   const token = game.room.sessionToken(game.humanIds[2])!;
   game.room.disconnect(game.sockets[2]);
   const seat = game.room.resume('T1-back', token);
@@ -250,4 +250,4 @@ await check('a player back with their token after the game over gets the same tr
   assert.deepEqual(game.room.reviewOf(game.humanIds[2]), sent, 'the review sent on resume differs from the one sent at the game over');
 });
 
-finishGreen();
+finish();

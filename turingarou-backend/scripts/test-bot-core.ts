@@ -8,7 +8,7 @@ import { answerPrompt, decisionPrompt, systemPrompt, votePrompt, PromptIdentity 
 import { getInspectorPromptContent, getRandomAIPlayerStrategy } from '../src/game/StrategyLoader.js';
 import { ChatProvider, ChatRequest, ChatResult } from '../src/llm/chatClient.js';
 import type { GameFormat, GameMessage, GameRoomState } from '../src/types/game.types.js';
-import { finishPassed, ManualClock, test } from './testkit.js';
+import { finish, ManualClock, test } from './testkit.js';
 
 // ---- provider whose calls resolve only when the test says so ----
 class DeferredProvider implements ChatProvider {
@@ -541,4 +541,4 @@ await test('pauses scale with the table: 1 at 8 or more players, 8/n below, neve
   assert.equal(silenceMs(5), 19200);
 });
 
-finishPassed();
+finish();

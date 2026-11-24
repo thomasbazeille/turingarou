@@ -5,7 +5,7 @@ import type { Lang, SttProvider, SttResult, TtsResult } from '../src/voice/provi
 import { registerVoiceRoutes, type VoiceOptions, type VoiceRoom } from '../src/voice/routes.js';
 import { normalizeTranscript, spokenText, wordSimilarity } from '../src/voice/text.js';
 import { assignVoices, loadGradiumVoices, VoiceBook, voicePool, type VoiceDef } from '../src/voice/voices.js';
-import { FakeTts, finishTotals, test as runTest, withHttpServer } from './testkit.js';
+import { FakeTts, finish, test as runTest, withHttpServer } from './testkit.js';
 
 // The cases are declared here and run at the end, one at a time: many swap globalThis.fetch, so they must not
 // overlap.
@@ -515,4 +515,4 @@ test('config says sttFormat wav for a gradium STT', async () => {
 
 for (const { name, fn } of queue) await runTest(name, fn);
 
-finishTotals();
+finish();

@@ -17,7 +17,7 @@ import {
   VOTE_REASONS,
 } from '../src/game/measures.js';
 import { styleReferencePlayers, updateHumanProfiles, writeHumanProfiles, type GameLogData, type Queryable } from '../src/game/GameLogger.js';
-import { finishTotals, test } from './testkit.js';
+import { finish, test } from './testkit.js';
 
 class RecordingClient implements Queryable {
   calls: { text: string; values: unknown[] }[] = [];
@@ -136,7 +136,7 @@ async function main(): Promise<void> {
     await updateHumanProfiles(game());
   });
 
-  finishTotals();
+  finish();
 }
 
 main();

@@ -19,7 +19,7 @@ import { selectHumanPersona, usableMessages } from '../src/history/persona.js';
 import { applyProviders, parseTelemetry } from '../src/history/telemetry.js';
 import { renderReport } from '../src/history/report.js';
 import type { HistoryGame } from '../src/history/types.js';
-import { finishList, test, withHttpServer } from './testkit.js';
+import { finish, test, withHttpServer } from './testkit.js';
 
 const near = (actual: number | null, expected: number, label: string) =>
   assert.ok(actual !== null && Math.abs(actual - expected) < 1e-3, `${label}: got ${actual}, expected ${expected}`);
@@ -497,7 +497,7 @@ async function main() {
     assert.deepEqual(direct, [], `direct comparison with the secret: ${direct.join(', ')}`);
   });
 
-  finishList();
+  finish();
 }
 
 main().catch((err) => {

@@ -1,9 +1,9 @@
 /**
- * Scaffolding shared by the scripts/test-*.ts files: the case runners and their summary lines, virtual time, the
+ * Scaffolding shared by the scripts/test-*.ts files: the case runner and its summary, virtual time, the
  * emit capture and room builders, the fake providers, the seeded RNG and the local HTTP server harness.
  *
  * Every test file runs in its own process (npm run test:unit chains one tsx per file), so one Suite singleton per
- * process is enough.
+ * process holds its own counters.
  */
 import assert from 'node:assert/strict';
 import express from 'express';
@@ -24,83 +24,43 @@ const isThenable = (v: unknown): v is PromiseLike<void> =>
   v !== null &&
   typeof (v as { then?: unknown }).then === 'function';
 
-/** Case counters of one test file: the `check` and `test` flavours print and record differently. */
-export class Suite {
-  passed = 0;
-  readonly failures: string[] = [];
+let passed = 0;
+const failures: string[] = [];
 
-  private record(ok: boolean, name: string, flavour: 'check' | 'test', err?: unknown): void {
-    if (ok) {
-      this.passed++;
-      console.log(flavour === 'check' ? `  ✓ ${name}` : `✅ ${name}`);
-      return;
-    }
-    this.failures.push(name);
-    const msg =
-      flavour === 'check'
-        ? String((err as { message?: unknown } | null | undefined)?.message)
-        : err instanceof Error
-          ? err.message
-          : String(err);
-    console.log(flavour === 'check' ? `  ✗ ${name} — ${msg}` : `❌ ${name}\n   ${msg}`);
+function record(ok: boolean, name: string, err?: unknown): void {
+  if (ok) {
+    passed++;
+    console.log(`✅ ${name}`);
+    return;
   }
-
-  private run(name: string, fn: Case, flavour: 'check' | 'test'): void | Promise<void> {
-    let out: unknown;
-    try {
-      out = fn();
-    } catch (err) {
-      this.record(false, name, flavour, err);
-      return;
-    }
-    if (!isThenable(out)) {
-      this.record(true, name, flavour);
-      return;
-    }
-    return Promise.resolve(out).then(
-      () => this.record(true, name, flavour),
-      (err) => this.record(false, name, flavour, err)
-    );
-  }
-
-  check(name: string, fn: Case): void | Promise<void> {
-    return this.run(name, fn, 'check');
-  }
-  test(name: string, fn: Case): void | Promise<void> {
-    return this.run(name, fn, 'test');
-  }
+  failures.push(name);
+  console.log(`❌ ${name}\n   ${err instanceof Error ? err.message : String(err)}`);
 }
 
-export const suite = new Suite();
-export const check = (name: string, fn: Case): void | Promise<void> => suite.check(name, fn);
-export const test = (name: string, fn: Case): void | Promise<void> => suite.test(name, fn);
-
-/** The check-flavour summary: "\nN échec(s)" or "\nTout est vert". */
-export function finishGreen(): never {
-  console.log(suite.failures.length ? `\n${suite.failures.length} échec(s)` : '\nTout est vert');
-  process.exit(suite.failures.length ? 1 : 0);
-}
-
-/** The test-flavour summary: "\nX passed, Y failed". */
-export function finishPassed(): void {
-  console.log(`\n${suite.passed} passed, ${suite.failures.length} failed`);
-  if (suite.failures.length > 0) process.exit(1);
-}
-
-/** Same counts plus ", X+Y total", and the failed names on stderr. */
-export function finishTotals(): void {
-  console.log(`\n${suite.passed} passed, ${suite.failures.length} failed, ${suite.passed + suite.failures.length} total`);
-  if (suite.failures.length > 0) {
-    console.error(`Failed cases: ${suite.failures.join(' | ')}`);
-    process.exit(1);
+/** Runs one case and prints its line. A promise comes back only for an async case, so a sync file stays sync. */
+export function test(name: string, fn: Case): void | Promise<void> {
+  let out: unknown;
+  try {
+    out = fn();
+  } catch (err) {
+    record(false, name, err);
+    return;
   }
+  if (!isThenable(out)) {
+    record(true, name);
+    return;
+  }
+  return Promise.resolve(out).then(
+    () => record(true, name),
+    (err) => record(false, name, err)
+  );
 }
 
-/** Same counts, then one "  - name" line per failure (history). */
-export function finishList(): void {
-  console.log(`\n${suite.passed} passed, ${suite.failures.length} failed`);
-  if (suite.failures.length) {
-    console.log(suite.failures.map((f) => `  - ${f}`).join('\n'));
+/** The counts, one line per failed case, and exit code 1 when any failed (npm run test:unit reads only that). */
+export function finish(): void {
+  console.log(`\n${passed} passed, ${failures.length} failed`);
+  if (failures.length > 0) {
+    console.log(failures.map((f) => `  - ${f}`).join('\n'));
     process.exit(1);
   }
 }

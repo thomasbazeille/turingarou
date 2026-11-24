@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict';
 import { DISCUSSION_PHASE_MS, type GameRoom, QUESTION_MIN_MS, QUESTION_PHASE_MS } from '../src/game/GameRoom.js';
 import { makeSeededRng } from '../src/game/humanTiming.js';
-import { check, finishGreen, ManualClock, payloadEmits, testRoomWithHumans } from './testkit.js';
+import { finish, ManualClock, payloadEmits, test, testRoomWithHumans } from './testkit.js';
 
 async function started(roomId: string) {
   const clock = new ManualClock();
@@ -31,7 +31,7 @@ async function atVote(roomId: string) {
 
 // ====== ABSTENTION AND HIDDEN VOTES ======
 
-await check('abstention counts as a vote rendered: the vote closes as soon as everyone voted or abstained', async () => {
+await test('abstention counts as a vote rendered: the vote closes as soon as everyone voted or abstained', async () => {
   const { room, clock, ids } = await atVote('V1');
   const [a, b, ...rest] = ids();
   for (const id of rest) room.addVote(id, a);
@@ -43,7 +43,7 @@ await check('abstention counts as a vote rendered: the vote closes as soon as ev
   assert.equal(room.getState().eliminatedPlayerId, a);
 });
 
-await check('abstentions eliminate nobody: all abstain, or a tie among the votes, is nobody', async () => {
+await test('abstentions eliminate nobody: all abstain, or a tie among the votes, is nobody', async () => {
   const all = await atVote('V2');
   for (const id of all.ids()) all.room.addVote(id, null);
   all.clock.advance(0);
@@ -68,7 +68,7 @@ await check('abstentions eliminate nobody: all abstain, or a tie among the votes
   assert.equal(one.room.getState().eliminatedPlayerId, ids[0], 'one vote against six abstentions did not eliminate');
 });
 
-await check('one vote per player: an abstention is final, a second ballot of either kind is refused', async () => {
+await test('one vote per player: an abstention is final, a second ballot of either kind is refused', async () => {
   const { room, ids } = await atVote('V5');
   const [a, b] = ids();
   room.addVote(a, null);
@@ -80,7 +80,7 @@ await check('one vote per player: an abstention is final, a second ballot of eit
   assert.equal(room.getState().votes.length, 2);
 });
 
-await check('before the round end, nobody sees anyone\'s vote: an anonymous count, no voter id, no system line', async () => {
+await test('before the round end, nobody sees anyone\'s vote: an anonymous count, no voter id, no system line', async () => {
   const { room, clock, emits, ids, last } = await atVote('V6');
   const [a, b, c] = ids();
   const before = emits.length;
@@ -101,7 +101,7 @@ await check('before the round end, nobody sees anyone\'s vote: an anonymous coun
   assert.equal(last().phase, 'endround');
 });
 
-await check('the round end reveals one entry per player who could vote, in seat order, a missing vote as an abstention', async () => {
+await test('the round end reveals one entry per player who could vote, in seat order, a missing vote as an abstention', async () => {
   const { room, clock, ids, last } = await atVote('V7');
   const seat = ids();
   // Cast in reverse seat order, two players never vote.
@@ -126,7 +126,7 @@ await check('the round end reveals one entry per player who could vote, in seat 
 
 // ====== REPLY QUOTES ======
 
-await check('reply quote: an earlier line of the room is kept on the new line', async () => {
+await test('reply quote: an earlier line of the room is kept on the new line', async () => {
   const { room, clock, ids } = await started('R1');
   clock.advance(QUESTION_PHASE_MS);
   const [a, b] = ids();
@@ -136,7 +136,7 @@ await check('reply quote: an earlier line of the room is kept on the new line', 
   assert.equal(room.getState().messages.at(-1)!.replyToId, quoted.id);
 });
 
-await check('reply quote: an unknown id is dropped, the line is still posted', async () => {
+await test('reply quote: an unknown id is dropped, the line is still posted', async () => {
   const { room, clock, ids } = await started('R2');
   clock.advance(QUESTION_PHASE_MS);
   const [a] = ids();
@@ -146,7 +146,7 @@ await check('reply quote: an unknown id is dropped, the line is still posted', a
   assert.ok(!('replyToId' in line), 'an unknown reply id was kept');
 });
 
-await check("reply quote: another room's message id is dropped", async () => {
+await test("reply quote: another room's message id is dropped", async () => {
   const one = await started('R3a');
   const two = await started('R3b');
   one.clock.advance(QUESTION_PHASE_MS);
@@ -157,7 +157,7 @@ await check("reply quote: another room's message id is dropped", async () => {
   assert.ok(!('replyToId' in two.room.getState().messages.at(-1)!), "another room's message id was kept");
 });
 
-await check('reply quote: a non-string id (number, object, empty) is dropped', async () => {
+await test('reply quote: a non-string id (number, object, empty) is dropped', async () => {
   const { room, clock, ids } = await started('R4');
   clock.advance(QUESTION_PHASE_MS);
   const [a] = ids();
@@ -172,7 +172,7 @@ await check('reply quote: a non-string id (number, object, empty) is dropped', a
 
 const answerAll = (room: GameRoom, ids: string[]) => ids.forEach((id) => room.addAnswer(id, 'oui'));
 
-await check('everyone answered within 2 s: the discussion starts exactly at the floor, never before', async () => {
+await test('everyone answered within 2 s: the discussion starts exactly at the floor, never before', async () => {
   const { room, clock, ids } = await started('Q1');
   clock.advance(2000);
   answerAll(room, ids());
@@ -182,7 +182,7 @@ await check('everyone answered within 2 s: the discussion starts exactly at the 
   assert.equal(room.getState().phase, 'discussion', 'the question did not end at the floor');
 });
 
-await check('everyone answered after the floor: the discussion starts at the last answer', async () => {
+await test('everyone answered after the floor: the discussion starts at the last answer', async () => {
   const { room, clock, ids } = await started('Q2');
   const [first, ...others] = ids();
   room.addAnswer(first, 'tot');
@@ -193,7 +193,7 @@ await check('everyone answered after the floor: the discussion starts at the las
   assert.equal(room.getState().discussionEndTime, clock.now() + DISCUSSION_PHASE_MS);
 });
 
-await check('answers stay hidden until the question ends: no broadcast per answer, none in the state, then seat order without time', async () => {
+await test('answers stay hidden until the question ends: no broadcast per answer, none in the state, then seat order without time', async () => {
   const { room, clock, emits, ids, last } = await started('Q4');
   const seat = ids();
   const before = emits.length;
@@ -213,7 +213,7 @@ await check('answers stay hidden until the question ends: no broadcast per answe
   assert.ok(reveal.answers.every((a: Record<string, unknown>) => !('timestamp' in a)), 'answer times sent to the clients');
 });
 
-await check('one answer missing: no early end, the question runs its full time', async () => {
+await test('one answer missing: no early end, the question runs its full time', async () => {
   const { room, clock, ids } = await started('Q3');
   answerAll(room, ids().slice(1));
   clock.advance(QUESTION_PHASE_MS - 1);
@@ -222,4 +222,4 @@ await check('one answer missing: no early end, the question runs its full time',
   assert.equal(room.getState().phase, 'discussion');
 });
 
-finishGreen();
+finish();

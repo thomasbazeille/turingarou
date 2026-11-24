@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { checkMessage, GateContext } from '../src/game/formGate.js';
 import { complianceProblem, detectHijack, Hijack, recentHijacks } from '../src/game/hijackGuard.js';
-import { finishPassed, test } from './testkit.js';
+import { finish, test } from './testkit.js';
 
 const kind = (t: string) => detectHijack(t)?.kind ?? null;
 
@@ -103,4 +103,4 @@ test('gate: a compliant draft is rejected as trap_compliance, the human corpus n
   assert.deepEqual(rejected, []);
 });
 
-finishPassed();
+finish();

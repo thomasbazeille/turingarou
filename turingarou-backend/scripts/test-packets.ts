@@ -6,32 +6,32 @@
  */
 import assert from 'node:assert/strict';
 import { ROOM_ID_MAX, fields, languageOf, roomIdOf, text } from '../src/packets.js';
-import { check, finishGreen } from './testkit.js';
+import { finish, test } from './testkit.js';
 
 console.log('client packets');
 
-check('fields: a plain object only, anything else reads as no field', () => {
+test('fields: a plain object only, anything else reads as no field', () => {
   assert.deepEqual(fields({ message: 'hi' }), { message: 'hi' });
   for (const p of [null, undefined, 'x', 42, ['message'], true]) assert.deepEqual(fields(p), {});
 });
 
-check('text: strings only', () => {
+test('text: strings only', () => {
   assert.equal(text('hi'), 'hi');
   assert.equal(text(''), '');
   for (const v of [null, undefined, 42, { toString: () => 'x' }, ['x']]) assert.equal(text(v), null);
 });
 
-check(`room id: trimmed text of 1 to ${ROOM_ID_MAX} characters, no control characters`, () => {
+test(`room id: trimmed text of 1 to ${ROOM_ID_MAX} characters, no control characters`, () => {
   assert.equal(roomIdOf('  AMIS '), 'AMIS');
   assert.equal(roomIdOf('public-lobby'), 'public-lobby');
   assert.equal(roomIdOf('x'.repeat(ROOM_ID_MAX)), 'x'.repeat(ROOM_ID_MAX));
   for (const v of ['', '   ', 'x'.repeat(ROOM_ID_MAX + 1), 'a\nb', 'a\u0000', null, { id: 1 }, 7]) assert.equal(roomIdOf(v), null);
 });
 
-check('language: fr or en, else none', () => {
+test('language: fr or en, else none', () => {
   assert.equal(languageOf('fr'), 'fr');
   assert.equal(languageOf('en'), 'en');
   for (const v of ['de', '', null, 1]) assert.equal(languageOf(v), undefined);
 });
 
-finishGreen();
+finish();

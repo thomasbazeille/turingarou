@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs';
 import { createHash, webcrypto } from 'node:crypto';
 import { MIN_LAUNCH_HUMANS, TableOptions, USERNAME_MAX, aiCountFor, cleanUsername, parseTableChoice } from '../src/game/GameRoom.js';
 import { REMATCH_WINDOW_MS, ROOM_CODE_ALPHABET, newRoomCode, rematchTable, routeRematch } from '../src/game/rematch.js';
-import { check, finishGreen, frozenClock, makeSeededRng, NAMES_18, targetEmits, testRoom } from './testkit.js';
+import { finish, frozenClock, makeSeededRng, NAMES_18, targetEmits, test, testRoom } from './testkit.js';
 
 const clock = frozenClock();
 
@@ -27,7 +27,7 @@ const lastTo = (emits: Emit[], target: string) => [...emits].reverse().find((e) 
 
 console.log('host launch');
 
-await check(`private room: refused below ${MIN_LAUNCH_HUMANS} humans, refused to a non-host, then 3 humans + 2 AIs`, async () => {
+await test(`private room: refused below ${MIN_LAUNCH_HUMANS} humans, refused to a non-host, then 3 humans + 2 AIs`, async () => {
   const { room, join } = makeRoom('P1', { hostLaunch: true });
   const host = await join('h0');
   const second = await join('h1');
@@ -48,7 +48,7 @@ await check(`private room: refused below ${MIN_LAUNCH_HUMANS} humans, refused to
   assert.equal(await room.launch(host), 'not_waiting', 'launched twice');
 });
 
-await check('scale: 3 → 2 AIs, 4 → 3 AIs, 5 → 3 AIs; 4 humans launch a table of 7', async () => {
+await test('scale: 3 → 2 AIs, 4 → 3 AIs, 5 → 3 AIs; 4 humans launch a table of 7', async () => {
   assert.deepEqual([3, 4, 5].map(aiCountFor), [2, 3, 3]);
   const { room, join } = makeRoom('P2', { hostLaunch: true });
   const host = await join('h0');
@@ -58,7 +58,7 @@ await check('scale: 3 → 2 AIs, 4 → 3 AIs, 5 → 3 AIs; 4 humans launch a tab
   assert.equal(room.getState().players.filter((p) => p.type === 'ai').length, 3);
 });
 
-await check('private room with 5 humans starts by itself with 3 AIs, as the public room does', async () => {
+await test('private room with 5 humans starts by itself with 3 AIs, as the public room does', async () => {
   const { room, join } = makeRoom('P3', { hostLaunch: true });
   for (let i = 0; i < 5; i++) await join(`h${i}`);
   assert.equal(room.getState().phase, 'question');
@@ -66,7 +66,7 @@ await check('private room with 5 humans starts by itself with 3 AIs, as the publ
   assert.equal(room.getState().aiCount, 3);
 });
 
-await check('public room: no host launch', async () => {
+await test('public room: no host launch', async () => {
   const { room, join } = makeRoom('public-1');
   const first = await join('h0');
   for (let i = 1; i < 4; i++) await join(`h${i}`);
@@ -74,7 +74,7 @@ await check('public room: no host launch', async () => {
   assert.equal(room.getState().phase, 'waiting');
 });
 
-await check('the host leaves the lobby: the next human in becomes host', async () => {
+await test('the host leaves the lobby: the next human in becomes host', async () => {
   const { room, join } = makeRoom('P4', { hostLaunch: true });
   const host = await join('h0');
   const next = await join('h1');
@@ -87,7 +87,7 @@ await check('the host leaves the lobby: the next human in becomes host', async (
 
 console.log('lobby states');
 
-await check('each socket gets its own seat only; the room channel hears nothing before the start', async () => {
+await test('each socket gets its own seat only; the room channel hears nothing before the start', async () => {
   const { room, emits, join, sockets } = makeRoom('L1', { hostLaunch: true });
   for (let i = 0; i < 3; i++) await join(`h${i}`);
   assert.equal(emits.filter((e) => e.target === 'L1').length, 0, 'a lobby state was broadcast to the room');
@@ -119,7 +119,7 @@ const clientFn = (name: string) => {
   return m[0];
 };
 
-await check('?room= pre-fills the code: upper case, letters and digits only; the client alphabet is the server one', () => {
+await test('?room= pre-fills the code: upper case, letters and digits only; the client alphabet is the server one', () => {
   const parse = new Function(`${clientFn('roomCodeFromSearch')}; return roomCodeFromSearch;`)() as (s: string) => string;
   assert.equal(parse('?room=q7kx9p'), 'Q7KX9P');
   assert.equal(parse('?lang=fr&room=AB-C%2012'), 'ABC12');
@@ -135,7 +135,7 @@ await check('?room= pre-fills the code: upper case, letters and digits only; the
   assert.equal(parse('?room=' + clientCode), clientCode, 'a client code does not survive the link');
 });
 
-await check('QR code of the link: right size, the three finders, null past 106 bytes', () => {
+await test('QR code of the link: right size, the three finders, null past 106 bytes', () => {
   const qr = new Function(`${clientFn('qrMatrix')}; return qrMatrix;`)() as (text: string) => boolean[][] | null;
   const link = 'https://turingarou.example.app/?room=Q7KX9P';
   const m = qr(link);
@@ -163,7 +163,7 @@ await check('QR code of the link: right size, the three finders, null past 106 b
   assert.equal(qr('x'.repeat(107)), null);
 });
 
-await check('a code already taken is never handed out', () => {
+await test('a code already taken is never handed out', () => {
   const seen = new Set<string>();
   let calls = 0;
   const code = newRoomCode((c) => {
@@ -179,7 +179,7 @@ await check('a code already taken is never handed out', () => {
 
 console.log('rematch');
 
-await check(`window: the first click opens a room, the next ones join it for ${REMATCH_WINDOW_MS} ms, not after`, () => {
+await test(`window: the first click opens a room, the next ones join it for ${REMATCH_WINDOW_MS} ms, not after`, () => {
   assert.equal(REMATCH_WINDOW_MS, 30_000);
   const t0 = 1_000_000;
   const link = { roomId: 'R1', openedAt: t0 };
@@ -190,7 +190,7 @@ await check(`window: the first click opens a room, the next ones join it for ${R
   assert.deepEqual(routeRematch(link, t0 + 1000, null), { kind: 'create' }, 'a rematch room that emptied should open anew');
 });
 
-await check('fresh names: no seat keeps a name of the finished game, drawn by the same picker as the AIs', async () => {
+await test('fresh names: no seat keeps a name of the finished game, drawn by the same picker as the AIs', async () => {
   const first = makeRoom('G1');
   for (let i = 0; i < 5; i++) await first.join(`me${i}`);
   const finished = first.room.getState().players.map((p) => p.username);
@@ -226,7 +226,7 @@ await check('fresh names: no seat keeps a name of the finished game, drawn by th
 
 console.log('typed names');
 
-await check('a typed name loses markup, control and direction characters, and stops at USERNAME_MAX', () => {
+await test('a typed name loses markup, control and direction characters, and stops at USERNAME_MAX', () => {
   assert.equal(cleanUsername('<img src=x onerror=alert(1)>'), 'img src=x onerr');
   assert.equal(cleanUsername('  Zoé   l\'ours\n '), "Zoé l'ours");
   assert.equal(cleanUsername('a\u202Eb\u200Bc\u0007'), 'abc');
@@ -235,7 +235,7 @@ await check('a typed name loses markup, control and direction characters, and st
   for (const raw of [undefined, null, 42, { toString: () => '<b>' }, ['x'], '', '   ', '<>']) assert.equal(cleanUsername(raw), '');
 });
 
-await check('a name sent past the page is cleaned by the room; one left empty gets a drawn name', async () => {
+await test('a name sent past the page is cleaned by the room; one left empty gets a drawn name', async () => {
   const { room, join } = makeRoom('N1');
   await join('<script>x</script>');
   assert.equal(await room.addHumanPlayer('N1-raw', { evil: 1 } as unknown as string, 'fr'), true);
@@ -246,14 +246,14 @@ await check('a name sent past the page is cleaned by the room; one left empty ge
 
 console.log('table chosen on the home page');
 
-await check('a choice is whole numbers, 1 human and 1 AI at least, 3 to 8 seats', () => {
+await test('a choice is whole numbers, 1 human and 1 AI at least, 3 to 8 seats', () => {
   assert.deepEqual(parseTableChoice({ humans: 1, ais: 2 }), { humans: 1, ais: 2 });
   assert.deepEqual(parseTableChoice({ humans: 6, ais: 2 }), { humans: 6, ais: 2 });
   for (const bad of [null, undefined, 'x', {}, { humans: 1, ais: 1 }, { humans: 0, ais: 3 }, { humans: 3, ais: 0 }, { humans: 5, ais: 4 }, { humans: 2.5, ais: 2 }, { humans: '3', ais: 2 }, { humans: NaN, ais: 2 }])
     assert.equal(parseTableChoice(bad), null, JSON.stringify(bad));
 });
 
-await check('2 humans + 3 AIs: starts by itself when the second human sits, a third is refused', async () => {
+await test('2 humans + 3 AIs: starts by itself when the second human sits, a third is refused', async () => {
   const { room, join } = makeRoom('C1', { hostLaunch: true, chosen: { humans: 2, ais: 3 } });
   await join('h0');
   assert.equal(room.getState().phase, 'waiting');
@@ -265,14 +265,14 @@ await check('2 humans + 3 AIs: starts by itself when the second human sits, a th
   assert.equal(await room.addHumanPlayer('C1-late', 'h2', 'fr'), false);
 });
 
-await check('1 human + 2 AIs: the host plays alone at once', async () => {
+await test('1 human + 2 AIs: the host plays alone at once', async () => {
   const { room, join } = makeRoom('C2', { hostLaunch: true, chosen: { humans: 1, ais: 2 } });
   await join('solo');
   assert.equal(room.getState().phase, 'question');
   assert.equal(room.getState().players.length, 3);
 });
 
-await check('5 humans + 1 AI launched at 3 humans keeps its 1 AI, and the lobby says so', async () => {
+await test('5 humans + 1 AI launched at 3 humans keeps its 1 AI, and the lobby says so', async () => {
   const { room, join, emits } = makeRoom('C3', { hostLaunch: true, chosen: { humans: 5, ais: 1 } });
   const host = await join('h0');
   await join('h1');
@@ -285,12 +285,12 @@ await check('5 humans + 1 AI launched at 3 humans keeps its 1 AI, and the lobby 
   assert.equal(room.getState().players.filter((p) => p.type === 'ai').length, 1);
 });
 
-await check('the rematch keeps the chosen table', () => {
+await test('the rematch keeps the chosen table', () => {
   assert.deepEqual(rematchTable(['a'], { humans: 2, ais: 2 }).chosen, { humans: 2, ais: 2 });
   assert.equal(rematchTable(['a']).chosen, undefined);
 });
 
-await check('a stop mid-game writes it as aborted with every line and its ids; a lobby writes nothing', async () => {
+await test('a stop mid-game writes it as aborted with every line and its ids; a lobby writes nothing', async () => {
   const { room, join, saved } = makeRoom('C4', { hostLaunch: true, chosen: { humans: 1, ais: 2 } });
   const solo = await join('solo');
   assert.equal(room.getState().phase, 'question');
@@ -314,4 +314,4 @@ await check('a stop mid-game writes it as aborted with every line and its ids; a
   assert.equal(saved.length, 1, 'written twice');
 });
 
-finishGreen();
+finish();

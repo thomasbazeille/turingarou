@@ -10,7 +10,8 @@ cd turingarou-backend
 npm run dev        # tsx watch, port 3001
 npm run build      # compile TypeScript
 npm start          # run compiled build
-npm run test:unit  # form gate, timing, direct address, bot core
+npm run typecheck  # src + scripts (the build compiles src only)
+npm run test:unit  # typecheck, then every unit test file (form gate, timing, bot core, lobby, voice…)
 npm run test:sim   # full games in virtual time with fake models and humans, invariants report
 ```
 
@@ -83,6 +84,8 @@ src/llm/                (Deepseek / Mistral / Anthropic adapters)
 - `turingarou-backend/src/server.ts` — Socket.io server, room management, serves the frontend at `/`
 - `turingarou-backend/src/llm/` — LLM provider adapters
 - `turingarou-backend/strategies/` — AI personality prompts (v1/v2/v3 × condensed/full)
+- `turingarou-backend/scripts/testkit.ts` — shared test scaffolding: `test()`/`finish()`, `ManualClock`, room builders, fake providers, HTTP harness. A new test file starts from it
+- `turingarou-backend/scripts/simulate-game.ts` — 22 seeded games with fake models and humans; its report is deterministic, so a behaviour-preserving change leaves it byte-identical (timing line aside)
 - `turingarou-backend/scripts/tells-knowledge.md` — auto-maintained AI detection knowledge base
 
 ### Configuration
@@ -94,7 +97,7 @@ src/llm/                (Deepseek / Mistral / Anthropic adapters)
 - `VOICE_ENABLED=1` + `CARTESIA_API_KEY` + `DEEPGRAM_API_KEY` — optional voice mode (`src/voice/`): every chat line spoken in its author's assigned voice, push-to-talk transcribed into a normal chat line. Off when unset. Other vendors: `VOICE_TTS_PROVIDER` (`cartesia`|`elevenlabs`|`openai`|`gradium`), `VOICE_STT_PROVIDER` (`deepgram`|`openai`|`gradium`). `GRADIUM_API_KEY` — Gradium for both (client records WAV; voice pool read from its catalogue at boot). Live check: `npx tsx scripts/probe-voice.ts`
 
 ### Deployment
-Railway project `turingarou`, service `turingarou` + `Postgres`. Config in `railway.json` (repo root). Railway is NOT connected to GitHub: `.github/workflows/deploy-railway.yml` runs the checks (build + server boot + test client) then `railway up`. **CI red ⇒ nothing ships**, and `/health` keeps answering 200 on the previous version — check the Actions run, not just `/health`. GitHub Pages still serves a copy of the frontend that points at the Railway backend.
+Railway project `turingarou`, service `turingarou` + `Postgres`. **`railway.json` is not applied** (checked 2026-11-24: the deployment's service manifest is empty, builder Railpack, no start command, no healthcheck): Railpack runs the root `npm start`, which must `exec node` so the redeploy SIGTERM reaches the room shutdown. Railway is NOT connected to GitHub: `.github/workflows/deploy-railway.yml` runs the checks (build, unit tests, simulated games, server boot + test client) then `railway up`. **CI red ⇒ nothing ships**, and `/health` keeps answering 200 on the previous version — check the Actions run, not just `/health`. GitHub Pages still serves a copy of the frontend that points at the Railway backend.
 
 ---
 

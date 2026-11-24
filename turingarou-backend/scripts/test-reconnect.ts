@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict';
 import { LOBBY_GRACE_MS, QUESTION_PHASE_MS, RECONNECT_GRACE_MS } from '../src/game/GameRoom.js';
 import { registerVoiceRoutes, type VoiceRoom } from '../src/voice/routes.js';
-import { check, FakeTts, finishGreen, ManualClock, payloadEmits, testRoomWithHumans, withHttpServer } from './testkit.js';
+import { FakeTts, finish, ManualClock, payloadEmits, test, testRoomWithHumans, withHttpServer } from './testkit.js';
 
 // Seed 7, the 10-name pool and the first-free picker are the kit defaults.
 async function makeRoom(roomId: string, humans: number) {
@@ -23,7 +23,7 @@ const started = async (roomId: string) => {
   return r;
 };
 
-await check('valid token: the new socket takes the seat and plays, the old one plays for nobody, nothing is broadcast', async () => {
+await test('valid token: the new socket takes the seat and plays, the old one plays for nobody, nothing is broadcast', async () => {
   const { room, clock, emits, sockets, seat } = await started('A');
   const { id, token } = seat(0);
   const before = emits.length;
@@ -42,7 +42,7 @@ await check('valid token: the new socket takes the seat and plays, the old one p
   assert.ok(!emits.some((e) => JSON.stringify(e).includes(token)), 'token in a broadcast state');
 });
 
-await check('unknown, empty or malformed token: refused', async () => {
+await test('unknown, empty or malformed token: refused', async () => {
   const { room, sockets } = await started('B');
   room.disconnect(sockets[1]);
   assert.equal(room.resume('B-x', 'not-a-token'), null);
@@ -51,7 +51,7 @@ await check('unknown, empty or malformed token: refused', async () => {
   assert.equal(room.resume('', room.sessionToken(room.getState().players.find((p) => p.type === 'human' && p.socketId === sockets[1])!.id)!), null, 'empty socket id accepted');
 });
 
-await check('token of another room: refused both ways', async () => {
+await test('token of another room: refused both ways', async () => {
   const a = await started('C1');
   const b = await makeRoom('C2', 2);
   a.room.disconnect(a.sockets[0]);
@@ -60,7 +60,7 @@ await check('token of another room: refused both ways', async () => {
   assert.equal(b.room.resume('C-y', a.seat(1).token), null);
 });
 
-await check('grace: accepted 1 ms before its end; once over, refused and the seat stays as a silent player', async () => {
+await test('grace: accepted 1 ms before its end; once over, refused and the seat stays as a silent player', async () => {
   const early = await started('D1');
   const e0 = early.seat(0);
   early.room.disconnect(early.sockets[0]);
@@ -76,7 +76,7 @@ await check('grace: accepted 1 ms before its end; once over, refused and the sea
   assert.ok(late.room.getState().players.some((p) => p.id === id && !p.isEliminated), 'the seat left the game');
 });
 
-await check('lobby: the seat waits LOBBY_GRACE_MS then frees, a resume within keeps it', async () => {
+await test('lobby: the seat waits LOBBY_GRACE_MS then frees, a resume within keeps it', async () => {
   const { room, clock, emits, sockets, seat } = await makeRoom('E', 2);
   const { id, token } = seat(0);
   room.disconnect(sockets[0]);
@@ -91,7 +91,7 @@ await check('lobby: the seat waits LOBBY_GRACE_MS then frees, a resume within ke
   assert.equal(room.resume('E-again', token), null);
 });
 
-await check('leaving on purpose: seat kept silent, never resumable; last human out aborts and frees the room once', async () => {
+await test('leaving on purpose: seat kept silent, never resumable; last human out aborts and frees the room once', async () => {
   const { room, sockets, seat, vacant } = await started('F');
   const tokens = sockets.map((_, i) => seat(i).token);
   room.leave(sockets[0]);
@@ -104,7 +104,7 @@ await check('leaving on purpose: seat kept silent, never resumable; last human o
   assert.equal(room.resume('F-x', tokens[1]), null, 'resume into an aborted room');
 });
 
-await check('voice routes follow the seat to its new socket (X-Voice-Socket)', async () => {
+await test('voice routes follow the seat to its new socket (X-Voice-Socket)', async () => {
   const { room, clock, sockets, seat } = await started('G');
   const { token } = seat(2);
   clock.advance(QUESTION_PHASE_MS);
@@ -125,4 +125,4 @@ await check('voice routes follow the seat to its new socket (X-Voice-Socket)', a
   );
 });
 
-finishGreen();
+finish();

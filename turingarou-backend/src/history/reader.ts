@@ -188,12 +188,6 @@ function flagTarget(f: FlagRow, messages: HistoryMessage[]): HistoryFlag['target
   return best ? { player: best.player, ts: best.ts } : null;
 }
 
-export async function loadGameById(client: SqlClient, gameId: string): Promise<HistoryGame | null> {
-  const { rows } = await client.query<GameRow>(`SELECT game_id, date, language, result FROM games WHERE game_id = $1`, [gameId]);
-  if (rows.length === 0) return null;
-  return (await loadGames(client, rows))[0];
-}
-
 /**
  * Calls onGame for every game matching the query, oldest first. One short read-only transaction per
  * page: no snapshot is held while onGame writes to a slow consumer. onGame returning false stops.

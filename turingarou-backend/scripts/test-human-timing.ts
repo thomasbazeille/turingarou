@@ -16,9 +16,9 @@ import {
   voteDelay,
   type ResponseStyle,
 } from '../src/game/humanTiming.js';
-import { finishTotals, median, test } from './testkit.js';
+import { finish, median, test } from './testkit.js';
 
-function draws(n: number, rng: () => number, f: () => number): number[] {
+function draws(n: number, f: () => number): number[] {
   return Array.from({ length: n }, () => f());
 }
 
@@ -46,7 +46,7 @@ test('makeSeededRng: different seeds → different sequence', () => {
 
 test('typingMs bounds [600, 7000] over 2000 draws', () => {
   const rng = makeSeededRng(10);
-  const values = draws(2000, rng, () => typingMs((Math.random() * 300) | 0, rng));
+  const values = draws(2000, () => typingMs((Math.random() * 300) | 0, rng));
   assert.ok(Math.min(...values) >= 600, `min ${Math.min(...values)} < 600`);
   assert.ok(Math.max(...values) <= 7000, `max ${Math.max(...values)} > 7000`);
 });
@@ -54,8 +54,8 @@ test('typingMs bounds [600, 7000] over 2000 draws', () => {
 test('typingMs grows with chars: median(10 chars) < median(150 chars)', () => {
   const rngA = makeSeededRng(11);
   const rngB = makeSeededRng(11);
-  const medShort = median(draws(2000, rngA, () => typingMs(10, rngA)));
-  const medLong = median(draws(2000, rngB, () => typingMs(150, rngB)));
+  const medShort = median(draws(2000, () => typingMs(10, rngA)));
+  const medLong = median(draws(2000, () => typingMs(150, rngB)));
   assert.ok(medShort < medLong, `median(10 chars)=${medShort} not < median(150 chars)=${medLong}`);
 });
 
@@ -77,7 +77,7 @@ test('readingMs caps at 2500', () => {
 
 test('readingMs bounds [0, 2500] over varied inputs', () => {
   const rng = makeSeededRng(12);
-  const values = draws(2000, rng, () => readingMs((rng() * 30) | 0, (rng() * 4000) | 0));
+  const values = draws(2000, () => readingMs((rng() * 30) | 0, (rng() * 4000) | 0));
   assert.ok(Math.min(...values) >= 0, `min ${Math.min(...values)} < 0`);
   assert.ok(Math.max(...values) <= 2500, `max ${Math.max(...values)} > 2500`);
 });
@@ -86,19 +86,19 @@ test('readingMs bounds [0, 2500] over varied inputs', () => {
 
 test('reflectionMs quick bounds [300, 900] over 2000 draws', () => {
   const rng = makeSeededRng(20);
-  const values = draws(2000, rng, () => reflectionMs('quick', rng));
+  const values = draws(2000, () => reflectionMs('quick', rng));
   assert.ok(Math.min(...values) >= 300 && Math.max(...values) < 900, `[${Math.min(...values)}, ${Math.max(...values)}]`);
 });
 
 test('reflectionMs thoughtful bounds [1000, 2400] over 2000 draws', () => {
   const rng = makeSeededRng(21);
-  const values = draws(2000, rng, () => reflectionMs('thoughtful', rng));
+  const values = draws(2000, () => reflectionMs('thoughtful', rng));
   assert.ok(Math.min(...values) >= 1000 && Math.max(...values) < 2400, `[${Math.min(...values)}, ${Math.max(...values)}]`);
 });
 
 test('reflectionMs random bounds [600, 2000] over 2000 draws', () => {
   const rng = makeSeededRng(22);
-  const values = draws(2000, rng, () => reflectionMs('random', rng));
+  const values = draws(2000, () => reflectionMs('random', rng));
   assert.ok(Math.min(...values) >= 600 && Math.max(...values) < 2000, `[${Math.min(...values)}, ${Math.max(...values)}]`);
 });
 
@@ -217,14 +217,14 @@ test('discussionDelay direct median < normal median for same input (1000 draws e
 
 test('firstMessageDelay bounds [3000, 22000] over 2000 draws', () => {
   const rng = makeSeededRng(40);
-  const values = draws(2000, rng, () => firstMessageDelay(rng));
+  const values = draws(2000, () => firstMessageDelay(rng));
   assert.ok(Math.min(...values) >= 3000, `min ${Math.min(...values)} < 3000`);
   assert.ok(Math.max(...values) <= 22000, `max ${Math.max(...values)} > 22000`);
 });
 
 test('firstMessageDelay median in [7000, 11000] over 2000 draws', () => {
   const rng = makeSeededRng(41);
-  const med = median(draws(2000, rng, () => firstMessageDelay(rng)));
+  const med = median(draws(2000, () => firstMessageDelay(rng)));
   assert.ok(med >= 7000 && med <= 11000, `median ${med.toFixed(0)} outside [7000, 11000]`);
 });
 
@@ -232,21 +232,21 @@ test('firstMessageDelay median in [7000, 11000] over 2000 draws', () => {
 
 test('voteDelay bounds [800, 20000] over 2000 draws', () => {
   const rng = makeSeededRng(50);
-  const values = draws(2000, rng, () => voteDelay(rng));
+  const values = draws(2000, () => voteDelay(rng));
   assert.ok(Math.min(...values) >= 800, `min ${Math.min(...values)} < 800`);
   assert.ok(Math.max(...values) <= 20000, `max ${Math.max(...values)} > 20000`);
 });
 
 test('voteDelay share below 2500 in [0.10, 0.20]', () => {
   const rng = makeSeededRng(51);
-  const values = draws(2000, rng, () => voteDelay(rng));
+  const values = draws(2000, () => voteDelay(rng));
   const share = values.filter((v) => v < 2500).length / values.length;
   assert.ok(share >= 0.10 && share <= 0.20, `share ${share.toFixed(3)} outside [0.10, 0.20]`);
 });
 
 test('voteDelay share above 9000 in [0.20, 0.30]', () => {
   const rng = makeSeededRng(52);
-  const values = draws(2000, rng, () => voteDelay(rng));
+  const values = draws(2000, () => voteDelay(rng));
   const share = values.filter((v) => v > 9000).length / values.length;
   assert.ok(share >= 0.20 && share <= 0.30, `share ${share.toFixed(3)} outside [0.20, 0.30]`);
 });
@@ -255,7 +255,7 @@ test('voteDelay share above 9000 in [0.20, 0.30]', () => {
 
 test('answerTarget bounds [5000, 17000] over 2000 draws', () => {
   const rng = makeSeededRng(60);
-  const values = draws(2000, rng, () => answerTarget(rng));
+  const values = draws(2000, () => answerTarget(rng));
   assert.ok(Math.min(...values) >= 5000, `min ${Math.min(...values)} < 5000`);
   assert.ok(Math.max(...values) < 17000, `max ${Math.max(...values)} >= 17000`);
 });
@@ -272,26 +272,26 @@ test('skipProbability exact values (quick 0.10, thoughtful 0.35, random 0.25)', 
 
 test('cooldownMs lastWasShort bounds [3000, 6000] over 2000 draws (all styles)', () => {
   const rng = makeSeededRng(70);
-  const values = draws(2000, rng, () => cooldownMs(STYLES[(rng() * 3) | 0], true, rng));
+  const values = draws(2000, () => cooldownMs(STYLES[(rng() * 3) | 0], true, rng));
   assert.ok(Math.min(...values) >= 3000, `min ${Math.min(...values)} < 3000`);
   assert.ok(Math.max(...values) < 6000, `max ${Math.max(...values)} >= 6000`);
 });
 
 test('cooldownMs quick bounds [6000, 10000] over 2000 draws', () => {
   const rng = makeSeededRng(71);
-  const values = draws(2000, rng, () => cooldownMs('quick', false, rng));
+  const values = draws(2000, () => cooldownMs('quick', false, rng));
   assert.ok(Math.min(...values) >= 6000 && Math.max(...values) < 10000, `[${Math.min(...values)}, ${Math.max(...values)}]`);
 });
 
 test('cooldownMs thoughtful bounds [12000, 20000] over 2000 draws', () => {
   const rng = makeSeededRng(72);
-  const values = draws(2000, rng, () => cooldownMs('thoughtful', false, rng));
+  const values = draws(2000, () => cooldownMs('thoughtful', false, rng));
   assert.ok(Math.min(...values) >= 12000 && Math.max(...values) < 20000, `[${Math.min(...values)}, ${Math.max(...values)}]`);
 });
 
 test('cooldownMs random bounds [8000, 15000] over 2000 draws', () => {
   const rng = makeSeededRng(73);
-  const values = draws(2000, rng, () => cooldownMs('random', false, rng));
+  const values = draws(2000, () => cooldownMs('random', false, rng));
   assert.ok(Math.min(...values) >= 8000 && Math.max(...values) < 15000, `[${Math.min(...values)}, ${Math.max(...values)}]`);
 });
 
@@ -350,9 +350,9 @@ test('botFloorWaitMs: the gap after any bot line is 1.5x longer while the bots a
 
 test('globalGapMs bounds [2500, 4000] over 2000 draws', () => {
   const rng = makeSeededRng(80);
-  const values = draws(2000, rng, () => globalGapMs(rng));
+  const values = draws(2000, () => globalGapMs(rng));
   assert.ok(Math.min(...values) >= 2500, `min ${Math.min(...values)} < 2500`);
   assert.ok(Math.max(...values) < 4000, `max ${Math.max(...values)} >= 4000`);
 });
 
-finishTotals();
+finish();

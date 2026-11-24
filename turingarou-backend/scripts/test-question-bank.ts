@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { drawQuestion, getQuestionsForLanguage, getTextureQuestions, isTextureQuestion } from '../src/game/QuestionBank.js';
 import { makeSeededRng } from '../src/game/humanTiming.js';
-import { finishPassed, test } from './testkit.js';
+import { finish, test } from './testkit.js';
 
 /** The guaranteed share asked for, written here rather than imported: lowering the constant must turn this file red. */
 const TEXTURE_MIN_SHARE = 0.4;
@@ -52,4 +52,4 @@ test('a letter-counting trap is not a texture question', () => {
   assert.equal(isTextureQuestion("How many 'e's in 'nevertheless'?", 'en'), false);
 });
 
-finishPassed();
+finish();
