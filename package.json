@@ -7,6 +7,6 @@
   },
   "scripts": {
     "build": "cd turingarou-backend && npm ci --include=dev && npm run build",
-    "start": "cd turingarou-backend && npm start"
+    "start": "cd turingarou-backend && exec node dist/server.js"
   }
 }
