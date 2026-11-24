@@ -1622,6 +1622,7 @@ function updateGameFromServer(state) {
         // Réinitialiser le formulaire seulement à l'entrée en phase question (nouveau round)
         if (inp) { inp.disabled = false; inp.value = ''; inp.placeholder = G.lang === 'fr' ? 'Ta réponse...' : 'Type your answer...'; }
         if (subBtn) { subBtn.disabled = false; subBtn.textContent = G.lang === 'fr' ? 'ENVOYER' : 'SUBMIT'; }
+        if (localIsEliminated()) lockAnswerFormEliminated();
       } else {
         syncAnswerForm();
       }
@@ -2094,7 +2095,7 @@ const g=document.getElementById('players-status-grid');
 g.innerHTML='';
 const note=document.getElementById('answers-hidden-note');
 if(note)note.textContent=G.lang==='fr'?'Les réponses s’affichent à la fin de la question.':'Answers show when the question ends.';
-playersWithLocalLast(G.p).forEach(p=>{
+playersWithLocalLast(G.p.filter(p=>!G.e.includes(p.id))).forEach(p=>{
 // Only the local player's own card says whether they answered: nobody else's answer is known before the end.
 const done=p.isLocal&&p.hasAnswered;
 const c=document.createElement('div');
@@ -2155,7 +2156,20 @@ function syncAnswerForm(){
   if (btn) { btn.disabled = done; btn.textContent = done ? (G.lang === 'fr' ? '✓ ENVOYÉ' : '✓ SUBMITTED') : (G.lang === 'fr' ? 'ENVOYER' : 'SUBMIT'); }
   var me = G.p && G.p.find(function(p){ return p.id === playerId; });
   if (me) me.hasAnswered = done;
+  if (localIsEliminated()) lockAnswerFormEliminated();
   renderQuestionScreen();
+}
+
+function localIsEliminated(){
+  return !!(G.l && G.e.includes(G.l));
+}
+
+/** The server drops an eliminated player's answer: the form says so instead of showing a send that goes nowhere. */
+function lockAnswerFormEliminated(){
+  var inp = document.getElementById('answer-input');
+  var btn = document.getElementById('submit-answer-btn');
+  if (inp) { inp.disabled = true; inp.value = ''; inp.placeholder = G.lang === 'fr' ? 'Tu es éliminé·e : tu ne réponds plus aux questions.' : 'You are eliminated: you no longer answer questions.'; }
+  if (btn) { btn.disabled = true; btn.textContent = G.lang === 'fr' ? 'ÉLIMINÉ·E' : 'ELIMINATED'; }
 }
 
 function startGameRound(){
