@@ -5,7 +5,7 @@
     "watchPatterns": ["**", "!**/*.md", "!/specs/**"]
   },
   "deploy": {
-    "startCommand": "cd turingarou-backend && npm start",
+    "startCommand": "cd turingarou-backend && exec node dist/server.js",
     "healthcheckPath": "/health",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3
