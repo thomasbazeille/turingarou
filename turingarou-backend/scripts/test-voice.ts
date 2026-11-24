@@ -19,6 +19,10 @@ const PLAYERS = ['player-1-0.1', 'player-2-0.2', 'player-3-0.3', 'player-4-0.4',
 
 // --- voice assignment ---
 
+
+/** A JSON body of the voice routes, read as loose fields (the assertions check them). */
+const readJson = async (res: Response): Promise<Record<string, any>> => (await res.json()) as Record<string, any>;
+
 test('assignment is deterministic and independent of player order', () => {
   const pool = voicePool('cartesia', 'fr');
   const a = assignVoices('room-x', PLAYERS, pool);
@@ -223,7 +227,7 @@ test('config reflects providers; everything answers 503 when voice is off', asyn
     assert.deepEqual(await (await fetch(`${base}/api/voice/config`)).json(), { tts: true, stt: true, sttFormat: 'any', maxClipSec: 15, maxClipBytes: 800 * 1024 });
   });
   await withServer({ tts: null, stt: null }, map, async (base) => {
-    const cfg = await (await fetch(`${base}/api/voice/config`)).json();
+    const cfg = await readJson(await fetch(`${base}/api/voice/config`));
     assert.equal(cfg.tts, false);
     assert.equal(cfg.stt, false);
     assert.equal((await tts(base, { messageId: 'm-ai' })).status, 503);
@@ -301,7 +305,7 @@ test('TTS limits: per-member request rate, per-room character budget', async () 
     assert.equal((await tts(base, { messageId: 'm-ai' })).status, 200);
     const over = await tts(base, { messageId: 'm-h1' });
     assert.equal(over.status, 429);
-    assert.equal((await over.json()).error, 'budget');
+    assert.equal((await readJson(over)).error, 'budget');
     assert.equal((await tts(base, { messageId: 'm-ai' })).status, 200, 'cached line refused once over budget');
   });
 });
@@ -312,7 +316,7 @@ test('STT posts the normalized transcript through room.addMessage as the speaker
   await withServer({ tts: new FakeTts(), stt: fake }, map, async (base) => {
     const res = await stt(base, 2000);
     assert.equal(res.status, 200);
-    const body = await res.json();
+    const body = await readJson(res);
     assert.equal(body.ok, true);
     assert.deepEqual(a.posted, [{ playerId: 'player-h1', content: body.text }]);
     assert.deepEqual(a.inputs, [{ via: 'voice' }], 'a spoken line is marked as such for the text/voice A/B');
@@ -503,7 +507,7 @@ test('config says sttFormat wav for a gradium STT', async () => {
   const { map } = makeRooms();
   const g = new GradiumStt('k');
   await withServer({ tts: new FakeTts(), stt: g }, map, async (base) => {
-    const cfg = await (await fetch(`${base}/api/voice/config`)).json();
+    const cfg = await readJson(await fetch(`${base}/api/voice/config`));
     assert.equal(cfg.sttFormat, 'wav');
     assert.equal(cfg.maxClipBytes, 800 * 1024);
   });

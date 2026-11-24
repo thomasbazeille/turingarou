@@ -54,7 +54,7 @@ function setup(rng: () => number = () => 0.5) {
   };
   const posted: string[] = [];
   const answers: string[] = [];
-  const votes: { voter: string; target: string }[] = [];
+  const votes: { voter: string; target: string | null }[] = [];
   const logs: string[] = [];
   const room: DirectorRoom = {
     state: () => state,
@@ -168,7 +168,7 @@ await test('a provider that hangs past its timeout still yields a vote at the 25
   assert.equal(votes.length, 0);
   await clock.advance(2000);
   assert.equal(votes.length, 1);
-  assert.ok(['h1', 'h2'].includes(votes[0].target));
+  assert.ok(votes[0].target !== null && ['h1', 'h2'].includes(votes[0].target));
   assert.ok(logs.some((l) => l.includes('"kind":"vote_fallback"') && l.includes('"reason":"deadline"')));
 });
 

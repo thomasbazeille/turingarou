@@ -1,0 +1,12 @@
+{
+  // Type-checks the test and tool scripts with the sources (the build only compiles src/). Run by npm run typecheck,
+  // first step of test:unit, so CI catches a script left behind by a change in src/.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "."
+  },
+  "include": ["src/**/*", "scripts/**/*.ts"],
+  // bench-models.ts still imports src/game/AIPlayer.js, deleted on 2026-11-10 (e490e48): it has not run since.
+  "exclude": ["node_modules", "scripts/bench-models.ts"]
+}
