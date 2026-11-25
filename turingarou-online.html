@@ -29,7 +29,7 @@
     .setup-notice { color: #cbd5e1; font-size: 12px; line-height: 1.45; margin: 2px 0 10px; }
     .setup-consent { display: flex; gap: 8px; align-items: flex-start; color: #94a3b8; font-size: 12px; line-height: 1.45; cursor: pointer; }
     .setup-consent input { margin-top: 2px; accent-color: #06b6d4; flex: none; }
-    #invite-note, #room-code-display, #fresh-name-note, #launch-wrap { position: relative; z-index: 1; }
+    #invite-note, #room-code-display, #fresh-name-note, #launch-wrap, #home-options, #simple-mode-row { position: relative; z-index: 1; }
     .player-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 18px; max-width: 650px; width: 100%; }
     .player-card { background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 7px; padding: 10px; text-align: center; min-height: 75px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; }
     .player-card.local { border-color: #06b6d4; box-shadow: 0 0 12px rgba(6,182,212,0.3); }
@@ -384,6 +384,10 @@
     .bar-counters { display: flex; gap: 8px; align-items: center; }
     @container (min-width: 601px) {
       .chat-opts .chat-toggle-btn { font-size: 10px; padding: 3px 6px; }
+      /* The side bar stacks timer, round, counters and the chat buttons (~84 px): the header keeps room for it even
+         when the avatars are short (no hearts in the simplified version). */
+      .game-top-bar { min-height: 88px; }
+      .game-info-bar { gap: 0; padding-top: 4px; padding-bottom: 4px; }
     }
 
     /* ---- Single-chat mode layout ---- */
@@ -495,10 +499,21 @@
     .table-choice label { flex: 1; display: flex; align-items: center; gap: 8px; color: #94a3b8; font-size: 12px; }
     .table-choice .setup-input { flex: 1; margin: 0; cursor: pointer; }
 
+    /* ---- Simplified version (tg-simple-mode, ?simple=1): body.simple-mode ---- */
+    /* Home options (language, table) folded into one closed block; shown only while the version is on. */
+    #home-options { max-width: 420px; width: 100%; margin-top: 12px; background: rgba(15,23,42,0.9); border: 1px solid rgba(6,182,212,0.3); border-radius: 10px; padding: 10px 18px; }
+    #home-options summary { color: #94a3b8; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; cursor: pointer; }
+    body:not(.simple-mode) #home-options { display: none; }
+    /* No full-screen VOTE overlays: the important declarations win over the JS's inline display:flex */
+    body.simple-mode #vote-phase-overlay, body.simple-mode #pre-vote-overlay { display: none !important; }
+    /* End-of-round screen without the history block */
+    body.simple-mode .end-screen-history-wrap { display: none; }
+
     /* Spectator (?watch=CODE): the page joins read-only, no seat and no input of its own. */
     body.watch-mode .player-setup, body.watch-mode #start-btn, body.watch-mode #private-btn, body.watch-mode #duel-btn,
     body.watch-mode #table-choice, body.watch-mode #inspector-btn-wrap, body.watch-mode #answer-input,
-    body.watch-mode #submit-answer-btn, body.watch-mode #gameover-feedback, body.watch-mode #rematch-btn { display: none !important; }
+    body.watch-mode #submit-answer-btn, body.watch-mode #gameover-feedback, body.watch-mode #rematch-btn,
+    body.watch-mode #home-options, body.watch-mode #simple-mode-row { display: none !important; }
     body.watch-mode #watch-note { display: block !important; }
     /* Duel 1 contre 1 : two big answer buttons instead of the vote list */
     .duel-guess { display: flex; gap: 10px; margin-top: 4px; }
@@ -526,7 +541,7 @@
       
       <input type="text" id="room-input" style="display:none;" value="">
 
-      <label class="setup-label">Language / Langue</label>
+      <label class="setup-label" id="lang-label">Language / Langue</label>
       <select id="lang-select" class="setup-input" style="cursor:pointer;">
         <option value="fr" selected>Français</option>
         <option value="en">English</option>
@@ -568,6 +583,13 @@
         <span id="tc-fast-label">Partie rapide (discussion 60 s)</span>
       </label>
     </div>
+    <!-- Simplified version: the language selector and the table choice move in here, folded and closed -->
+    <details id="home-options">
+      <summary>Options</summary>
+    </details>
+    <label class="setup-consent" id="simple-mode-row" style="max-width:420px;width:100%;margin-top:10px;">
+      <input type="checkbox" id="simple-mode-cb"><span id="simple-mode-text">Version simplifiée</span>
+    </label>
     <button type="button" class="return-home-btn" id="private-btn" onclick="createPrivateRoom()" style="width:100%;max-width:420px;margin-top:12px;" disabled>CREATE A PRIVATE ROOM</button>
     <button type="button" class="return-home-btn" id="duel-btn" onclick="startDuel()" style="width:100%;max-width:420px;margin-top:8px;" disabled>DUEL 1 CONTRE 1</button>
   </div>
@@ -735,7 +757,7 @@
   <script>
 const T=8,A=3;  // 8 joueurs total (5 humains + 3 IA)
 const HUMAN_NEEDED=5;
-let G={s:'waiting',r:1,mr:7,p:[],m:[],e:[],eliminationOrder:[],l:null,im:null,a:{},v:{},h:{},ui:false,eliminatedAiCount:0,lang:'fr',currentQuestion:null,questions:{},questionEndTime:null,singleChat:false,liveTyping:false,flagged:new Set(),colOrder:null,myVote:null,myAnswer:null,review:null,voteSel:null,voteCount:0,replyTo:null,endSeq:null,endRoundEndTime:null,audience:null,watchVote:null,duel:false,myDuelGuess:null};
+let G={s:'waiting',r:1,mr:7,p:[],m:[],e:[],eliminationOrder:[],l:null,im:null,a:{},v:{},h:{},ui:false,eliminatedAiCount:0,lang:'fr',currentQuestion:null,questions:{},questionEndTime:null,singleChat:false,liveTyping:false,simpleMode:false,flagged:new Set(),colOrder:null,myVote:null,myAnswer:null,review:null,voteSel:null,voteCount:0,replyTo:null,endSeq:null,endRoundEndTime:null,audience:null,watchVote:null,duel:false,myDuelGuess:null};
 
 // === SOCKET.IO SETUP ===
 // Configuration automatique selon environnement
@@ -1685,6 +1707,11 @@ document.getElementById('tc-humans').onchange=syncTableChoice;
 document.getElementById('tc-ais').onchange=syncTableChoice;
 document.getElementById('tc-fast').checked=loadFastTable();
 document.getElementById('tc-fast').onchange=syncFastTable;
+document.getElementById('simple-mode-cb').onchange=toggleSimpleMode;
+// Remembered username (tg-username): typed back in on load, except for a spectator (?watch=), who has no seat.
+let savedName='';
+try{savedName=watchMode?'':(localStorage.getItem('tg-username')||'');}catch(e){}
+if(savedName){document.getElementById('username-input').value=savedName;updateLocalPlayer();}
 let phone=false;
 try{phone=new URLSearchParams(location.search).get('phone')==='1'||localStorage.getItem('tg-phone-view')==='1';}catch(e){}
 applyPhoneView(phone);
@@ -1732,6 +1759,7 @@ if(db){db.disabled=!G.ui;db.textContent=fr?'DUEL 1 CONTRE 1':'1-ON-1 DUEL';}
 document.getElementById('tc-humans-label').textContent=fr?'Humains':'Humans';
 document.getElementById('tc-ais-label').textContent=fr?'IA':'AIs';
 document.getElementById('tc-fast-label').textContent=fr?'Partie rapide (discussion 60 s)':'Quick game (60 s chat)';
+document.getElementById('simple-mode-text').textContent=fr?'Version simplifiée':'Simplified version';
 const t=fr?NOTICE.fr:NOTICE.en;
 document.getElementById('ai-notice').textContent=t.notice;
 document.getElementById('style-consent-text').textContent=t.styleConsent;
@@ -1792,15 +1820,17 @@ const statusMsg = document.createElement('div');
 statusMsg.style.cssText = 'text-align:center;color:#94a3b8;font-size:12px;margin-top:10px;';
 const lobbyInfo = playerId ? G.lobby : null;
 const duelWait = G.duel && (!playerId || !!(lobbyInfo && lobbyInfo.duel));
+// Humans awaited by this room: a chosen private table waits for its own count (state.lobby.table), the public room for the full five.
+const humanTarget = lobbyInfo && lobbyInfo.table ? lobbyInfo.table.humans : HUMAN_NEEDED;
 statusMsg.textContent = duelWait
   ? ((playerId ? G.lang === 'fr' : homeFr()) ? '🔍 Recherche d’un adversaire…' : '🔍 Looking for an opponent…')
   : !playerId ? ''
-  : lobbyInfo && lobbyInfo.private && humanCount < HUMAN_NEEDED
+  : lobbyInfo && lobbyInfo.private && humanCount < humanTarget
   ? (G.lang === 'fr'
-    ? `${humanCount}/${HUMAN_NEEDED} humains. ` + (lobbyInfo.host ? `Lance dès ${lobbyInfo.launchFrom}, ou attends ${HUMAN_NEEDED} pour une table complète.` : `L'hôte lance la partie dès ${lobbyInfo.launchFrom}.`)
-    : `${humanCount}/${HUMAN_NEEDED} humans. ` + (lobbyInfo.host ? `Launch from ${lobbyInfo.launchFrom}, or wait for ${HUMAN_NEEDED} for a full table.` : `The host launches from ${lobbyInfo.launchFrom}.`))
-  : humanCount < HUMAN_NEEDED
-  ? (G.lang === 'fr' ? `⏳ En attente de ${HUMAN_NEEDED - humanCount} joueur(s)...` : `⏳ Waiting for ${HUMAN_NEEDED - humanCount} more player(s)...`)
+    ? `${humanCount}/${humanTarget} humains.` + (lobbyInfo.launchFrom >= humanTarget ? '' : lobbyInfo.host ? ` Lance dès ${lobbyInfo.launchFrom}, ou attends ${humanTarget} pour une table complète.` : ` L'hôte lance la partie dès ${lobbyInfo.launchFrom}.`)
+    : `${humanCount}/${humanTarget} humans.` + (lobbyInfo.launchFrom >= humanTarget ? '' : lobbyInfo.host ? ` Launch from ${lobbyInfo.launchFrom}, or wait for ${humanTarget} for a full table.` : ` The host launches from ${lobbyInfo.launchFrom}.`))
+  : humanCount < humanTarget
+  ? (G.lang === 'fr' ? `⏳ En attente de ${humanTarget - humanCount} joueur(s)...` : `⏳ Waiting for ${humanTarget - humanCount} more player(s)...`)
   : '✅ Ready to start!';
 const existingStatus = document.querySelector('.waiting-status');
 if (existingStatus) {
@@ -1840,6 +1870,10 @@ const dlb=document.getElementById('duel-btn');
 if(dlb)dlb.style.display=inRoom||inviteCode?'none':'';
 const tcw=document.getElementById('table-choice');
 if(tcw)tcw.style.display=inRoom||inviteCode?'none':'';
+const hop=document.getElementById('home-options');
+if(hop)hop.style.display=inRoom||inviteCode?'none':'';
+const smr=document.getElementById('simple-mode-row');
+if(smr)smr.style.display=inRoom||inviteCode?'none':'';
 const note=document.getElementById('invite-note');
 if(note)note.style.display=!inRoom&&inviteCode?'block':'none';
 const isPrivate=!!(lobby&&lobby.private);
@@ -2017,7 +2051,9 @@ G.p=[];
 G.humanSlots=2;
 showScreen('waiting');
 renderWaitingRoom();
-var username=document.getElementById('username-input').value.trim()||'YOU';
+var typedName=document.getElementById('username-input').value.trim();
+if(typedName){try{localStorage.setItem('tg-username',typedName);}catch(e){}}
+var username=typedName||'YOU';
 var lang=(document.getElementById('lang-select')&&document.getElementById('lang-select').value)||'fr';
 console.log('⚔️ Joining the duel queue as', username);
 socket.emit('joinDuel',{username:username,language:lang,styleConsent:document.getElementById('style-consent').checked,notice:NOTICE.version});
@@ -2037,7 +2073,9 @@ function startGame(){
   var sil = document.getElementById('ai-silhouette');
   if(sil) sil.style.display = '';
   
-  const username = document.getElementById('username-input').value.trim() || 'YOU';
+  const typedName = document.getElementById('username-input').value.trim();
+  if(typedName){try{localStorage.setItem('tg-username',typedName);}catch(e){}}
+  const username = typedName || 'YOU';
   const customRoom = document.getElementById('room-input')?.value.trim();
   
   // Utiliser room custom OU rejoindre la room publique par défaut
@@ -2309,7 +2347,9 @@ ah='<div class="avatar-circle" style="background:'+p.color+';box-shadow:0 0 18px
 }
 const c=document.createElement('div');
 c.className='player-avatar-col';
-c.innerHTML='<div class="player-username">'+escHtml(p.username)+'</div>'+ah+'<div class="heart-icon'+(G.h[p.id]?' filled':'')+'" onclick="toggleHeart(\''+p.id+'\')"'+(p.isLocal?' style="cursor:default;opacity:0.2;"':'')+'>'+(G.h[p.id]?'❤️':'🤍')+'</div>'+'<div class="avatar-tooltip">'+vt+'</div>';
+// Simplified version: no heart on the avatars, the vote badge and the tooltip stay
+const heartHtml=G.simpleMode?'':'<div class="heart-icon'+(G.h[p.id]?' filled':'')+'" onclick="toggleHeart(\''+p.id+'\')"'+(p.isLocal?' style="cursor:default;opacity:0.2;"':'')+'>'+(G.h[p.id]?'❤️':'🤍')+'</div>';
+c.innerHTML='<div class="player-username">'+escHtml(p.username)+'</div>'+ah+heartHtml+'<div class="avatar-tooltip">'+vt+'</div>';
 h.appendChild(c);
 });
 renderMessages();
@@ -2387,9 +2427,12 @@ return sb;
 
 // ── User options (off by default, remembered in localStorage 'tg-*', openable by URL) ──
 // tg-simple-view: one-column chat view (☰). tg-live-typing: other players' lines are typed out letter by letter (« Direct »).
+// tg-simple-mode: simplified version — the chat opens in the ☰ view each game, no hearts or stars on the messages,
+// no full-screen VOTE overlays, no end-round history, and the home options folded into a closed « Options » block.
 const SEARCH_PARAMS=(function(){try{return new URLSearchParams(location.search);}catch(e){return new URLSearchParams('');}})();
 const URL_SIMPLE_VIEW=SEARCH_PARAMS.get('view')==='simple';
 const URL_LIVE_TYPING=SEARCH_PARAMS.get('live')==='1';
+const URL_SIMPLE_MODE=SEARCH_PARAMS.get('simple')==='1';
 function localFlagOn(key){
 try{return localStorage.getItem(key)==='1';}catch(e){return false;}
 }
@@ -2398,12 +2441,41 @@ try{localStorage.setItem(key,on?'1':'0');}catch(e){}
 }
 function simpleViewPref(){return URL_SIMPLE_VIEW||localFlagOn('tg-simple-view');}
 function liveTypingPref(){return URL_LIVE_TYPING||localFlagOn('tg-live-typing');}
+function simpleModePref(){return URL_SIMPLE_MODE||localFlagOn('tg-simple-mode');}
 function applyChatPrefs(){
 if(URL_SIMPLE_VIEW)saveLocalFlag('tg-simple-view',true);
 if(URL_LIVE_TYPING)saveLocalFlag('tg-live-typing',true);
-G.singleChat=simpleViewPref();
+if(URL_SIMPLE_MODE)saveLocalFlag('tg-simple-mode',true);
+G.simpleMode=simpleModePref();
+G.singleChat=simpleViewPref()||G.simpleMode;
 G.liveTyping=liveTypingPref();
+applySimpleMode();
 syncChatOptionButtons();
+}
+// While the simplified version is on, the language selector and the table choice move into the closed « Options »
+// block; off, they go back to their original spots and the page renders exactly as without the option.
+function applySimpleMode(){
+document.body.classList.toggle('simple-mode',G.simpleMode);
+const cb=document.getElementById('simple-mode-cb');
+if(cb)cb.checked=G.simpleMode;
+const det=document.getElementById('home-options');
+const lab=document.getElementById('lang-label');
+const lang=document.getElementById('lang-select');
+const tc=document.getElementById('table-choice');
+const pb=document.getElementById('private-btn');
+if(!det||!lab||!lang||!tc||!pb)return;
+if(G.simpleMode){
+det.appendChild(lab);det.appendChild(lang);det.appendChild(tc);
+det.open=false;
+}else{
+const notice=document.getElementById('ai-notice');
+if(notice){notice.parentNode.insertBefore(lab,notice);notice.parentNode.insertBefore(lang,notice);}
+pb.parentNode.insertBefore(tc,pb);
+}
+}
+function toggleSimpleMode(){
+saveLocalFlag('tg-simple-mode',!G.simpleMode);
+applyChatPrefs();
 }
 function syncChatOptionButtons(){
 const fr=G.lang==='fr';
@@ -2619,7 +2691,7 @@ const bq=makeQuote(m);
 if(bq)b.appendChild(bq);
 const bTxt=document.createTextNode(m.text);
 b.appendChild(bTxt);
-if(m.playerId!==G.l&&m.playerId!=='system'){b.appendChild(makeStarBtn(m.id));b.appendChild(makeFlagBtn(m.id));if(canReply()){b.classList.add('can-reply');b.appendChild(makeReplyBtn(m.id));bindLongPress(b,m.id);}}
+if(m.playerId!==G.l&&m.playerId!=='system'){if(!G.simpleMode)b.appendChild(makeStarBtn(m.id));b.appendChild(makeFlagBtn(m.id));if(canReply()){b.classList.add('can-reply');b.appendChild(makeReplyBtn(m.id));bindLongPress(b,m.id);}}
 if(m.id===G.replyTo)b.classList.add('reply-target');
 c.appendChild(b);
 
@@ -2693,7 +2765,7 @@ const tn=document.createTextNode(text);
 line.appendChild(tn);
 body.appendChild(line);
 if(msg)applyLiveTyping(msg,tn,line);
-if(msgId&&p.id!==G.l){body.appendChild(makeStarBtn(msgId));body.appendChild(makeFlagBtn(msgId));if(canReply()){row.classList.add('can-reply');body.appendChild(makeReplyBtn(msgId));bindLongPress(row,msgId);}}
+if(msgId&&p.id!==G.l){if(!G.simpleMode)body.appendChild(makeStarBtn(msgId));body.appendChild(makeFlagBtn(msgId));if(canReply()){row.classList.add('can-reply');body.appendChild(makeReplyBtn(msgId));bindLongPress(row,msgId);}}
 if(msgId&&msgId===G.replyTo)row.classList.add('reply-target');
 row.appendChild(dot);
 row.appendChild(body);
