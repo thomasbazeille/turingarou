@@ -7,6 +7,8 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GameRoom, TableChoice, TableOptions, parseTableChoice } from './game/GameRoom.js';
+import { DuelQueue } from './game/duel.js';
+import { systemClock } from './game/clock.js';
 import { REMATCH_WINDOW_MS, RematchLink, newRoomCode, rematchTable, routeRematch } from './game/rematch.js';
 import { initDB, isDBEnabled } from './game/GameLogger.js';
 import { registerHistoryRoutes } from './history/routes.js';
@@ -116,6 +118,39 @@ function getOrCreateRoom(roomId: string, chosen: TableChoice | null = null): Gam
 /** The rematch room opened from each finished room, kept as long as some socket still holds the finished room. */
 const rematchLinks = new WeakMap<GameRoom, RematchLink>();
 
+// ====== DUEL QUEUE ======
+
+// Seats playing a duel, by socket. The queue's deferred match (one candidate, DUEL_MATCH_WAIT_MS) seats the
+// player after their joinDuel handler already returned: the room lives here, the socket's closure reads it.
+const duelSeats = new Map<string, GameRoom>();
+
+const duelQueue = new DuelQueue({
+  clock: systemClock,
+  log: (line) => console.log(line),
+  open: async (candidates, vsAI) => {
+    // A socket that dropped while waiting opens no game: a room nobody sits in would only linger.
+    const live = candidates.filter((c) => io.sockets.sockets.has(c.socketId));
+    if (live.length === 0) return;
+    // A partner who dropped leaves the other alone: an AI takes the seat, at the same moment the pair would have opened.
+    const withAI = vsAI || live.length === 1;
+    const roomId = 'duel-' + newRoomCode((code) => gameRooms.has('duel-' + code));
+    const room = createRoom(roomId, withAI ? 1 : 0, { duel: true, chosen: withAI ? { humans: 1, ais: 1 } : { humans: 2, ais: 0 } });
+    let seated = 0;
+    for (const cand of live) {
+      const socket = io.sockets.sockets.get(cand.socketId)!;
+      socket.join(roomId);
+      const ok = await room.addHumanPlayer(cand.socketId, cand.username, cand.language, cand.consent);
+      if (!ok) continue;
+      seated++;
+      duelSeats.set(cand.socketId, room);
+      const playerId = room.playerIdBySocket(cand.socketId);
+      socket.emit('joinSuccess', { playerId, roomId, token: playerId ? room.sessionToken(playerId) : null });
+      socket.emit('gameState', room.publicState(cand.socketId));
+    }
+    console.log(`Duel room ${roomId} opened: ${seated} human(s)${withAI ? ' + 1 AI' : ''}`);
+  },
+});
+
 // ====== SOCKET.IO EVENTS ======
 
 io.on('connection', (socket) => {
@@ -126,8 +161,10 @@ io.on('connection', (socket) => {
   let watchedRoom: GameRoom | null = null;
   // The home-screen answer of this socket's player, carried into a rematch they join from here.
   let consent: StyleConsent = NO_CONSENT;
+  // A duel match seats its player from the queue, outside this closure: the room may live in duelSeats only.
+  const roomOf = (): GameRoom | null => currentRoom ?? duelSeats.get(socket.id) ?? null;
   // Resolved on every action: once a resume moves the seat to another socket, this one plays for nobody.
-  const me = (): string | null => (currentRoom ? currentRoom.playerIdBySocket(socket.id) : null);
+  const me = (): string | null => roomOf()?.playerIdBySocket(socket.id) ?? null;
   // One bad packet must never take the server down with every game on it: a handler that throws is logged, then dropped.
   const on = (event: string, handler: (...args: any[]) => unknown) =>
     socket.on(event, (...args: unknown[]) => {
@@ -177,17 +214,52 @@ io.on('connection', (socket) => {
     await joinInto(getOrCreateRoom(roomId, parseTableChoice(p.table)), username, language);
   });
 
+  // Duel 1 contre 1 : un autre humain en attente, sinon une IA après DUEL_MATCH_WAIT_MS ; l'écran est le même
+  on('joinDuel', async (payload: unknown) => {
+    if (watchedRoom) {
+      watchedRoom.removeWatcher(socket.id);
+      socket.leave(watchedRoom.getState().roomId);
+      watchedRoom = null;
+    }
+    const old = roomOf();
+    if (old) {
+      // A duel replayed from a finished game leaves the old seat for good.
+      old.leave(socket.id);
+      socket.leave(old.getRoomId());
+      currentRoom = null;
+      duelSeats.delete(socket.id);
+    }
+    const p = fields(payload);
+    const username = text(p.username) ?? '';
+    const language = languageOf(p.language);
+    consent = parseConsent(payload);
+    console.log(`${username} joining the duel queue`);
+    await duelQueue.join({ socketId: socket.id, username, language, consent });
+    const seated = duelSeats.get(socket.id);
+    if (seated) currentRoom = seated;
+  });
+
+  // Retirer sa candidature du duel (retour à l'accueil, un autre mode choisi) ; sans effet une fois assis
+  on('leaveDuel', () => {
+    duelQueue.leave(socket.id);
+  });
+
   // L'hôte d'une salle privée lance la partie avec les humains présents (3 au moins)
   on('launchGame', async () => {
-    const refusal = currentRoom ? await currentRoom.launch(socket.id) : 'not_waiting';
+    const refusal = roomOf() ? await roomOf()!.launch(socket.id) : 'not_waiting';
     if (refusal) socket.emit('launchError', { reason: refusal });
   });
 
   // Rejouer avec le même groupe : le premier clic ouvre une salle privée liée, les suivants y entrent pendant REMATCH_WINDOW_MS
   on('rematch', async () => {
-    const old = currentRoom;
+    const old = roomOf();
     if (!old || !me() || old.getState().phase !== 'gameover') {
       socket.emit('rematchError', { reason: 'not_over' });
+      return;
+    }
+    // A duel has no group to bring back: its replay button is joinDuel.
+    if (old.isDuel()) {
+      socket.emit('rematchError', { reason: 'window' });
       return;
     }
     const link = rematchLinks.get(old) ?? null;
@@ -232,15 +304,18 @@ io.on('connection', (socket) => {
     socket.emit('myVote', room.voteOf(seat.playerId));
     socket.emit('myAnswer', room.answerOf(seat.playerId));
     socket.emit('myReview', room.reviewOf(seat.playerId));
+    socket.emit('myDuelGuess', room.duelGuessOf(seat.playerId));
     console.log(`${seat.playerId} resumed in ${roomId}`);
   });
 
   // Retour à l'accueil volontaire
   on('leaveRoom', () => {
-    if (!currentRoom) return;
-    currentRoom.leave(socket.id);
-    socket.leave(currentRoom.getRoomId());
+    const room = roomOf();
+    if (!room) return;
+    room.leave(socket.id);
+    socket.leave(room.getRoomId());
     currentRoom = null;
+    duelSeats.delete(socket.id);
   });
 
   // Spectateur en lecture seule d'une salle privée : même état que les joueurs, jamais un siège
@@ -249,8 +324,10 @@ io.on('connection', (socket) => {
     const refuse = (reason: string) => socket.emit('watchError', { reason });
     if (!roomId) return refuse('not_found');
     if (roomId.startsWith('public-')) return refuse('public_room');
+    // A duel has no audience: a watcher count or an audience vote would be one more clue about the partner.
+    if (roomId.startsWith('duel-')) return refuse('not_found');
     // A seated player never doubles as the audience of a room, theirs or another.
-    if (currentRoom) return refuse('seated');
+    if (roomOf()) return refuse('seated');
     const room = gameRooms.get(roomId);
     if (!room) return refuse('not_found');
     if (watchedRoom && watchedRoom !== room) {
@@ -273,68 +350,87 @@ io.on('connection', (socket) => {
   on('sendMessage', (payload: unknown) => {
     const { replyToId, input } = fields(payload);
     const message = text(fields(payload).message);
+    const room = roomOf();
     const playerId = me();
-    if (!currentRoom || !playerId || message === null) return;
+    if (!room || !playerId || message === null) return;
 
     console.log(`Message from ${playerId}: ${message}`);
-    currentRoom.addMessage(playerId, message, replyToId, parseTyping(input));
+    room.addMessage(playerId, message, replyToId, parseTyping(input));
   });
 
   // Répondre à la question ; la réponse n'est renvoyée qu'à son auteur, les autres la voient à la fin de la question
   on('answerQuestion', (payload: unknown) => {
     const answer = text(fields(payload).answer);
+    const room = roomOf();
     const playerId = me();
-    if (!currentRoom || !playerId || answer === null) return;
+    if (!room || !playerId || answer === null) return;
 
     console.log(`Answer from ${playerId}: ${answer}`);
-    currentRoom.addAnswer(playerId, answer);
-    socket.emit('myAnswer', currentRoom.answerOf(playerId));
+    room.addAnswer(playerId, answer);
+    socket.emit('myAnswer', room.answerOf(playerId));
   });
 
   // Voter (ou s'abstenir) ; le vote n'est renvoyé qu'à son auteur, les autres ne voient qu'un compteur anonyme
   on('vote', (payload: { targetId?: unknown; abstain?: unknown } | undefined) => {
+    const room = roomOf();
     const playerId = me();
-    if (!currentRoom || !playerId) return;
+    if (!room || !playerId) return;
     const targetId = payload?.abstain === true ? null : typeof payload?.targetId === 'string' ? payload.targetId : undefined;
     if (targetId === undefined) return;
 
     console.log(`Vote from ${playerId} for ${targetId ?? '(abstention)'}`);
-    currentRoom.addVote(playerId, targetId);
-    socket.emit('myVote', currentRoom.voteOf(playerId));
+    room.addVote(playerId, targetId);
+    socket.emit('myVote', room.voteOf(playerId));
+  });
+
+  // Duel : deviner si l'adversaire est humain ou IA ; la réponse n'est renvoyée qu'à son auteur, l'autre ne voit rien
+  on('duelGuess', (payload: unknown) => {
+    const guess = fields(payload).guess;
+    const room = roomOf();
+    const playerId = me();
+    if (!room || !playerId || (guess !== 'human' && guess !== 'ai')) return;
+
+    console.log(`Duel guess from ${playerId}: ${guess}`);
+    room.addDuelGuess(playerId, guess);
+    socket.emit('myDuelGuess', room.duelGuessOf(playerId));
   });
 
   // Raison facultative de son propre vote, choisie après l'avoir envoyé : rien n'est renvoyé, personne ne la voit
   on('voteReason', (payload: { reason?: unknown } | undefined) => {
     const playerId = me();
     const reason = parseVoteReason(payload?.reason);
-    if (!currentRoom || !playerId || !reason) return;
-    currentRoom.setVoteReason(playerId, reason);
+    const room = roomOf();
+    if (!room || !playerId || !reason) return;
+    room.setVoteReason(playerId, reason);
   });
 
   // Note de fin de partie (1 à 5) et indice libre facultatif : stockés, jamais renvoyés ni journalisés en clair
   on('gameFeedback', (payload: unknown) => {
     const playerId = me();
     const feedback = parseFeedback(payload);
-    if (!currentRoom || !playerId || !feedback) return;
-    currentRoom.setGameFeedback(playerId, feedback);
+    const room = roomOf();
+    if (!room || !playerId || !feedback) return;
+    room.setGameFeedback(playerId, feedback);
   });
 
   // Flaguer un message comme suspicious
   on('flagMessage', (payload: unknown) => {
     const p = fields(payload);
     const messageId = text(p.messageId);
+    const room = roomOf();
     const playerId = me();
-    if (!currentRoom || !playerId || messageId === null) return;
-    currentRoom.flagMessage(playerId, messageId, text(p.reason)?.slice(0, 200) ?? undefined);
+    if (!room || !playerId || messageId === null) return;
+    room.flagMessage(playerId, messageId, text(p.reason)?.slice(0, 200) ?? undefined);
   });
 
   // Ajouter un AI Inspector pour remplir le dernier slot humain (2 humains en attente)
   on('addInspector', async () => {
-    if (!currentRoom) {
+    const room = roomOf();
+    if (!room) {
       socket.emit('joinError', { message: 'Not in a room' });
       return;
     }
-    const success = await currentRoom.addInspectorPlayer();
+    const success = await room.addInspectorPlayer();
     if (success) {
       socket.emit('inspectorAdded', {});
     } else {
@@ -346,7 +442,9 @@ io.on('connection', (socket) => {
   on('disconnect', () => {
     console.log(`Client disconnected: ${socket.id}`);
     watchedRoom?.removeWatcher(socket.id);
-    currentRoom?.disconnect(socket.id);
+    roomOf()?.disconnect(socket.id);
+    duelSeats.delete(socket.id);
+    duelQueue.leave(socket.id);
   });
 });
 

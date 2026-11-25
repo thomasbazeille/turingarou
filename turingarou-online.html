@@ -496,10 +496,18 @@
     .table-choice .setup-input { flex: 1; margin: 0; cursor: pointer; }
 
     /* Spectator (?watch=CODE): the page joins read-only, no seat and no input of its own. */
-    body.watch-mode .player-setup, body.watch-mode #start-btn, body.watch-mode #private-btn,
+    body.watch-mode .player-setup, body.watch-mode #start-btn, body.watch-mode #private-btn, body.watch-mode #duel-btn,
     body.watch-mode #table-choice, body.watch-mode #inspector-btn-wrap, body.watch-mode #answer-input,
     body.watch-mode #submit-answer-btn, body.watch-mode #gameover-feedback, body.watch-mode #rematch-btn { display: none !important; }
     body.watch-mode #watch-note { display: block !important; }
+    /* Duel 1 contre 1 : two big answer buttons instead of the vote list */
+    .duel-guess { display: flex; gap: 10px; margin-top: 4px; }
+    .duel-guess .vote-btn { flex: 1; min-height: 64px; font-size: 15px; letter-spacing: 2px; }
+    .duel-guess .vote-btn.duel-human { background: #22c55e; }
+    .duel-guess .vote-btn.duel-human:hover:not(:disabled) { background: #16a34a; }
+    .duel-guess .vote-btn.duel-ai { background: #ef4444; }
+    .duel-guess .vote-btn.duel-ai:hover:not(:disabled) { background: #dc2626; }
+    #duel-result .score-n { font-size: 20px; line-height: 1.3; }
   </style>
 </head>
 <body>
@@ -557,6 +565,7 @@
       <label><span id="tc-ais-label">AIs</span><select id="tc-ais" class="setup-input"></select></label>
     </div>
     <button type="button" class="return-home-btn" id="private-btn" onclick="createPrivateRoom()" style="width:100%;max-width:420px;margin-top:12px;" disabled>CREATE A PRIVATE ROOM</button>
+    <button type="button" class="return-home-btn" id="duel-btn" onclick="startDuel()" style="width:100%;max-width:420px;margin-top:8px;" disabled>DUEL 1 CONTRE 1</button>
   </div>
 
   <!-- QUESTION -->
@@ -682,6 +691,19 @@
         <div class="reveal-grid" id="gameover-reveal"></div>
         <div class="reveal-votes" id="gameover-votes"></div>
       </div>
+      <div class="review" id="duel-result" style="display:none;text-align:center;">
+        <div class="end-screen-history-title" id="duel-result-title"></div>
+        <div class="score-row">
+          <div class="score-tile" style="flex:1 1 320px;">
+            <div class="score-n" id="duel-verdict">—</div>
+            <div class="score-l" id="duel-verdict-sub"></div>
+          </div>
+        </div>
+        <div class="score-total" id="duel-outcome"></div>
+        <button class="next-round-btn" id="duel-replay-btn" style="width:250px;cursor:pointer;">
+          <div class="next-round-text" id="duel-replay-text">REJOUER UN DUEL</div>
+        </button>
+      </div>
       <div class="review" id="gameover-review"></div>
       <div class="next-round-container" style="gap:12px;flex-wrap:wrap;">
         <button class="next-round-btn" id="rematch-btn" onclick="requestRematch()" style="width:250px;">
@@ -709,7 +731,7 @@
   <script>
 const T=8,A=3;  // 8 joueurs total (5 humains + 3 IA)
 const HUMAN_NEEDED=5;
-let G={s:'waiting',r:1,mr:7,p:[],m:[],e:[],eliminationOrder:[],l:null,im:null,a:{},v:{},h:{},ui:false,eliminatedAiCount:0,lang:'fr',currentQuestion:null,questions:{},questionEndTime:null,singleChat:false,liveTyping:false,flagged:new Set(),colOrder:null,myVote:null,myAnswer:null,review:null,voteSel:null,voteCount:0,replyTo:null,endSeq:null,endRoundEndTime:null,audience:null,watchVote:null};
+let G={s:'waiting',r:1,mr:7,p:[],m:[],e:[],eliminationOrder:[],l:null,im:null,a:{},v:{},h:{},ui:false,eliminatedAiCount:0,lang:'fr',currentQuestion:null,questions:{},questionEndTime:null,singleChat:false,liveTyping:false,flagged:new Set(),colOrder:null,myVote:null,myAnswer:null,review:null,voteSel:null,voteCount:0,replyTo:null,endSeq:null,endRoundEndTime:null,audience:null,watchVote:null,duel:false,myDuelGuess:null};
 
 // === SOCKET.IO SETUP ===
 // Configuration automatique selon environnement
@@ -1058,6 +1080,12 @@ socket.on('myReview', (r) => {
 // The server sends each player their own vote only; the others' stay hidden until the round end.
 socket.on('myVote', (v) => {
   G.myVote = v && typeof v.round === 'number' ? v : null;
+  if (G.s === 'voting') renderGameScreen();
+});
+
+// Duel: this player's own guess about the other, sent back to them alone; the other's guess is never sent.
+socket.on('myDuelGuess', (g) => {
+  G.myDuelGuess = g && (g.guess === 'human' || g.guess === 'ai') ? g.guess : null;
   if (G.s === 'voting') renderGameScreen();
 });
 
@@ -1419,8 +1447,10 @@ function updateGameFromServer(state) {
   }
   G.endRoundEndTime = state.endRoundEndTime || null;
   G.voteCount = state.voteCount || 0;
+  G.duel = state.duel === true;
   if (state.phase !== 'voting') G.voteSel = null;
   if (state.phase === 'waiting' || state.phase === 'question') G.myVote = null;
+  if (state.phase === 'waiting' || state.phase === 'question') G.myDuelGuess = null;
   if (state.phase !== 'discussion') G.replyTo = null;
   const revealed = state.phase === 'endround' || state.phase === 'gameover';
   // Before the round end only this player's own vote is known (myVote); everyone's is revealed at the round end.
@@ -1483,7 +1513,9 @@ function updateGameFromServer(state) {
   } else if (myVoteThisRound() && G.myVote.targetId) {
     G.v[playerId] = G.myVote.targetId;
   }
+  // A duel hides its AI count until the reveal: never keep the previous game's.
   if (state.aiCount != null) G.aiCount = state.aiCount;
+  else if (state.duel) G.aiCount = null;
   G.lobby = state.lobby || null;
   // Audience (spectators): the live count for everyone, the last round's aggregate once its vote closed.
   G.audience = state.audience || null;
@@ -1571,7 +1603,7 @@ function updateGameFromServer(state) {
           var pvo = document.getElementById('pre-vote-overlay');
           var pvt = document.getElementById('pre-vote-text');
           if (!pvo) return;
-          if (remaining <= 10 && remaining > 0) {
+          if (!G.duel && remaining <= 10 && remaining > 0) {
             pvo.style.display = 'flex';
             if (pvt) pvt.textContent = (G.lang === 'fr' ? 'VOTE DANS ' : 'VOTE IN ') + remaining;
           } else {
@@ -1586,12 +1618,12 @@ function updateGameFromServer(state) {
       var _lirVote = document.getElementById('local-input-row');
       if (_lirVote) { _lirVote.style.opacity = '1'; _lirVote.style.pointerEvents = 'auto'; }
       showScreen('game');
-      renderGameScreen(); // renderLocalInputRow appelé en mode 'vote' depuis renderGameScreen
+      renderGameScreen(); // renderLocalInputRow appelé en mode 'vote' (ou 'duelvote') depuis renderGameScreen
       if (state.voteEndTime && prevPhase !== 'voting') {
         startTimerFromServer(state.voteEndTime, 'timer-display');
       }
       var _vpo = document.getElementById('vote-phase-overlay');
-      if (_vpo) { _vpo.style.display = 'flex'; }
+      if (_vpo) { _vpo.style.display = G.duel ? 'none' : 'flex'; }
       break;
     case 'endround':
       var _vpo2 = document.getElementById('vote-phase-overlay');
@@ -1606,9 +1638,8 @@ function updateGameFromServer(state) {
     case 'gameover':
       showScreen('gameover');
       renderGameOver(state.gameOverReason || 'draw');
-      renderReveal(state);
-      renderReview();
-      renderReplay(state.transcript);
+      if (G.duel) renderDuelResult(state);
+      else { renderReveal(state); renderReview(); renderReplay(state.transcript); }
       break;
   }
 }
@@ -1690,6 +1721,8 @@ if(sb&&!playerId){sb.disabled=!G.ui;sb.textContent=startLabel();}
 const pb=document.getElementById('private-btn');
 const tc=tableChoice();
 if(pb){pb.disabled=!G.ui;pb.textContent=fr?'CRÉER UNE SALLE PRIVÉE ('+tc.humans+' HUMAIN'+(tc.humans>1?'S':'')+' + '+tc.ais+' IA)':'CREATE A PRIVATE ROOM ('+tc.humans+' HUMAN'+(tc.humans>1?'S':'')+' + '+tc.ais+' AI'+(tc.ais>1?'S':'')+')';}
+const db=document.getElementById('duel-btn');
+if(db){db.disabled=!G.ui;db.textContent=fr?'DUEL 1 CONTRE 1':'1-ON-1 DUEL';}
 document.getElementById('tc-humans-label').textContent=fr?'Humains':'Humans';
 document.getElementById('tc-ais-label').textContent=fr?'IA':'AIs';
 const t=fr?NOTICE.fr:NOTICE.en;
@@ -1751,7 +1784,10 @@ const humanCount = G.p.length;
 const statusMsg = document.createElement('div');
 statusMsg.style.cssText = 'text-align:center;color:#94a3b8;font-size:12px;margin-top:10px;';
 const lobbyInfo = playerId ? G.lobby : null;
-statusMsg.textContent = !playerId ? ''
+const duelWait = G.duel && (!playerId || !!(lobbyInfo && lobbyInfo.duel));
+statusMsg.textContent = duelWait
+  ? ((playerId ? G.lang === 'fr' : homeFr()) ? '🔍 Recherche d’un adversaire…' : '🔍 Looking for an opponent…')
+  : !playerId ? ''
   : lobbyInfo && lobbyInfo.private && humanCount < HUMAN_NEEDED
   ? (G.lang === 'fr'
     ? `${humanCount}/${HUMAN_NEEDED} humains. ` + (lobbyInfo.host ? `Lance dès ${lobbyInfo.launchFrom}, ou attends ${HUMAN_NEEDED} pour une table complète.` : `L'hôte lance la partie dès ${lobbyInfo.launchFrom}.`)
@@ -1793,6 +1829,8 @@ const sb=document.getElementById('start-btn');
 if(sb)sb.style.display=inRoom?'none':'';
 const pb=document.getElementById('private-btn');
 if(pb)pb.style.display=inRoom||inviteCode?'none':'';
+const dlb=document.getElementById('duel-btn');
+if(dlb)dlb.style.display=inRoom||inviteCode?'none':'';
 const tcw=document.getElementById('table-choice');
 if(tcw)tcw.style.display=inRoom||inviteCode?'none':'';
 const note=document.getElementById('invite-note');
@@ -1950,8 +1988,33 @@ try{history.replaceState(null,'',inviteLink(inviteCode));}catch(e){}
 startGame();
 }
 
+// Duel 1 contre 1 : un seul interlocuteur, humain ou IA, puis une réponse. L'écran d'attente est le même quel que soit l'adversaire.
+function startDuel(){
+if(!G.ui)return;
+G.duel=true;
+G.myDuelGuess=null;
+G.lobby=null;
+G.p=[];
+G.humanSlots=2;
+showScreen('waiting');
+renderWaitingRoom();
+var username=document.getElementById('username-input').value.trim()||'YOU';
+var lang=(document.getElementById('lang-select')&&document.getElementById('lang-select').value)||'fr';
+console.log('⚔️ Joining the duel queue as', username);
+socket.emit('joinDuel',{username:username,language:lang,styleConsent:document.getElementById('style-consent').checked,notice:NOTICE.version});
+}
+
+// Bouton « Rejouer un duel » : l'écran d'accueil revient un instant, puis la file à nouveau
+function replayDuel(){
+goHome();
+startDuel();
+}
+
 function startGame(){
   if(!G.ui) return;
+  // Une recherche de duel en cours ne doit pas déboucher sur un match pendant une partie de groupe
+  socket.emit('leaveDuel');
+  G.duel = false;
   var sil = document.getElementById('ai-silhouette');
   if(sil) sil.style.display = '';
   
@@ -2065,8 +2128,8 @@ if(p.isLocal){
 if(mode==='spectator'){
 cell.innerHTML='<div style="font-size:10px;color:#71717a;text-align:center;padding:6px;font-style:italic;">'
   +(G.lang==='fr'?'Éliminé — lecture seule':'Eliminated — read only')+'</div>';
-} else if(mode==='vote'){
-// Vote en deux temps (choisir puis confirmer), rempli par renderVotePanel
+} else if(mode==='vote'||mode==='duelvote'){
+// Vote du groupe (deux temps) ou devinette du duel (deux gros boutons), remplis par leur panneau
 cell.innerHTML='<div class="vote-panel" id="vote-panel"></div>';
 } else {
 // Mode message — textarea coloré avec la couleur du joueur
@@ -2233,10 +2296,11 @@ h.appendChild(c);
 renderMessages();
 syncChatOptionButtons();
 const localElim2=G.l&&G.e.includes(G.l);
-const inputMode=localElim2?'spectator':(G.s==='voting'?'vote':'message');
+const inputMode=localElim2?'spectator':(G.s==='voting'?(G.duel?'duelvote':'vote'):'message');
 renderLocalInputRow(orderedPlayers,inputMode);
 if(inputMode==='vote') renderVotePanel(ap);
-document.getElementById('round-text').textContent='R'+G.r+'/'+G.mr;
+if(inputMode==='duelvote') renderDuelVotePanel();
+document.getElementById('round-text').textContent=G.duel?'DUEL':'R'+G.r+'/'+G.mr;
 // Spectator bar
 const localEliminated=G.l&&G.e.includes(G.l);
 const spectatorBar=document.getElementById('eliminated-spectator-bar');
@@ -2261,8 +2325,10 @@ ec.appendChild(c);
 const _eliminatedAIs=G.e.filter(eid=>{const _ep=G.p.find(p=>p.id===eid);return _ep&&_ep.isAI;}).length;
 const _totalAIs=G.aiCount||A;
 const _remainingAIs=_totalAIs-_eliminatedAIs;
-document.getElementById('bot-counter').textContent='🤖 '+_remainingAIs+'/'+_totalAIs;
-document.getElementById('bot-counter').style.color='#ef4444';
+// En duel le compteur d'IA serait la réponse : il reste vide
+var bc=document.getElementById('bot-counter');
+if(G.duel){bc.textContent='';bc.style.display='none';}
+else{bc.style.display='';bc.textContent='🤖 '+_remainingAIs+'/'+_totalAIs;bc.style.color='#ef4444';}
 }
 
 function makeFlagBtn(msgId){
@@ -2839,6 +2905,43 @@ row.innerHTML='<div style="width:100%;text-align:center;color:#71717a;font-size:
 }
 }
 
+// Duel : deux gros boutons, puis l'attente de la révélation. Rien ne dit si l'autre a répondu : une IA ne répond jamais,
+// un indice quelconque la démasquerait.
+function renderDuelVotePanel(){
+  const panel = document.getElementById('vote-panel');
+  if (!panel) return;
+  const fr = G.lang === 'fr';
+  const mine = G.myDuelGuess;
+  const key = [G.lang, G.r, mine || '', G.s].join('|');
+  if (panel.dataset.key === key) return;
+  panel.dataset.key = key;
+  let h;
+  if (mine) {
+    h = '<div class="vote-done">' + (fr ? '✓ Réponse envoyée : ' : '✓ Answer sent: ') + (mine === 'ai' ? (fr ? 'IA 🤖' : 'AI 🤖') : (fr ? 'Humain 🧑' : 'Human 🧑')) + '</div>'
+      + '<div class="vote-count">' + (fr ? 'La révélation arrive…' : 'The reveal is coming…') + '</div>';
+  } else {
+    h = '<div class="vote-label">' + (fr ? '⚡ Ton interlocuteur est…' : '⚡ Your chat partner is…') + '</div>'
+      + '<div class="duel-guess">'
+      + '<button type="button" class="vote-btn duel-human" id="duel-guess-human">' + (fr ? '🧑 HUMAIN' : '🧑 HUMAN') + '</button>'
+      + '<button type="button" class="vote-btn duel-ai" id="duel-guess-ai">' + (fr ? '🤖 IA' : '🤖 AI') + '</button>'
+      + '</div>';
+  }
+  panel.innerHTML = h;
+  const bh = document.getElementById('duel-guess-human');
+  if (bh) bh.onclick = function(){ sendDuelGuess('human'); };
+  const ba = document.getElementById('duel-guess-ai');
+  if (ba) ba.onclick = function(){ sendDuelGuess('ai'); };
+}
+
+function sendDuelGuess(guess){
+  if (G.s !== 'voting' || G.myDuelGuess) return;
+  console.log('⚔️ Duel guess:', guess);
+  socket.emit('duelGuess', { guess: guess });
+  // Shown at once; the server's myDuelGuess confirms it, or clears it if the guess was refused.
+  G.myDuelGuess = guess;
+  renderDuelVotePanel();
+}
+
 // ── Reply to a message: button (hover on desktop, always faint on touch) or long press ──
 function canReply(){
   return G.s === 'discussion' && !!G.l && !G.e.includes(G.l);
@@ -3130,6 +3233,7 @@ function goHome(){
   // A spectator leaving goes back to a plain home page: the reload closes the socket, so the audience count drops.
   if (watchMode) { location.href = location.pathname; return; }
   // Leaving on purpose: the server frees the lobby seat now, or keeps a silent one mid-game; no resume afterwards.
+  socket.emit('leaveDuel');
   if (socket.connected) socket.emit('leaveRoom');
   clearSession();
   playerId = null;
@@ -3155,6 +3259,8 @@ function goHome(){
   G.flagged = new Set();
   G.myVote = null;
   G.myAnswer = null;
+  G.myDuelGuess = null;
+  G.duel = false;
   G.review = null;
   G.voteSel = null;
   G.watchVote = null;
@@ -3486,8 +3592,20 @@ const msg=document.getElementById('gameover-message');
 const detail=document.getElementById('gameover-detail');
 const gameoverHomeBtn = document.getElementById('gameover-home-text');
 const goFr=G.lang==='fr';
-if(title) title.textContent=goFr?'FIN DE PARTIE':'GAME OVER';
-if(msg){
+// Le duel a son propre écran final : pas de reveal de groupe, pas de revanche de groupe, pas de note
+const duelUi=!!G.duel;
+const tog=function(id,hide){const el=document.getElementById(id);if(el)el.style.display=hide?'none':'';};
+tog('rematch-btn',duelUi);tog('gameover-feedback',duelUi);tog('gameover-replay',duelUi);
+const rwrap=document.querySelector('.reveal-wrap');
+if(rwrap)rwrap.style.display=duelUi?'none':'';
+const dbox=document.getElementById('duel-result');
+if(dbox)dbox.style.display=duelUi?'block':'none';
+if(title) title.textContent=duelUi?(goFr?'FIN DU DUEL':'DUEL OVER'):(goFr?'FIN DE PARTIE':'GAME OVER');
+if(msg&&duelUi){
+msg.textContent=goFr?'Alors, humain ou IA ?':'So, human or AI?';
+if(detail)detail.textContent=goFr?'Un seul interlocuteur, une seule réponse.':'One chat partner, one answer.';
+}
+if(msg&&!duelUi){
 if(reason==='humans_win'){ msg.textContent=goFr?'Les humains gagnent !':'Humans win!'; if(detail) detail.textContent=goFr?'Vous avez démasqué les IA.':'You found the AI.'; }
 else if(reason==='ai_win'){ msg.textContent=goFr?'Les IA gagnent !':'AI wins!'; if(detail) detail.textContent=goFr?'Les IA sont restées cachées.':'The AI stayed hidden.'; }
 else { msg.textContent=goFr?'Égalité':'Draw'; if(detail) detail.textContent=goFr?'Partie terminée.':'Game ended.'; }
@@ -3504,10 +3622,40 @@ if(reason==='humans_win'){
 }else if(reason==='ai_win'){
   if(aiBg)aiBg.style.display='block';
   if(goScreen)goScreen.style.background='';
+}else if(reason==='duel'){
+  // A duel is neither won nor drawn by a side: no gears, no scale, the plain end background.
+  if(goScreen)goScreen.style.background='linear-gradient(135deg,#0f172a 0%,#1e1040 100%)';
 }else{
   startScaleAnimation();
   if(goScreen)goScreen.style.background='linear-gradient(135deg,#0f172a 0%,#1e1040 100%)';
 }
+}
+
+// Fin du duel : ce que l'autre était vraiment, et si la réponse collait. La vérité vient du reveal du serveur
+// (isAI/model, envoyés au gameover seulement), la réponse de myDuelGuess.
+function renderDuelResult(state){
+const fr=G.lang==='fr';
+const t1=document.getElementById('duel-result-title');
+const v=document.getElementById('duel-verdict');
+const vsub=document.getElementById('duel-verdict-sub');
+const oc=document.getElementById('duel-outcome');
+const rt=document.getElementById('duel-replay-text');
+if(!v)return;
+const opp=state.players.find(function(p){return p.id!==playerId;})||null;
+const mine=G.myDuelGuess;
+const isAI=!!(opp&&opp.isAI===true);
+if(t1)t1.textContent=(fr?'Ton duel contre ':'Your duel against ')+(opp?opp.username:'?');
+v.textContent=isAI?(fr?'🤖 C’était une IA':'🤖 It was an AI'):(fr?'🧑 C’était un humain':'🧑 It was a human');
+v.style.color=isAI?'#ef4444':'#22c55e';
+if(vsub)vsub.textContent=opp?(isAI?((fr?'IA':'AI')+(opp.model?' ('+opp.model+')':'')):(fr?'Humain':'Human')):'';
+const ok=mine?((mine==='ai')===isAI):null;
+if(oc){
+oc.textContent=ok===null?(fr?'Pas de réponse':'No answer'):ok?(fr?'Bien vu !':'Well spotted!'):(fr?'Raté !':'Missed!');
+oc.style.color=ok===null?'#94a3b8':(ok?'#22c55e':'#f59e0b');
+}
+if(rt)rt.textContent=fr?'REJOUER UN DUEL':'PLAY ANOTHER DUEL';
+const rb=document.getElementById('duel-replay-btn');
+if(rb)rb.onclick=replayDuel;
 }
 
 // End-of-game note, a block of its own: own box, own state, own event. A star is sent at once; the clue with Send.

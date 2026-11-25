@@ -63,7 +63,7 @@ async function loadGames(n: number): Promise<HistoryGame[]> {
     try {
       games = await withReadOnly(pool, async (client) => {
         const { rows } = await client.query<{ game_id: string; date: string; language: string; result: string }>(
-          `SELECT game_id, date, language, result FROM games WHERE result <> 'aborted' ORDER BY date DESC, game_id DESC LIMIT $1`,
+          `SELECT game_id, date, language, result FROM games WHERE result IN ('humans_win', 'ai_win', 'draw') ORDER BY date DESC, game_id DESC LIMIT $1`,
           [n]
         );
         return loadGameRecords(client, rows);

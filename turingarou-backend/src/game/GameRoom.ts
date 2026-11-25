@@ -20,6 +20,7 @@ import {
   getRandomHumanProfile,
   saveMessageFlag,
   saveGameFeedback,
+  DuelGuessLog,
   GameLogData,
   LineInputLog,
   HumanPersona,
@@ -193,6 +194,12 @@ export interface TableOptions {
   aiCountFor?: (humanSide: number) => number;
   /** Private table set on the home page: it starts once these humans are seated, with these AIs even if launched earlier. */
   chosen?: TableChoice;
+  /**
+   * 1-on-1 duel (Human-or-Not style): `chosen` fixes the seats (2 humans, or 1 human + 1 AI), one round only,
+   * and the vote phase becomes a guess about the other player. Whether the opponent is an AI stays unreadable
+   * until the game over: the AI count is hidden and the guess phase never closes early.
+   */
+  duel?: boolean;
 }
 
 export type LaunchRefusal = 'not_private' | 'not_waiting' | 'not_host' | 'too_few';
@@ -253,6 +260,8 @@ export class GameRoom {
   private votesByRound = new Map<number, { voter: string; target: string }[]>();
   /** Every finished vote by player id, revealed with the game over. */
   private voteHistory: { round: number; votes: Vote[]; eliminatedId: string | null }[] = [];
+  /** Duel: each human's guess about the other player, first one only, recorded at the close. */
+  private duelGuesses = new Map<string, { guess: 'human' | 'ai'; ts: number }>();
   private eliminationsByRound = new Map<number, { name: string; isAI: boolean }>();
   private questionsByRound = new Map<number, string>();
   private eliminationOrder: string[] = [];
@@ -782,12 +791,17 @@ export class GameRoom {
     this.state.voteEndTime = this.now() + VOTE_PHASE_MS;
     // Votes cast during the discussion are kept.
     this.emitState();
-    this.director.startVoting();
+    // In a duel nobody is voted out: humans send a guess (duelGuess) about the other, and the AI guesses nothing.
+    if (!this.table.duel) this.director.startVoting();
     this.schedulePhase(VOTE_PHASE_MS, () => this.processVotes());
   }
 
   private processVotes(): void {
     if (this.aborted || this.state.phase !== 'voting') return;
+    if (this.table.duel) {
+      this.closeDuel();
+      return;
+    }
     this.director.stop();
     this.revealedVotes = this.revealVotes();
     const voteCounts = new Map<string, number>();
@@ -843,6 +857,21 @@ export class GameRoom {
     this.state.endRoundEndTime = this.now() + ENDROUND_MS;
     this.emitState();
     this.schedulePhase(ENDROUND_MS, () => this.nextRound());
+  }
+
+  /**
+   * End of the one duel round: straight to the game over, where each side sees what the other really was and
+   * whether the guess matched. No elimination, no round end, no next round, no review score (no votes).
+   */
+  private closeDuel(): void {
+    this.director.stop();
+    this.state.gameOverReason = 'duel';
+    this.state.phase = 'gameover';
+    this.state.voteEndTime = null;
+    this.stopTimersAndBots();
+    this.emitState();
+    this.persistGameLog('duel');
+    this.logTelemetry('duel');
   }
 
   private nextRound(): void {
@@ -964,6 +993,7 @@ export class GameRoom {
         voice: { ...this.deps.voice },
         lineInputs: [...this.lineInputs],
         audienceVotes,
+        ...(this.table.duel ? { duelGuesses: this.duelGuessLog() } : {}),
       };
       const saved = this.deps.persistence.saveGameLog(data);
       // An aborted game says nothing of who won: the human profiles stay as they were.
@@ -1070,6 +1100,8 @@ export class GameRoom {
    */
   addVote(voterId: string, targetId: string | null): void {
     if (this.aborted || this.state.phase !== 'voting') return;
+    // A duel has no vote on a player: only duelGuess exists, or a vote count would show on every screen.
+    if (this.table.duel) return;
     if (voterId === targetId || this.state.votes.some((v) => v.voterId === voterId)) return;
     if (targetId !== null) {
       const target = this.state.players.find((p) => p.id === targetId && !p.isEliminated);
@@ -1089,6 +1121,7 @@ export class GameRoom {
    */
   setVoteReason(playerId: string, reason: VoteReason): boolean {
     if (this.aborted || (this.state.phase !== 'voting' && this.state.phase !== 'endround')) return false;
+    if (this.table.duel) return false;
     if (this.kinds.get(playerId) !== 'human') return false;
     if (!this.state.votes.find((v) => v.voterId === playerId)?.targetId) return false;
     const round = this.state.currentRound;
@@ -1127,6 +1160,50 @@ export class GameRoom {
     return vote ? { round: this.state.currentRound, targetId: vote.targetId } : null;
   }
 
+  /**
+   * A duel human's guess about the other player, while the guess phase is open. One guess: the phase never
+   * closes on both having answered, so a later change would tell the opponent nothing — but the first one is
+   * the recorded one, like a vote. Returns false outside the phase, outside a duel, or for a bot.
+   */
+  addDuelGuess(playerId: string, guess: 'human' | 'ai'): boolean {
+    if (this.aborted || !this.table.duel || this.state.phase !== 'voting') return false;
+    if (this.kinds.get(playerId) !== 'human') return false;
+    if (this.duelGuesses.has(playerId)) return false;
+    if (!this.state.players.some((p) => p.id === playerId)) return false;
+    this.duelGuesses.set(playerId, { guess, ts: this.now() });
+    return true;
+  }
+
+  /** This player's own duel guess, for their client only; nobody ever sees the other's before the game over. */
+  duelGuessOf(playerId: string): { guess: 'human' | 'ai' } | null {
+    const own = this.duelGuesses.get(playerId);
+    return own ? { guess: own.guess } : null;
+  }
+
+  /** True while a duel table: the queue, the server and the client branch on it. */
+  isDuel(): boolean {
+    return !!this.table.duel;
+  }
+
+  /** Each player's guess, the truth about their opponent and whether it matched, written at the close only. */
+  private duelGuessLog(): DuelGuessLog[] {
+    const truthOf = (id: string): 'human' | 'ai' => {
+      const other = this.state.players.find((p) => p.id !== id);
+      return other && other.type !== 'human' ? 'ai' : 'human';
+    };
+    return this.state.players.map((p) => {
+      const guess = this.duelGuesses.get(p.id);
+      const truth = truthOf(p.id);
+      return {
+        player: p.username,
+        guess: guess?.guess ?? null,
+        truth,
+        correct: guess ? guess.guess === truth : null,
+        ts: guess?.ts ?? this.now(),
+      };
+    });
+  }
+
   private revealVotes(): Vote[] {
     const cast = new Map(this.state.votes.map((v) => [v.voterId, v.targetId]));
     const out: Vote[] = [];
@@ -1156,6 +1233,9 @@ export class GameRoom {
 
   private tryEndVotingEarly(): void {
     if (this.state.phase !== 'voting') return;
+    // A duel's guess phase always runs its full length: closing once both guessed would prove the opponent
+    // is human, since an AI never guesses.
+    if (this.table.duel) return;
     const active = this.state.players.filter((p) => !p.isEliminated);
     const voted = new Set(this.state.votes.map((v) => v.voterId));
     const missing = active.filter((p) => !voted.has(p.id));
@@ -1273,7 +1353,9 @@ export class GameRoom {
       host,
       launchFrom: this.table.hostLaunch ? MIN_LAUNCH_HUMANS : null,
       launchAIs: this.table.hostLaunch ? this.launchAIs() : null,
-      table: this.table.chosen ?? null,
+      // A duel's seats would tell how many AIs it holds: the client only learns that it is a duel.
+      table: this.table.duel ? null : this.table.chosen ?? null,
+      duel: !!this.table.duel,
       canLaunch: host && this.isJoinable() && this.humanSeats() >= MIN_LAUNCH_HUMANS,
       freshName: !!this.table.freshNames,
     };
@@ -1343,6 +1425,11 @@ export class GameRoom {
       })),
       eliminationOrder: [...this.eliminationOrder],
     };
+    if (this.table.duel) {
+      out.duel = true;
+      // The AI count would answer the only question of a duel: hidden until the reveal says it.
+      if (!over) out.aiCount = null;
+    }
     // Answers stay hidden until the question ends (each author gets their own through answerOf), then show in seat
     // order without their time: who answered, when or in what order would point at the bots.
     const answered = ['discussion', 'voting', 'endround', 'gameover'].includes(this.state.phase);

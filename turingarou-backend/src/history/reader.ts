@@ -47,7 +47,7 @@ interface FlagRow { game_id: string; message_id: string; flagged_by: string; rou
 export async function readGameRows(client: SqlClient, query: GameQuery, after: Cursor | null, pageSize: number): Promise<GameRow[]> {
   const { rows } = await client.query<GameRow>(
     `SELECT game_id, date, language, result FROM games
-     WHERE result <> 'aborted'
+     WHERE result IN ('humans_win', 'ai_win', 'draw')
        AND ($1::text IS NULL OR date >= $1::text)
        AND ($2::text IS NULL OR date < $2::text)
        AND ($3::text IS NULL OR (date, game_id) > ($3::text, $4::text))

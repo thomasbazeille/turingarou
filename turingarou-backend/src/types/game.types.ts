@@ -78,7 +78,7 @@ export interface GameRoomState {
   aiCount: number; // Nombre d'IA dans la partie
   eliminatedPlayerId?: string | null;
   eliminatedPlayerIsAI?: boolean | null;
-  gameOverReason?: 'humans_win' | 'ai_win' | 'draw' | null;
+  gameOverReason?: 'humans_win' | 'ai_win' | 'draw' | 'duel' | null;
   language?: 'fr' | 'en';
   /** Ordered list of eliminated player IDs (index 0 = eliminated in round 1, etc.) */
   eliminationOrder?: string[];

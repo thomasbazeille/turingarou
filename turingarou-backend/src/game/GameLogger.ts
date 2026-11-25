@@ -19,6 +19,7 @@
  *   game_feedback   — note de 1 à 5 et indice libre d'un humain en fin de partie
  *   message_inputs  — comment chaque ligne humaine a été saisie : voix ou clavier, collage, temps de frappe
  *   audience_votes  — vote du public (spectateurs en lecture seule), un choix vivant par spectateur et par manche
+ *   duel_guesses    — duel 1 contre 1 : réponse de chacun sur la nature de l'autre, et la vérité
  */
 
 import pg from 'pg';
@@ -84,12 +85,27 @@ export interface LineInputLog {
   msPerChar: number | null;
 }
 
+/** Duel: what one side answered about the other, written once, at the game over. */
+export interface DuelGuessLog {
+  player: string;
+  /** null: the guess phase closed without an answer. */
+  guess: 'human' | 'ai' | null;
+  /** What the opponent really was. */
+  truth: 'human' | 'ai';
+  /** guess === truth; null without an answer. */
+  correct: boolean | null;
+  ts: number;
+}
+
 export interface GameLogData {
   gameId: string;
   date: string;
   language: 'fr' | 'en';
-  /** aborted: every human gone, or the server stopped, before the end; the analyses leave these games out. */
-  result: 'humans_win' | 'ai_win' | 'draw' | 'aborted';
+  /**
+   * aborted: every human gone, or the server stopped, before the end; the analyses leave these games out.
+   * duel: a 1-on-1 game, left out of the group analyses too (see src/history/reader.ts).
+   */
+  result: 'humans_win' | 'ai_win' | 'draw' | 'duel' | 'aborted';
   players: PlayerLog[];
   rounds: RoundLog[];
   messages: MessageLog[];
@@ -99,6 +115,8 @@ export interface GameLogData {
   lineInputs?: LineInputLog[];
   /** Votes of the read-only spectators: one live pick each per round (the last replaces), target = player name. */
   audienceVotes?: { round: number; spectator: string; target: string; timestamp: number }[];
+  /** Duels only: one row per player. */
+  duelGuesses?: DuelGuessLog[];
 }
 
 // ─── DB pool ──────────────────────────────────────────────────────────────────
@@ -303,6 +321,14 @@ export async function initDB(): Promise<void> {
       ts        BIGINT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS duel_guesses (
+      game_id     TEXT NOT NULL REFERENCES games(game_id),
+      player_name TEXT NOT NULL,
+      guess       TEXT,
+      truth       TEXT NOT NULL,
+      ts          BIGINT NOT NULL
+    );
+
     CREATE UNIQUE INDEX IF NOT EXISTS idx_game_players_unique
       ON game_players(game_id, player_name);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_round_questions_unique
@@ -333,6 +359,8 @@ export async function initDB(): Promise<void> {
       ON message_inputs(game_id, round, player_name, ts);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_audience_votes_unique
       ON audience_votes(game_id, round, spectator);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_duel_guesses_unique
+      ON duel_guesses(game_id, player_name);
 
     -- Added 2026-11-24, idempotent on every boot: a flag or a reply joins the line it names; older rows stay NULL.
     ALTER TABLE messages ADD COLUMN IF NOT EXISTS message_id TEXT;
@@ -554,6 +582,17 @@ export async function saveGameLog(data: GameLogData): Promise<void> {
           spectator: v.spectator,
           target: v.target,
           ts: v.timestamp,
+        });
+      }
+
+      // Duels only, one row per duelist; `correct` (guess = truth) is derived by the readers.
+      for (const g of data.duelGuesses ?? []) {
+        await insertRow(db, 'duel_guesses', {
+          game_id: data.gameId,
+          player_name: g.player,
+          guess: g.guess,
+          truth: g.truth,
+          ts: g.ts,
         });
       }
     });
