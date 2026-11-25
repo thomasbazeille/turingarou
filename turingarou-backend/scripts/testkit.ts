@@ -212,6 +212,8 @@ export interface TestRoomOptions {
   table?: TableOptions;
   /** Lobby joins assert their result; the other rooms ignore it. */
   assertJoin?: boolean;
+  /** Default [quietModel]: bots that never say a word. */
+  providers?: ChatProvider[];
 }
 
 export interface TestRoom {
@@ -240,7 +242,7 @@ export function testRoom(roomId: string, io: RoomEmitter, opts: TestRoomOptions)
   const room = new GameRoom(
     roomId,
     io,
-    [quietModel],
+    opts.providers ?? [quietModel],
     3,
     {
       clock: opts.clock,

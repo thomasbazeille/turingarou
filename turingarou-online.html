@@ -491,7 +491,7 @@
       .phone-view-btn { display: none; }
       body.phone-view #app-frame { width: 100vw; height: 100svh; border: 0; border-radius: 0; box-shadow: none; }
     }
-    .table-choice { display: flex; gap: 10px; justify-content: center; margin-top: 12px; max-width: 420px; width: 100%; }
+    .table-choice { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 12px; max-width: 420px; width: 100%; }
     .table-choice label { flex: 1; display: flex; align-items: center; gap: 8px; color: #94a3b8; font-size: 12px; }
     .table-choice .setup-input { flex: 1; margin: 0; cursor: pointer; }
 
@@ -563,6 +563,10 @@
     <div class="table-choice" id="table-choice">
       <label><span id="tc-humans-label">Humans</span><select id="tc-humans" class="setup-input"></select></label>
       <label><span id="tc-ais-label">AIs</span><select id="tc-ais" class="setup-input"></select></label>
+      <label style="flex:1 1 100%;justify-content:center;cursor:pointer;margin-top:2px;">
+        <input type="checkbox" id="tc-fast" style="cursor:pointer;">
+        <span id="tc-fast-label">Partie rapide (discussion 60 s)</span>
+      </label>
     </div>
     <button type="button" class="return-home-btn" id="private-btn" onclick="createPrivateRoom()" style="width:100%;max-width:420px;margin-top:12px;" disabled>CREATE A PRIVATE ROOM</button>
     <button type="button" class="return-home-btn" id="duel-btn" onclick="startDuel()" style="width:100%;max-width:420px;margin-top:8px;" disabled>DUEL 1 CONTRE 1</button>
@@ -1679,6 +1683,8 @@ document.getElementById('lang-select').onchange=function(){refreshHome();renderW
 fillTableChoice(loadTableChoice());
 document.getElementById('tc-humans').onchange=syncTableChoice;
 document.getElementById('tc-ais').onchange=syncTableChoice;
+document.getElementById('tc-fast').checked=loadFastTable();
+document.getElementById('tc-fast').onchange=syncFastTable;
 let phone=false;
 try{phone=new URLSearchParams(location.search).get('phone')==='1'||localStorage.getItem('tg-phone-view')==='1';}catch(e){}
 applyPhoneView(phone);
@@ -1720,11 +1726,12 @@ const sb=document.getElementById('start-btn');
 if(sb&&!playerId){sb.disabled=!G.ui;sb.textContent=startLabel();}
 const pb=document.getElementById('private-btn');
 const tc=tableChoice();
-if(pb){pb.disabled=!G.ui;pb.textContent=fr?'CRÉER UNE SALLE PRIVÉE ('+tc.humans+' HUMAIN'+(tc.humans>1?'S':'')+' + '+tc.ais+' IA)':'CREATE A PRIVATE ROOM ('+tc.humans+' HUMAN'+(tc.humans>1?'S':'')+' + '+tc.ais+' AI'+(tc.ais>1?'S':'')+')';}
+if(pb){pb.disabled=!G.ui;pb.textContent=fr?'CRÉER UNE SALLE PRIVÉE ('+tc.humans+' HUMAIN'+(tc.humans>1?'S':'')+' + '+tc.ais+' IA'+(tc.fast?' · PARTIE RAPIDE':'')+')':'CREATE A PRIVATE ROOM ('+tc.humans+' HUMAN'+(tc.humans>1?'S':'')+' + '+tc.ais+' AI'+(tc.ais>1?'S':'')+(tc.fast?' · QUICK GAME':'')+')';}
 const db=document.getElementById('duel-btn');
 if(db){db.disabled=!G.ui;db.textContent=fr?'DUEL 1 CONTRE 1':'1-ON-1 DUEL';}
 document.getElementById('tc-humans-label').textContent=fr?'Humains':'Humans';
 document.getElementById('tc-ais-label').textContent=fr?'IA':'AIs';
+document.getElementById('tc-fast-label').textContent=fr?'Partie rapide (discussion 60 s)':'Quick game (60 s chat)';
 const t=fr?NOTICE.fr:NOTICE.en;
 document.getElementById('ai-notice').textContent=t.notice;
 document.getElementById('style-consent-text').textContent=t.styleConsent;
@@ -1849,7 +1856,8 @@ if(isPrivate){
   sh.textContent=fr?'Partager':'Share';
   const tb=lobby.table;
   const auto=tb?(fr?'Départ automatique à '+tb.humans+' humain'+(tb.humans>1?'s':'')+' ('+tb.ais+' IA). ':'Starts by itself at '+tb.humans+' human'+(tb.humans>1?'s':'')+' ('+tb.ais+' AI'+(tb.ais>1?'s':'')+'). '):'';
-  document.getElementById('room-code-hint').textContent=auto+(fr?'Envoie le lien à tes amis : il ouvre directement cette salle.':'Send the link to your friends: it opens this room.');
+  const fast=tb&&tb.fast?(fr?'Partie rapide (discussion 60 s). ':'Quick game (60 s chat). '):'';
+  document.getElementById('room-code-hint').textContent=auto+fast+(fr?'Envoie le lien à tes amis : il ouvre directement cette salle.':'Send the link to your friends: it opens this room.');
 }
 renderInviteQr(isPrivate);
 const fresh=document.getElementById('fresh-name-note');
@@ -1940,7 +1948,18 @@ return {humans:3,ais:2};
 function tableChoice(){
 const hs=document.getElementById('tc-humans'),as=document.getElementById('tc-ais');
 const t={humans:parseInt(hs&&hs.value,10),ais:parseInt(as&&as.value,10)};
-return tableOk(t)?t:loadTableChoice();
+const ok=tableOk(t)?t:loadTableChoice();
+const fb=document.getElementById('tc-fast');
+return fb&&fb.checked?{...ok,fast:true}:ok;
+}
+// Partie rapide: shorter question, discussion and round end; kept per browser, sent in the table of joinRoom.
+function loadFastTable(){
+try{return localStorage.getItem('tg-fast-table')==='1';}catch(e){return false;}
+}
+function syncFastTable(){
+const fb=document.getElementById('tc-fast');
+try{localStorage.setItem('tg-fast-table',fb&&fb.checked?'1':'0');}catch(e){}
+refreshHome();
 }
 function fillTableChoice(t){
 const hs=document.getElementById('tc-humans'),as=document.getElementById('tc-ais');

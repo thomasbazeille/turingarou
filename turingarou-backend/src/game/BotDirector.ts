@@ -189,7 +189,7 @@ export class BotDirector {
     // Each answer lands at its own target time as soon as ITS model returns: no barrier on the slowest provider,
     // no shared gate that made every bot answer in the same burst.
     for (const slot of this.activeSlots()) {
-      const due = startedAt + answerTarget(this.deps.rng);
+      const due = startedAt + answerTarget(this.deps.rng, format.questionSec * 1000);
       slot.bot
         .answer(this.view(), alive)
         .then((text) => {

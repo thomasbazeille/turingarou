@@ -64,8 +64,12 @@ export function voteDelay(rng: () => number = Math.random): number {
   return uniform(9000, 20000, rng);
 }
 
-export function answerTarget(rng: () => number = Math.random): number {
-  return uniform(5000, 17000, rng);
+/**
+ * When a bot's answer lands: 5 to 17 s into a 20 s question. A shorter question (Partie rapide) brings the top down
+ * to 3 s before its end, so a bot never misses an answer a human would have had time to type.
+ */
+export function answerTarget(rng: () => number = Math.random, questionMs = 20000): number {
+  return uniform(5000, Math.min(17000, questionMs - 3000), rng);
 }
 
 /**

@@ -121,6 +121,14 @@ export const VOTE_PHASE_MS = 30000;
  * voted for whom and who is immune, as long as the old screen gave to read it all at once (it lasted 8 s).
  */
 export const ENDROUND_MS = 10000;
+/**
+ * A fast private table ("Partie rapide" on the home page): the same phases, shorter. The question keeps the 8 s
+ * early-end floor and the vote keeps its full length: a shorter vote or floor would move a tell into the fast
+ * setting, and the durations stay common to every seat of the room either way.
+ */
+export const FAST_QUESTION_PHASE_MS = 15000;
+export const FAST_DISCUSSION_PHASE_MS = 60000;
+export const FAST_ENDROUND_MS = 7000;
 export const MAX_ROUNDS = 7;
 /** In the lobby a dropped player keeps their seat this long, then frees it so the room can still fill. */
 export const LOBBY_GRACE_MS = 10_000;
@@ -135,6 +143,7 @@ export const LOST_VOTE_CLOSE_MS = VOTE_DEADLINE_MS + 1000;
 
 if (VOTE_DEADLINE_MS >= VOTE_PHASE_MS) throw new Error('bot vote deadline must fall inside the vote phase');
 if (QUESTION_MIN_MS >= QUESTION_PHASE_MS) throw new Error('the early end floor must fall inside the question phase');
+if (QUESTION_MIN_MS >= FAST_QUESTION_PHASE_MS) throw new Error('the early end floor must fall inside the fast question phase');
 if (LOST_VOTE_CLOSE_MS >= VOTE_PHASE_MS) throw new Error('the close without lost players must fall inside the vote phase');
 
 /** Notes a human may send at the game over: each tap on a star is sent, then the clue; past this, a client is spamming. */
@@ -173,15 +182,18 @@ export const TABLE_MAX = 8;
 export interface TableChoice {
   humans: number;
   ais: number;
+  /** Partie rapide: the question, discussion and round end run shorter, the vote keeps its length. */
+  fast?: boolean;
 }
 
 /** A choice sent by a page, or null: whole numbers, 1 human and 1 AI at least, 3 to TABLE_MAX seats (2 end at the first vote). */
 export function parseTableChoice(payload: unknown): TableChoice | null {
-  const p = (payload && typeof payload === 'object' ? payload : {}) as { humans?: unknown; ais?: unknown };
+  const p = (payload && typeof payload === 'object' ? payload : {}) as { humans?: unknown; ais?: unknown; fast?: unknown };
   const { humans, ais } = p;
   if (typeof humans !== 'number' || typeof ais !== 'number' || !Number.isInteger(humans) || !Number.isInteger(ais)) return null;
   if (humans < 1 || ais < 1 || humans + ais < 3 || humans + ais > TABLE_MAX) return null;
-  return { humans, ais };
+  // Only a boolean true is fast: any other value is the same as no checkbox, so a malformed page never speeds a room up.
+  return p.fast === true ? { humans, ais, fast: true } : { humans, ais };
 }
 
 /** What kind of table a room is; the default is the public room. */
@@ -293,6 +305,11 @@ export class GameRoom {
   /** The aggregate of the last round whose vote closed; every browser sees it from the close on. */
   private audienceLastRound: AudienceState['lastRound'] = null;
   private table: TableOptions;
+  /**
+   * The question, discussion and round-end lengths of this room: a fast chosen table shortens them, every other
+   * room (public, chosen, duel) keeps the standard ones. Fixed at construction: a room never changes pace mid-game.
+   */
+  private durations: { question: number; discussion: number; endRound: number };
 
   constructor(
     roomId: string,
@@ -339,6 +356,9 @@ export class GameRoom {
       gameOverReason: null,
       language: 'fr',
     };
+    this.durations = table.chosen?.fast
+      ? { question: FAST_QUESTION_PHASE_MS, discussion: FAST_DISCUSSION_PHASE_MS, endRound: FAST_ENDROUND_MS }
+      : { question: QUESTION_PHASE_MS, discussion: DISCUSSION_PHASE_MS, endRound: ENDROUND_MS };
     if (table.chosen) {
       this.state.aiCount = table.chosen.ais;
       this.state.maxPlayers = table.chosen.humans + table.chosen.ais;
@@ -755,12 +775,12 @@ export class GameRoom {
     this.state.votes = [];
     this.revealedVotes = [];
     this.state.endRoundEndTime = null;
-    this.state.questionEndTime = this.now() + QUESTION_PHASE_MS;
+    this.state.questionEndTime = this.now() + this.durations.question;
     this.emitState();
     // The format (language, timings) reaches the bots with the question: round 1 of an English game used to be
     // prompted in French because the format was set after the first answers were requested.
     this.director.startQuestion(this.getGameFormat());
-    this.schedulePhase(QUESTION_PHASE_MS, () => this.startDiscussion());
+    this.schedulePhase(this.durations.question, () => this.startDiscussion());
   }
 
   getGameFormat(): GameFormat {
@@ -768,8 +788,8 @@ export class GameRoom {
       maxPlayers: this.state.maxPlayers,
       humanCount: this.state.maxPlayers - this.state.aiCount,
       aiCount: this.state.aiCount,
-      questionSec: QUESTION_PHASE_MS / 1000,
-      discussionSec: DISCUSSION_PHASE_MS / 1000,
+      questionSec: this.durations.question / 1000,
+      discussionSec: this.durations.discussion / 1000,
       voteSec: VOTE_PHASE_MS / 1000,
       maxRounds: MAX_ROUNDS,
       language: this.state.language ?? 'fr',
@@ -779,10 +799,10 @@ export class GameRoom {
   private startDiscussion(): void {
     if (this.aborted || this.state.phase !== 'question') return;
     this.state.phase = 'discussion';
-    this.state.discussionEndTime = this.now() + DISCUSSION_PHASE_MS;
+    this.state.discussionEndTime = this.now() + this.durations.discussion;
     this.emitState();
     this.director.startDiscussion();
-    this.schedulePhase(DISCUSSION_PHASE_MS, () => this.startVoting());
+    this.schedulePhase(this.durations.discussion, () => this.startVoting());
   }
 
   private startVoting(): void {
@@ -854,9 +874,9 @@ export class GameRoom {
 
     this.state.phase = 'endround';
     this.state.voteEndTime = null;
-    this.state.endRoundEndTime = this.now() + ENDROUND_MS;
+    this.state.endRoundEndTime = this.now() + this.durations.endRound;
     this.emitState();
-    this.schedulePhase(ENDROUND_MS, () => this.nextRound());
+    this.schedulePhase(this.durations.endRound, () => this.nextRound());
   }
 
   /**
@@ -1089,7 +1109,7 @@ export class GameRoom {
     // phase open like a silent human would, otherwise an early close with one missing answer would point at a bot.
     const answered = new Set(this.state.answers.map((a) => a.playerId));
     if (this.state.players.filter((p) => !p.isEliminated).every((p) => answered.has(p.id))) {
-      const questionStart = (this.state.questionEndTime ?? this.now()) - QUESTION_PHASE_MS;
+      const questionStart = (this.state.questionEndTime ?? this.now()) - this.durations.question;
       this.schedulePhase(Math.max(0, questionStart + QUESTION_MIN_MS - this.now()), () => this.startDiscussion());
     }
   }
