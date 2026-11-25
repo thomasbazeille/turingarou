@@ -34,7 +34,7 @@
     .player-card { background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 7px; padding: 10px; text-align: center; min-height: 75px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; }
     .player-card.local { border-color: #06b6d4; box-shadow: 0 0 12px rgba(6,182,212,0.3); }
     .player-card.empty { opacity: 0.3; border-style: dashed; }
-    .player-avatar-waiting,.status-avatar,.avatar-circle,.reveal-avatar,.immune-avatar,.sc-avatar { border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #fff; }
+    .player-avatar-waiting,.status-avatar,.avatar-circle,.reveal-avatar,.immune-avatar { border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #fff; }
     .player-avatar-waiting { width: 42px; height: 42px; font-size: 20px; }
     .player-name-waiting { color: #e2e8f0; font-size: 12px; font-weight: 500; }
     .start-btn { background: #06b6d4; color: #000; border: none; padding: 11px 35px; font-size: 15px; font-weight: bold; border-radius: 7px; cursor: pointer; transition: all 0.3s; text-transform: uppercase; }
@@ -124,6 +124,7 @@
     /* Q&A bubbles */
     .system-message { position: absolute; left: 0; right: 0; display: flex; justify-content: center; padding: 0 10px; width: 100%; }
     .system-message-text { color: #fff; font-style: italic; font-size: 13px; text-align: center; }
+    .system-vote-announce { position: absolute; left: 0; right: 0; width: 100%; text-align: center; font-size: 11px; color: #94a3b8; font-style: italic; padding: 4px 8px; }
     .answers-row { position: absolute; left: 0; right: 0; display: flex; gap: 5px; }
     .answer-bubble { flex: 1; padding: 5px 8px; border-radius: 6px; font-size: 11px; line-height: 1.3; color: #fff; word-wrap: break-word; box-shadow: 0 1px 4px rgba(0,0,0,0.3); min-width: 0; }
     .round-separator { position: absolute; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 12px; background: rgba(6,182,212,0.04); }
@@ -358,28 +359,29 @@
       /* --- End-round avatar smaller --- */
       .eliminated-avatar { width: 80px; height: 80px; font-size: 36px; }
 
-      /* --- Chat toggle button: mobile only --- */
-      .chat-toggle-btn {
-        background: none;
-        border: 1px solid rgba(255,255,255,0.15);
-        border-radius: 5px;
-        color: rgba(255,255,255,0.45);
-        font-size: 14px;
-        padding: 8px 12px;
-        cursor: pointer;
-        line-height: 1;
-        transition: color 0.2s, border-color 0.2s;
-        flex-shrink: 0;
-      }
-      .chat-toggle-btn.active {
-        color: #06b6d4;
-        border-color: #06b6d4;
-      }
-
     }
-    /* Desktop: hide toggle button entirely */
+
+    /* --- Chat toggle buttons (☰ simple view, « Direct » live typing): visible at every width --- */
+    .chat-toggle-btn {
+      background: none;
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 5px;
+      color: rgba(255,255,255,0.45);
+      font-size: 14px;
+      padding: 8px 12px;
+      cursor: pointer;
+      line-height: 1;
+      transition: color 0.2s, border-color 0.2s;
+      flex-shrink: 0;
+    }
+    .chat-toggle-btn.active {
+      color: #06b6d4;
+      border-color: #06b6d4;
+    }
+    /* Side by side, compact in the narrow desktop side bar; full size in the phone layout's top row */
+    .chat-opts { display: flex; gap: 4px; }
     @container (min-width: 601px) {
-      .chat-toggle-btn { display: none; }
+      .chat-opts .chat-toggle-btn { font-size: 10px; padding: 3px 6px; }
     }
 
     /* ---- Single-chat mode layout ---- */
@@ -389,23 +391,22 @@
       position: static !important;
       width: 100%;
     }
-    .sc-msg {
-      display: flex;
-      align-items: flex-start;
-      gap: 8px;
-      padding: 5px 10px;
-    }
-    .sc-avatar {
-      width: 24px;
-      height: 24px;
-      font-size: 11px;
-      flex-shrink: 0;
-      margin-top: 1px;
-    }
-    .sc-body { flex: 1; min-width: 0; }
-    .sc-name { font-size: 10px; font-weight: 700; margin-bottom: 2px; text-transform: uppercase; letter-spacing: 0.5px; }
-    .sc-text { font-size: 13px; color: #e2e8f0; line-height: 1.4; word-wrap: break-word; }
-    .sc-text.sc-answer { font-style: italic; color: #cbd5e1; }
+    .sc-msg { display: flex; align-items: baseline; gap: 7px; padding: 2px 10px; }
+    .sc-msg.sc-self { flex-direction: row-reverse; }
+    .sc-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; align-self: center; }
+    .sc-body { flex: 1; min-width: 0; position: relative; }
+    .sc-line { font-size: 13px; color: #e2e8f0; line-height: 1.45; word-wrap: break-word; overflow-wrap: anywhere; text-align: left; }
+    .sc-msg.sc-self .sc-line { text-align: right; }
+    .sc-name { font-weight: 700; font-size: 11px; margin-right: 6px; }
+    .sc-line.sc-answer { font-style: italic; color: #cbd5e1; }
+
+    /* Live typing: blinking cursor while a line is being written out */
+    .typing-cursor::after { content: '▌'; margin-left: 1px; animation: typing-blink 0.9s steps(2, start) infinite; }
+    @keyframes typing-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+
+    /* Simple view: shown while the user has scrolled up, brings back to the latest lines */
+    .new-msgs-pill { position: absolute; left: 50%; transform: translateX(-50%); bottom: 8px; z-index: 45; display: none; background: #0f172a; border: 1px solid #06b6d4; color: #06b6d4; border-radius: 999px; padding: 7px 16px; font-size: 12px; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,0.5); }
+    .new-msgs-pill:hover { background: #06b6d4; color: #020617; }
 
     /* ---- Reply to a message ---- */
     .reply-btn { position: absolute; bottom: 1px; right: 3px; background: none; border: none; cursor: pointer; font-size: 11px; color: #fff; opacity: 0; transition: opacity 0.15s; padding: 0 2px; line-height: 1; }
@@ -414,10 +415,11 @@
     @media (hover: none) {
       .reply-btn { opacity: 0.55; font-size: 13px; padding: 2px 4px; }
       .message-bubble.can-reply { padding-bottom: 14px; }
+      .sc-msg.can-reply { padding-bottom: 13px; }
     }
     .reply-quote { font-size: 10px; line-height: 1.25; font-style: italic; color: rgba(255,255,255,0.88); background: rgba(0,0,0,0.22); border-left: 2px solid #94a3b8; border-radius: 2px; padding: 1px 4px; margin-bottom: 3px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
     .reply-quote-name { font-weight: 700; font-style: normal; margin-right: 3px; }
-    .sc-body .reply-quote { color: #cbd5e1; background: rgba(255,255,255,0.05); font-size: 11px; }
+    .sc-body .reply-quote { color: #cbd5e1; background: rgba(255,255,255,0.05); font-size: 11px; -webkit-line-clamp: 1; }
     .reply-target { outline: 2px solid rgba(255,255,255,0.85); outline-offset: 1px; }
     .reply-bar { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #cbd5e1; background: rgba(255,255,255,0.06); border-left: 3px solid #94a3b8; border-radius: 4px; padding: 3px 4px 3px 7px; margin-bottom: 4px; }
     .reply-bar-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -473,6 +475,7 @@
       .tally-fill { transition: none; }
       .stage-in { animation: none; }
       #endround-peek { animation: none; opacity: 0; }
+      .typing-cursor::after { animation: none; }
     }
   
     /* The page lives in #app-frame, a size container: the phone layout (@container ≤ 600px) follows its width, not the
@@ -570,7 +573,10 @@
           <div class="round-info" id="round-text">R1/7</div>
           <div class="eliminated-circles" id="eliminated-circles"></div>
           <div class="bot-counter" id="bot-counter">🤖</div>
-          <button class="chat-toggle-btn" id="chat-toggle-btn" onclick="toggleSingleChat()" title="Passer en chat unique">☰</button>
+          <div class="chat-opts">
+            <button class="chat-toggle-btn" id="live-typing-btn" onclick="toggleLiveTyping()" title="Frappe en direct">Direct</button>
+            <button class="chat-toggle-btn" id="chat-toggle-btn" onclick="toggleSingleChat()" title="Vue simple du chat">☰</button>
+          </div>
           <button class="voice-btn" id="voice-btn" onclick="Voice.toggle()" style="display:none;">🔇</button>
         </div>
       </div>
@@ -586,6 +592,7 @@
         <div id="pre-vote-overlay" style="display:none;position:absolute;inset:0;pointer-events:none;z-index:49;align-items:center;justify-content:center;">
           <div id="pre-vote-text" style="font-size:52px;font-weight:900;color:#f97316;text-shadow:0 0 20px #f9731699,0 0 40px #f9731633;letter-spacing:6px;opacity:0.8;animation:votepulse 1s ease-in-out infinite alternate;">VOTE IN 10</div>
         </div>
+        <button type="button" class="new-msgs-pill" id="new-msgs-pill" onclick="jumpToLatest()" style="display:none;">Nouveaux messages ↓</button>
       </div>
       <!-- Input row: message typing OR vote UI (switched by JS) -->
       <div class="local-input-row" id="local-input-row"></div>
@@ -687,7 +694,7 @@
   <script>
 const T=8,A=3;  // 8 joueurs total (5 humains + 3 IA)
 const HUMAN_NEEDED=5;
-let G={s:'waiting',r:1,mr:7,p:[],m:[],e:[],eliminationOrder:[],l:null,im:null,a:{},v:{},h:{},ui:false,eliminatedAiCount:0,lang:'fr',currentQuestion:null,questions:{},questionEndTime:null,singleChat:false,flagged:new Set(),colOrder:null,myVote:null,myAnswer:null,review:null,voteSel:null,voteCount:0,replyTo:null,endSeq:null,endRoundEndTime:null};
+let G={s:'waiting',r:1,mr:7,p:[],m:[],e:[],eliminationOrder:[],l:null,im:null,a:{},v:{},h:{},ui:false,eliminatedAiCount:0,lang:'fr',currentQuestion:null,questions:{},questionEndTime:null,singleChat:false,liveTyping:false,flagged:new Set(),colOrder:null,myVote:null,myAnswer:null,review:null,voteSel:null,voteCount:0,replyTo:null,endSeq:null,endRoundEndTime:null};
 
 // === SOCKET.IO SETUP ===
 // Configuration automatique selon environnement
@@ -1468,9 +1475,9 @@ function updateGameFromServer(state) {
         G.colOrder = null;
         var _scl = document.getElementById('single-chat-list');
         if (_scl) { _scl.innerHTML = ''; _scl.style.display = 'none'; }
-        G.singleChat = false;
-        var _ctb = document.getElementById('chat-toggle-btn');
-        if (_ctb) _ctb.classList.remove('active');
+        // New game: fresh typing state, and the remembered options (simple view, live typing) are re-applied
+        resetTypingFx();
+        applyChatPrefs();
         var _ph = document.getElementById('player-avatars-header');
         if (_ph) _ph.innerHTML = '';
         // Réinitialiser le mode de la local-input-row pour forcer la reconstruction
@@ -1596,6 +1603,9 @@ document.getElementById('tc-ais').onchange=syncTableChoice;
 let phone=false;
 try{phone=new URLSearchParams(location.search).get('phone')==='1'||localStorage.getItem('tg-phone-view')==='1';}catch(e){}
 applyPhoneView(phone);
+applyChatPrefs();
+const mcont=document.getElementById('messages-container');
+if(mcont)mcont.addEventListener('scroll',updateNewMsgsPill,{passive:true});
 const sc=document.getElementById('style-consent');
 sc.checked=loadStyleConsent();
 sc.onchange=function(){saveStyleConsent(sc.checked);};
@@ -2150,6 +2160,7 @@ c.innerHTML='<div class="player-username">'+escHtml(p.username)+'</div>'+ah+'<di
 h.appendChild(c);
 });
 renderMessages();
+syncChatOptionButtons();
 const localElim2=G.l&&G.e.includes(G.l);
 const inputMode=localElim2?'spectator':(G.s==='voting'?'vote':'message');
 renderLocalInputRow(orderedPlayers,inputMode);
@@ -2218,6 +2229,143 @@ sb.classList.add('starred');
 return sb;
 }
 
+// ── User options (off by default, remembered in localStorage 'tg-*', openable by URL) ──
+// tg-simple-view: one-column chat view (☰). tg-live-typing: other players' lines are typed out letter by letter (« Direct »).
+const SEARCH_PARAMS=(function(){try{return new URLSearchParams(location.search);}catch(e){return new URLSearchParams('');}})();
+const URL_SIMPLE_VIEW=SEARCH_PARAMS.get('view')==='simple';
+const URL_LIVE_TYPING=SEARCH_PARAMS.get('live')==='1';
+function localFlagOn(key){
+try{return localStorage.getItem(key)==='1';}catch(e){return false;}
+}
+function saveLocalFlag(key,on){
+try{localStorage.setItem(key,on?'1':'0');}catch(e){}
+}
+function simpleViewPref(){return URL_SIMPLE_VIEW||localFlagOn('tg-simple-view');}
+function liveTypingPref(){return URL_LIVE_TYPING||localFlagOn('tg-live-typing');}
+function applyChatPrefs(){
+if(URL_SIMPLE_VIEW)saveLocalFlag('tg-simple-view',true);
+if(URL_LIVE_TYPING)saveLocalFlag('tg-live-typing',true);
+G.singleChat=simpleViewPref();
+G.liveTyping=liveTypingPref();
+syncChatOptionButtons();
+}
+function syncChatOptionButtons(){
+const fr=G.lang==='fr';
+const ctb=document.getElementById('chat-toggle-btn');
+if(ctb){ctb.classList.toggle('active',G.singleChat);ctb.title=fr?'Vue simple du chat':'Simple chat view';}
+const ltb=document.getElementById('live-typing-btn');
+if(ltb){ltb.classList.toggle('active',G.liveTyping);ltb.textContent=fr?'Direct':'Live';ltb.title=fr?'Frappe en direct':'Live typing';}
+const np=document.getElementById('new-msgs-pill');
+if(np)np.textContent=fr?'Nouveaux messages ↓':'New messages ↓';
+}
+function toggleSingleChat(){
+G.singleChat=!G.singleChat;
+saveLocalFlag('tg-simple-view',G.singleChat);
+syncChatOptionButtons();
+renderMessages();
+}
+function toggleLiveTyping(){
+G.liveTyping=!G.liveTyping;
+if(!G.liveTyping)typingFx.anims.forEach(function(a,id){finishTypingAnim(id);});
+saveLocalFlag('tg-live-typing',G.liveTyping);
+syncChatOptionButtons();
+renderMessages();
+}
+// Simple view: "new messages" pill, shown while the user has scrolled up; clicking brings back to the latest lines.
+function nearBottom(){
+const c=document.getElementById('messages-container');
+return !c||(c.scrollHeight-c.scrollTop-c.clientHeight)<90;
+}
+function updateNewMsgsPill(){
+const p=document.getElementById('new-msgs-pill');
+const c=document.getElementById('messages-container');
+if(!p||!c)return;
+p.style.display=(G.singleChat&&c.scrollHeight-c.clientHeight>40&&!nearBottom())?'flex':'none';
+}
+function jumpToLatest(){
+const c=document.getElementById('messages-container');
+if(c)c.scrollTop=c.scrollHeight;
+updateNewMsgsPill();
+}
+
+// ── Live typing (option « Direct »): a line from ANOTHER player — human or AI, exactly the same rule — is
+// written out letter by letter (30 ms/char, capped at 1.5 s per message) with a blinking cursor; own lines
+// and system lines appear at once. A re-render resumes the line where it was. prefers-reduced-motion: no animation. ──
+const typingFx={shown:new Set(),anims:new Map()};
+function reducedMotion(){
+try{return window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;}catch(e){return false;}
+}
+function resetTypingFx(){
+typingFx.anims.forEach(function(a){clearInterval(a.timer);});
+typingFx.anims.clear();
+typingFx.shown.clear();
+}
+function finishTypingAnim(id){
+const a=typingFx.anims.get(id);
+if(a){clearInterval(a.timer);typingFx.anims.delete(id);}
+typingFx.shown.add(id);
+if(a){
+if(a.el)a.el.data=a.text;
+if(a.host)a.host.classList.remove('typing-cursor');
+}
+}
+// Writes into `node` (a text node), blinking cursor on `host`; called on every render of the message.
+function applyLiveTyping(m,node,host){
+node.data=m.text;
+if(!G.liveTyping||m.playerId===G.l||m.playerId==='system'||reducedMotion()||typingFx.shown.has(m.id))return;
+let a=typingFx.anims.get(m.id);
+if(!a){
+const perTick=Math.max(1,Math.ceil(m.text.length/50));
+a={shown:0,text:m.text,timer:setInterval(function(){
+a.shown=Math.min(a.text.length,a.shown+perTick);
+if(a.el)a.el.data=a.text.slice(0,a.shown);
+scrollToBottom(false);
+if(a.shown>=a.text.length)finishTypingAnim(m.id);
+},30)};
+typingFx.anims.set(m.id,a);
+}
+a.el=node;a.host=host;
+node.data=a.text.slice(0,a.shown);
+if(a.shown>=a.text.length){finishTypingAnim(m.id);return;}
+host.classList.add('typing-cursor');
+}
+// Many fresh lines at once (reconnect, mid-game history dump) are revealed at once: typing them all would take forever.
+function maybeRevealAllInstant(){
+if(!G.liveTyping)return;
+let fresh=0;
+G.m.forEach(function(m){
+if(m.playerId!==G.l&&m.playerId!=='system'&&!typingFx.shown.has(m.id)&&!typingFx.anims.has(m.id))fresh++;
+});
+if(fresh<=3)return;
+G.m.forEach(function(m){if(m.playerId!==G.l&&m.playerId!=='system')finishTypingAnim(m.id);});
+}
+
+// ── Pieces shared by the two chat renderings ──
+// A round's question and per-player answers (the current round lives in G.a, past ones in G.answersByRound).
+function roundData(rd){
+var answers=(rd===G.r)?G.a:(function(){
+var arr=G.answersByRound&&G.answersByRound[rd];
+if(!arr||!arr.length)return{};
+var o={};arr.forEach(function(a){o[a.playerId]=a.answer;});return o;
+})();
+var q=(G.questions&&G.questions[rd])||(rd===G.r?G.currentQuestion:null)||'';
+return{answers:answers,q:q};
+}
+function buildRoundSeparator(rd){
+const sep=document.createElement('div');
+sep.className='round-separator';
+const ep=rd<=G.eliminationOrder.length?G.p.find(p=>p.id===G.eliminationOrder[rd-1]):null;
+const robotClass=ep&&ep.isAI?' robot':'';
+sep.innerHTML='<div class="round-separator-line"><div class="round-separator-hr"></div><div class="round-separator-text">'+(G.lang==='fr'?'MANCHE '+rd+' TERMINÉE':'ROUND '+rd+' ENDED')+'</div><div class="round-separator-hr"></div></div>'+(ep?'<div class="round-eliminated-info"><span>'+escHtml(ep.username)+(ep.isAI?' 🤖':'')+(G.lang==='fr'?' éliminé':' eliminated')+'</span><div class="round-eliminated-circle'+robotClass+'" style="background:'+ep.color+';box-shadow:0 0 5px '+ep.color+'60;"></div></div>':'');
+return sep;
+}
+function buildSystemAnnounce(m){
+const sys=document.createElement('div');
+sys.className='system-vote-announce';
+sys.textContent=m.text;
+return sys;
+}
+
 function renderMessages(){
 if(G.singleChat){renderSingleChat();return;}
 // Ensure single-chat div is hidden and messages-columns is visible
@@ -2226,7 +2374,8 @@ if(scl0)scl0.style.display='none';
 const mc0=document.getElementById('messages-columns');
 if(mc0){mc0.style.display='';}
 const container=document.getElementById('messages-container');
-const wasNearBottom=container&&(container.scrollHeight-container.scrollTop-container.clientHeight)<90;
+const wasNearBottom=nearBottom();
+maybeRevealAllInstant();
 const ap=G.p.filter(p=>!G.e.includes(p.id));
 G.p.forEach(p=>{
 const c=document.getElementById('col-'+p.id);
@@ -2268,12 +2417,9 @@ mbr[m.round].push(m);
 });
 
 for(let rd=1;rd<=G.r;rd++){
-var answersForRd=(rd===G.r)?G.a:(function(){
-var arr=G.answersByRound&&G.answersByRound[rd];
-if(!arr||!arr.length)return {};
-var o={};arr.forEach(function(a){o[a.playerId]=a.answer;});return o;
-})();
-var qText=(G.questions&&G.questions[rd])||(rd===G.r?G.currentQuestion:null)||'';
+const rdData=roundData(rd);
+const answersForRd=rdData.answers;
+const qText=rdData.q;
 if(qText||Object.keys(answersForRd).length>0){
 const qd=document.createElement('div');
 qd.className='system-message';
@@ -2298,11 +2444,7 @@ placeFullWidth(ar,ansH);
 const rm=mbr[rd]||[];
 rm.forEach(m=>{
 if(m.playerId==='system'){
-const sys=document.createElement('div');
-sys.className='system-vote-announce';
-sys.style.cssText='position:absolute;left:0;right:0;text-align:center;font-size:11px;color:#94a3b8;font-style:italic;padding:4px 8px;';
-sys.textContent=m.text;
-placeFullWidth(sys,26);
+placeFullWidth(buildSystemAnnounce(m),26);
 return;
 }
 const c=document.getElementById('col-'+m.playerId);
@@ -2329,15 +2471,12 @@ c.appendChild(b);
 const mh=b.getBoundingClientRect().height||((Math.ceil(m.text.length/22)*16)+10);
 colPos[m.playerId]=y+mh+TIGHT_GAP;
 globalMin=y+ORDER_STEP; // décalage temporel minimal pour les prochains messages
+// Après la mesure : la frappe en direct raccourcit le texte dans l'espace déjà réservé par la bulle
+applyLiveTyping(m,bTxt,b);
 });
 
 if(rd<G.r){
-const sep=document.createElement('div');
-sep.className='round-separator';
-const ep=rd<=G.eliminationOrder.length?G.p.find(p=>p.id===G.eliminationOrder[rd-1]):null;
-const robotClass=ep&&ep.isAI?' robot':'';
-sep.innerHTML='<div class="round-separator-line"><div class="round-separator-hr"></div><div class="round-separator-text">'+(G.lang==='fr'?'MANCHE '+rd+' TERMINÉE':'ROUND '+rd+' ENDED')+'</div><div class="round-separator-hr"></div></div>'+(ep?'<div class="round-eliminated-info"><span>'+escHtml(ep.username)+(ep.isAI?' 🤖':'')+(G.lang==='fr'?' éliminé':' eliminated')+'</span><div class="round-eliminated-circle'+robotClass+'" style="background:'+ep.color+';box-shadow:0 0 5px '+ep.color+'60;"></div></div>':'');
-placeFullWidth(sep,50);
+placeFullWidth(buildRoundSeparator(rd),50);
 }
 }
 
@@ -2346,6 +2485,7 @@ const messagesColumns=document.getElementById('messages-columns');
 messagesColumns.style.height=(maxY+120)+'px';
 messagesColumns.style.minHeight='100%';
 scrollToBottom(wasNearBottom);
+updateNewMsgsPill();
 }
 
 function scrollToBottom(force){
@@ -2355,18 +2495,12 @@ const nb=force||(c.scrollHeight-c.scrollTop-c.clientHeight<90);
 if(nb)c.scrollTop=c.scrollHeight;
 }
 
-function toggleSingleChat(){
-G.singleChat=!G.singleChat;
-const btn=document.getElementById('chat-toggle-btn');
-if(btn)btn.classList.toggle('active',G.singleChat);
-renderMessages();
-}
-
 function renderSingleChat(){
 // Uses a SEPARATE div (#single-chat-list) so messages-columns and its
 // col-{id} children are NEVER modified — all normal game mechanics stay intact.
 const container=document.getElementById('messages-container');
-const wasNearBottom=container&&(container.scrollHeight-container.scrollTop-container.clientHeight)<90;
+const wasNearBottom=nearBottom();
+maybeRevealAllInstant();
 
 const mc=document.getElementById('messages-columns');
 const scl=document.getElementById('single-chat-list');
@@ -2381,46 +2515,44 @@ const ap=G.p.filter(p=>!G.e.includes(p.id));
 const mbr={};
 G.m.forEach(m=>{if(!mbr[m.round])mbr[m.round]=[];mbr[m.round].push(m);});
 
+// One messaging-style line: color dot, name, text. Own messages are right-aligned.
 function scRow(p,text,isAnswer,msgId,msg){
 const row=document.createElement('div');
-row.className='sc-msg';
-const av=document.createElement('div');
-av.className='sc-avatar';
-av.style.background=p.color;
-av.textContent=p.username.charAt(0);
+row.className='sc-msg'+(p.id===G.l?' sc-self':'');
+const dot=document.createElement('div');
+dot.className='sc-dot';
+dot.style.background=p.color;
 const body=document.createElement('div');
 body.className='sc-body';
-const nameDiv=document.createElement('div');
-nameDiv.className='sc-name';
-nameDiv.style.color=p.color;
-nameDiv.textContent=p.username;
-const textDiv=document.createElement('div');
-textDiv.className='sc-text'+(isAnswer?' sc-answer':'');
-textDiv.textContent=text;
-body.appendChild(nameDiv);
 const sq=msg?makeQuote(msg):null;
 if(sq)body.appendChild(sq);
-body.appendChild(textDiv);
-if(msgId&&p.id!==G.l){body.appendChild(makeStarBtn(msgId));body.appendChild(makeFlagBtn(msgId));if(canReply()){body.appendChild(makeReplyBtn(msgId));bindLongPress(row,msgId);}}
+const line=document.createElement('div');
+line.className='sc-line'+(isAnswer?' sc-answer':'');
+const name=document.createElement('span');
+name.className='sc-name';
+name.style.color=p.color;
+name.textContent=p.username;
+line.appendChild(name);
+const tn=document.createTextNode(text);
+line.appendChild(tn);
+body.appendChild(line);
+if(msg)applyLiveTyping(msg,tn,line);
+if(msgId&&p.id!==G.l){body.appendChild(makeStarBtn(msgId));body.appendChild(makeFlagBtn(msgId));if(canReply()){row.classList.add('can-reply');body.appendChild(makeReplyBtn(msgId));bindLongPress(row,msgId);}}
 if(msgId&&msgId===G.replyTo)row.classList.add('reply-target');
-row.appendChild(av);
+row.appendChild(dot);
 row.appendChild(body);
 return row;
 }
 
 for(let rd=1;rd<=G.r;rd++){
-var answersForRd=(rd===G.r)?G.a:(function(){
-var arr=G.answersByRound&&G.answersByRound[rd];
-if(!arr||!arr.length)return{};
-var o={};arr.forEach(function(a){o[a.playerId]=a.answer;});return o;
-})();
-var qText=(G.questions&&G.questions[rd])||(rd===G.r?G.currentQuestion:null)||'';
+const rdData=roundData(rd);
+const answersForRd=rdData.answers;
+const qText=rdData.q;
 
 if(qText||Object.keys(answersForRd).length>0){
 if(qText){
 const qd=document.createElement('div');
 qd.className='system-message';
-qd.style.cssText='position:static;width:100%;';
 qd.innerHTML='<div class="system-message-text">"'+qText+'"</div>';
 scl.appendChild(qd);
 }
@@ -2434,11 +2566,7 @@ if(answersForRd[p.id])scl.appendChild(scRow(p,answersForRd[p.id],true));
 const rm=mbr[rd]||[];
 rm.forEach(m=>{
 if(m.playerId==='system'){
-const sys=document.createElement('div');
-sys.className='system-vote-announce';
-sys.style.cssText='text-align:center;font-size:11px;color:#94a3b8;font-style:italic;padding:4px 8px;width:100%;';
-sys.textContent=m.text;
-scl.appendChild(sys);
+scl.appendChild(buildSystemAnnounce(m));
 return;
 }
 const p=G.p.find(pp=>pp.id===m.playerId);
@@ -2446,17 +2574,12 @@ if(p)scl.appendChild(scRow(p,m.text,false,m.id,m));
 });
 
 if(rd<G.r){
-const sep=document.createElement('div');
-sep.className='round-separator';
-sep.style.cssText='position:static;width:100%;';
-const ep=rd<=G.eliminationOrder.length?G.p.find(p=>p.id===G.eliminationOrder[rd-1]):null;
-const robotClass=ep&&ep.isAI?' robot':'';
-sep.innerHTML='<div class="round-separator-line"><div class="round-separator-hr"></div><div class="round-separator-text">'+(G.lang==='fr'?'MANCHE '+rd+' TERMINÉE':'ROUND '+rd+' ENDED')+'</div><div class="round-separator-hr"></div></div>'+(ep?'<div class="round-eliminated-info"><span>'+escHtml(ep.username)+(ep.isAI?' 🤖':'')+(G.lang==='fr'?' éliminé':' eliminated')+'</span><div class="round-eliminated-circle'+robotClass+'" style="background:'+ep.color+';box-shadow:0 0 5px '+ep.color+'60;"></div></div>':'');
-scl.appendChild(sep);
+scl.appendChild(buildRoundSeparator(rd));
 }
 }
 
 scrollToBottom(wasNearBottom);
+updateNewMsgsPill();
 }
 
 function toggleHeart(id){
@@ -2909,8 +3032,8 @@ function goHome(){
   G.voteSel = null;
   G.replyTo = null;
   if (G.endSeq) { G.endSeq.timers.forEach(clearTimeout); G.endSeq = null; }
-  // Reset single-chat mode
-  G.singleChat = false;
+  // Reset chat rendering; the user options (simple view, live typing) stay remembered and are re-applied
+  resetTypingFx();
   const scl=document.getElementById('single-chat-list');
   if(scl){scl.style.display='none';scl.innerHTML='';}
   // Clear previous game DOM fully
@@ -2920,8 +3043,7 @@ function goHome(){
   if(ph)ph.innerHTML='';
   const lir=document.getElementById('local-input-row');
   if(lir){lir.innerHTML='';lir.dataset.mode='';}
-  const ctb=document.getElementById('chat-toggle-btn');
-  if(ctb)ctb.classList.remove('active');
+  applyChatPrefs();
   G.lobby = null;
   inviteCode = '';
   rematchDeadline = 0;
