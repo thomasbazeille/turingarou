@@ -529,7 +529,7 @@ const PUBLIC_TOP_KEYS = new Set([
   'roomId', 'phase', 'currentRound', 'players', 'messages', 'currentQuestion', 'answers', 'answersByRound', 'votes',
   'protectedPlayerId', 'discussionEndTime', 'questionEndTime', 'voteEndTime', 'maxPlayers', 'minPlayers', 'aiCount',
   'eliminatedPlayerId', 'eliminatedPlayerIsAI', 'gameOverReason', 'language', 'eliminationOrder', 'eliminatedAiCount',
-  'voteCount', 'endRoundEndTime',
+  'voteCount', 'endRoundEndTime', 'audience',
 ]);
 /** Fields of a chat message; the same for every author, a reply quote included. */
 const MESSAGE_KEYS = new Set(['id', 'playerId', 'playerName', 'content', 'timestamp', 'phase', 'round', 'replyToId']);

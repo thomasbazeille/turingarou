@@ -18,6 +18,7 @@
  *   vote_reasons    — raison facultative qu'un humain donne à son vote, après l'avoir envoyé
  *   game_feedback   — note de 1 à 5 et indice libre d'un humain en fin de partie
  *   message_inputs  — comment chaque ligne humaine a été saisie : voix ou clavier, collage, temps de frappe
+ *   audience_votes  — vote du public (spectateurs en lecture seule), un choix vivant par spectateur et par manche
  */
 
 import pg from 'pg';
@@ -96,6 +97,8 @@ export interface GameLogData {
   voice?: { tts: boolean; stt: boolean };
   /** Every human line posted, in order. */
   lineInputs?: LineInputLog[];
+  /** Votes of the read-only spectators: one live pick each per round (the last replaces), target = player name. */
+  audienceVotes?: { round: number; spectator: string; target: string; timestamp: number }[];
 }
 
 // ─── DB pool ──────────────────────────────────────────────────────────────────
@@ -292,6 +295,14 @@ export async function initDB(): Promise<void> {
       ms_per_char REAL
     );
 
+    CREATE TABLE IF NOT EXISTS audience_votes (
+      game_id   TEXT NOT NULL,
+      round     INTEGER NOT NULL,
+      spectator TEXT NOT NULL,
+      target    TEXT NOT NULL,
+      ts        BIGINT NOT NULL
+    );
+
     CREATE UNIQUE INDEX IF NOT EXISTS idx_game_players_unique
       ON game_players(game_id, player_name);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_round_questions_unique
@@ -320,6 +331,8 @@ export async function initDB(): Promise<void> {
       ON game_feedback(game_id, player_name);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_message_inputs_unique
       ON message_inputs(game_id, round, player_name, ts);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_audience_votes_unique
+      ON audience_votes(game_id, round, spectator);
 
     -- Added 2026-11-24, idempotent on every boot: a flag or a reply joins the line it names; older rows stay NULL.
     ALTER TABLE messages ADD COLUMN IF NOT EXISTS message_id TEXT;
@@ -531,6 +544,16 @@ export async function saveGameLog(data: GameLogData): Promise<void> {
           typing_ms: i.typingMs,
           chars: i.chars,
           ms_per_char: i.msPerChar,
+        });
+      }
+
+      for (const v of data.audienceVotes ?? []) {
+        await insertRow(db, 'audience_votes', {
+          game_id: data.gameId,
+          round: v.round,
+          spectator: v.spectator,
+          target: v.target,
+          ts: v.timestamp,
         });
       }
     });

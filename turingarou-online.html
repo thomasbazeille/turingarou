@@ -380,6 +380,8 @@
     }
     /* Side by side, compact in the narrow desktop side bar; full size in the phone layout's top row */
     .chat-opts { display: flex; gap: 4px; }
+    /* AIs left and spectators on one line: the narrow desktop side bar has no room for another row */
+    .bar-counters { display: flex; gap: 8px; align-items: center; }
     @container (min-width: 601px) {
       .chat-opts .chat-toggle-btn { font-size: 10px; padding: 3px 6px; }
     }
@@ -492,6 +494,12 @@
     .table-choice { display: flex; gap: 10px; justify-content: center; margin-top: 12px; max-width: 420px; width: 100%; }
     .table-choice label { flex: 1; display: flex; align-items: center; gap: 8px; color: #94a3b8; font-size: 12px; }
     .table-choice .setup-input { flex: 1; margin: 0; cursor: pointer; }
+
+    /* Spectator (?watch=CODE): the page joins read-only, no seat and no input of its own. */
+    body.watch-mode .player-setup, body.watch-mode #start-btn, body.watch-mode #private-btn,
+    body.watch-mode #table-choice, body.watch-mode #inspector-btn-wrap, body.watch-mode #answer-input,
+    body.watch-mode #submit-answer-btn, body.watch-mode #gameover-feedback, body.watch-mode #rematch-btn { display: none !important; }
+    body.watch-mode #watch-note { display: block !important; }
   </style>
 </head>
 <body>
@@ -521,12 +529,14 @@
     </div>
     
     <div class="player-grid" id="player-grid"></div>
+    <div id="watch-note" style="display:none;color:#94a3b8;font-size:13px;margin-bottom:12px;max-width:420px;width:100%;text-align:center;">👁</div>
     <div id="invite-note" style="display:none;color:#94a3b8;font-size:12px;margin-bottom:12px;max-width:420px;width:100%;text-align:center;"></div>
     <div id="room-code-display" style="display:none;background:rgba(6,182,212,0.1);border:1px solid rgba(6,182,212,0.3);border-radius:7px;padding:12px;margin-bottom:18px;max-width:420px;width:100%;text-align:center;">
       <div id="room-code-label" style="color:#94a3b8;font-size:10px;margin-bottom:5px;">🔗 ROOM CODE</div>
       <div id="room-code-text" style="color:#06b6d4;font-size:18px;font-weight:bold;font-family:monospace;letter-spacing:2px;"></div>
       <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:10px;">
         <button type="button" class="return-home-btn" id="copy-link-btn" onclick="copyInviteLink()">Copy link</button>
+        <button type="button" class="return-home-btn" id="watch-link-btn" onclick="copyWatchLink()">Spectator link</button>
         <button type="button" class="return-home-btn" id="share-link-btn" onclick="shareInviteLink()" style="display:none;">Share</button>
         <button type="button" class="return-home-btn" id="qr-btn" onclick="toggleInviteQr()">QR code</button>
       </div>
@@ -572,7 +582,10 @@
           <div class="timer-display" id="timer-display">-</div>
           <div class="round-info" id="round-text">R1/7</div>
           <div class="eliminated-circles" id="eliminated-circles"></div>
-          <div class="bot-counter" id="bot-counter">🤖</div>
+          <div class="bar-counters">
+            <div class="bot-counter" id="bot-counter">🤖</div>
+            <div class="bot-counter" id="audience-counter" style="display:none;color:#94a3b8;">👁 0</div>
+          </div>
           <div class="chat-opts">
             <button class="chat-toggle-btn" id="live-typing-btn" onclick="toggleLiveTyping()" title="Frappe en direct">Direct</button>
             <button class="chat-toggle-btn" id="chat-toggle-btn" onclick="toggleSingleChat()" title="Vue simple du chat">☰</button>
@@ -621,6 +634,7 @@
         <div class="eliminated-type" id="eliminated-type-display"></div>
         <div class="voted-by-text" id="voted-out-subtitle">Voted out by majority</div>
         <div class="voted-by-text" id="voted-by-list">Voted by: Player1, Player2</div>
+        <div class="voted-by-text" id="audience-round-line" style="display:none;color:#06b6d4;"></div>
       </div>
     </div>
     <div class="immunity-badge" id="immunity-badge" style="display: none;">
@@ -661,6 +675,7 @@
       </div>
       <div class="elimination-content" style="flex:0 0 auto;padding:10px 30px;">
         <p style="color:#94a3b8;font-size:18px;margin:10px;" id="gameover-detail">Thanks for playing.</p>
+        <div class="voted-by-text" id="audience-gameover-line" style="display:none;color:#06b6d4;"></div>
       </div>
       <div class="reveal-wrap">
         <div class="end-screen-history-title" id="gameover-reveal-title">Qui était qui</div>
@@ -694,7 +709,7 @@
   <script>
 const T=8,A=3;  // 8 joueurs total (5 humains + 3 IA)
 const HUMAN_NEEDED=5;
-let G={s:'waiting',r:1,mr:7,p:[],m:[],e:[],eliminationOrder:[],l:null,im:null,a:{},v:{},h:{},ui:false,eliminatedAiCount:0,lang:'fr',currentQuestion:null,questions:{},questionEndTime:null,singleChat:false,liveTyping:false,flagged:new Set(),colOrder:null,myVote:null,myAnswer:null,review:null,voteSel:null,voteCount:0,replyTo:null,endSeq:null,endRoundEndTime:null};
+let G={s:'waiting',r:1,mr:7,p:[],m:[],e:[],eliminationOrder:[],l:null,im:null,a:{},v:{},h:{},ui:false,eliminatedAiCount:0,lang:'fr',currentQuestion:null,questions:{},questionEndTime:null,singleChat:false,liveTyping:false,flagged:new Set(),colOrder:null,myVote:null,myAnswer:null,review:null,voteSel:null,voteCount:0,replyTo:null,endSeq:null,endRoundEndTime:null,audience:null,watchVote:null};
 
 // === SOCKET.IO SETUP ===
 // Configuration automatique selon environnement
@@ -849,6 +864,9 @@ function qrSvg(text) {
 let qrShown = false;
 let qrFits = { link: '', ok: false };
 let inviteCode = roomCodeFromSearch(window.location.search);
+// Spectator link (?watch=CODE): the page joins the room read-only, without a seat.
+let watchCode = (new URLSearchParams(window.location.search).get('watch') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
+let watchMode = !!watchCode;
 let rematchDeadline = 0;
 let rematchPending = false;
 let rematchTimer = null;
@@ -907,7 +925,8 @@ document.addEventListener('visibilitychange', function () {
 socket.on('connect', () => {
   console.log('✅ Connected to server');
   document.body.style.borderTop = '3px solid #22c55e';
-  
+  if (watchMode) socket.emit('watchRoom', { roomId: watchCode });
+
   const btn = document.getElementById('start-btn');
   const session = loadSession();
   // Holding a seat: a reconnect must not offer a second join.
@@ -985,6 +1004,25 @@ socket.on('launchError', ({ reason }) => {
     : reason === 'not_host' ? (fr ? "Seul l'hôte peut lancer" : 'Only the host can launch')
     : (fr ? 'Lancement impossible' : 'Cannot launch'), true);
 });
+
+// The room refused the spectator (gone, or a public room): back to the normal home screen.
+socket.on('watchError', ({ reason }) => {
+  console.error('❌ Watch error:', reason);
+  stopWatching();
+  const fr = homeFr();
+  showConnToast(reason === 'public_room'
+    ? (fr ? 'Les salles publiques ne sont pas observables' : 'Public rooms cannot be watched')
+    : (fr ? 'Salle introuvable ou déjà fermée' : 'Room not found or already closed'), true);
+});
+
+function stopWatching(){
+  watchMode = false;
+  document.body.classList.remove('watch-mode');
+  const wn = document.getElementById('watch-note');
+  if (wn) wn.style.display = 'none';
+  refreshHome();
+  renderWaitingRoom();
+}
 
 socket.on('rematchOpen', ({ remainingMs }) => {
   rematchDeadline = Date.now() + (remainingMs || 0);
@@ -1447,6 +1485,15 @@ function updateGameFromServer(state) {
   }
   if (state.aiCount != null) G.aiCount = state.aiCount;
   G.lobby = state.lobby || null;
+  // Audience (spectators): the live count for everyone, the last round's aggregate once its vote closed.
+  G.audience = state.audience || null;
+  const ac = document.getElementById('audience-counter');
+  if (ac) {
+    const watching = (G.audience && G.audience.watching) || 0;
+    ac.style.display = watching > 0 ? '' : 'none';
+    ac.textContent = '👁 ' + watching;
+  }
+  if (state.phase === 'question') G.watchVote = null;
   if (state.phase === 'waiting' && state.maxPlayers) G.humanSlots = state.maxPlayers - (state.aiCount || 0);
   if (state.phase === 'endround' && state.eliminatedAiCount != null) {
     G.eliminatedAiCount = state.eliminatedAiCount;
@@ -1469,6 +1516,7 @@ function updateGameFromServer(state) {
         G.im = null;
         G.eliminatedAiCount = 0;
         G.eliminatedPlayerIsAI = null;
+        G.watchVote = null;
         // Vider les colonnes DOM de la partie précédente
         var _mc = document.getElementById('messages-columns');
         if (_mc) { _mc.innerHTML = ''; _mc.style.display = ''; }
@@ -1610,6 +1658,7 @@ const sc=document.getElementById('style-consent');
 sc.checked=loadStyleConsent();
 sc.onchange=function(){saveStyleConsent(sc.checked);};
 if(inviteCode)document.getElementById('room-input').value=inviteCode;
+if(watchMode){document.body.classList.add('watch-mode');roomId=watchCode;applyAICharacter(roomId);}
 refreshHome();
 renderWaitingRoom();
 }
@@ -1648,6 +1697,11 @@ document.getElementById('ai-notice').textContent=t.notice;
 document.getElementById('style-consent-text').textContent=t.styleConsent;
 const note=document.getElementById('invite-note');
 if(note)note.textContent=inviteCode?(fr?'Invitation à la salle '+inviteCode+' : choisis ton pseudo.':'Invited to room '+inviteCode+': pick a username.'):'';
+const wn=document.getElementById('watch-note');
+if(wn){
+wn.style.display=watchMode?'block':'none';
+if(watchMode)wn.textContent=fr?"👁 Tu regardes cette partie en spectateur. Ton vote n'a aucune influence : les joueurs verront l'avis du public.":"👁 You are watching as a spectator. Your vote changes nothing: the players will see the audience's opinion.";
+}
 renderLobbyPanel();
 }
 
@@ -1750,6 +1804,8 @@ if(isPrivate){
   document.getElementById('room-code-label').textContent=fr?'🔗 CODE DE LA SALLE':'🔗 ROOM CODE';
   document.getElementById('room-code-text').textContent=roomId;
   document.getElementById('copy-link-btn').textContent=fr?'Copier le lien':'Copy link';
+  const wlb=document.getElementById('watch-link-btn');
+  if(wlb)wlb.textContent=fr?'Lien spectateur':'Spectator link';
   const sh=document.getElementById('share-link-btn');
   sh.style.display=navigator.share?'':'none';
   sh.textContent=fr?'Partager':'Share';
@@ -1802,8 +1858,8 @@ if(lb)lb.disabled=true;
 socket.emit('launchGame');
 }
 
-function copyInviteLink(){
-const link=inviteLink(roomId);
+/** Copies any link, toast or fallback paste box; shared by the invite link and the spectator link. */
+function copyTextTo(link){
 const fr=G.lang==='fr';
 const fallback=function(){
   const ta=document.createElement('textarea');
@@ -1815,6 +1871,19 @@ const fallback=function(){
 };
 if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(link).then(function(){showConnToast(fr?'Lien copié':'Link copied');},fallback);
 else fallback();
+}
+
+function copyInviteLink(){
+copyTextTo(inviteLink(roomId));
+}
+
+/** The room's URL with ?watch=CODE: opens the game read-only, as a spectator. */
+function watchLink(){
+return window.location.origin+window.location.pathname+'?watch='+encodeURIComponent(roomId);
+}
+
+function copyWatchLink(){
+copyTextTo(watchLink());
 }
 
 function shareInviteLink(){
@@ -1966,6 +2035,8 @@ function renderLocalInputRow(orderedPlayers, mode){
 mode=mode||'message';
 const row=document.getElementById('local-input-row');
 if(!row) return;
+// Spectator (?watch=): read-only, no seat — the audience's own row instead of any player input.
+if(watchMode){renderWatchInputRow();return;}
 
 // Si on est déjà dans ce mode, ne pas reconstruire — juste mettre à jour le nb de joueurs
 const currentMode=row.dataset.mode||'';
@@ -2738,6 +2809,36 @@ function renderVotePanel(ap){
   });
 }
 
+// ── Spectator row: read-only the rest of the time, the audience's pick during the vote (the last replaces) ──
+function renderWatchInputRow(){
+const row=document.getElementById('local-input-row');
+if(!row)return;
+row.dataset.mode='watch';
+const fr=G.lang==='fr';
+const cands=G.s==='voting'?G.p.filter(function(p){return !G.e.includes(p.id);}):[];
+const key=[G.lang,G.s,G.r,G.watchVote||'',cands.map(function(p){return p.id;}).join(',')].join('|');
+if(row.dataset.key===key)return;
+row.dataset.key=key;
+if(G.s==='voting'&&cands.length){
+let h='<div class="vote-panel" style="width:100%;"><div class="vote-label">'+(fr?'👀 Le public : qui est une IA ?':'👀 The audience: who is an AI?')+'</div><div class="vote-grid">';
+cands.forEach(function(p){
+const on=G.watchVote===p.id;
+h+='<button type="button" class="vote-choice'+(on?' selected':'')+'" data-id="'+escHtml(p.id)+'" aria-pressed="'+on+'"><span class="vote-dot" style="background:'+escHtml(p.color)+'"></span>'+escHtml(p.username)+'</button>';
+});
+h+='</div><div class="vote-count">'+(fr?"Ton vote n'a aucune influence sur la partie":'Your vote changes nothing in the game')+'</div></div>';
+row.innerHTML=h;
+row.querySelectorAll('.vote-choice').forEach(function(b){
+b.onclick=function(){
+G.watchVote=b.dataset.id;
+socket.emit('audienceVote',{targetId:G.watchVote});
+renderWatchInputRow();
+};
+});
+}else{
+row.innerHTML='<div style="width:100%;text-align:center;color:#71717a;font-size:10px;font-style:italic;padding:6px;">'+(fr?'👁 Lecture seule':'👁 Read only')+'</div>';
+}
+}
+
 // ── Reply to a message: button (hover on desktop, always faint on touch) or long press ──
 function canReply(){
   return G.s === 'discussion' && !!G.l && !G.e.includes(G.l);
@@ -2916,6 +3017,29 @@ function renderVoteTally(){
   if (!rows.length) box.innerHTML = '<div class="voted-by-text">' + (fr ? 'Aucun vote' : 'No votes') + '</div>';
 }
 
+/** « Le public : X % pensait que <nom> est une IA » — the audience's aggregate, most-named player only; nothing if no one voted. */
+function audienceLineHtml(){
+const lr=G.audience&&G.audience.lastRound;
+if(!lr||!lr.total||!lr.counts)return '';
+let best=null,n=0;
+Object.keys(lr.counts).forEach(function(id){if(lr.counts[id]>n){n=lr.counts[id];best=id;}});
+const p=best?G.p.find(function(x){return x.id===best;}):null;
+if(!p)return '';
+const fr=G.lang==='fr';
+const pct=Math.round(100*n/lr.total);
+return (fr?'Le public : ':'The audience: ')+pct+(fr?' % pensait que ':'% thought ')+'<b style="color:'+escHtml(p.color)+'">'+escHtml(p.username)+'</b> '+(fr?'est une IA':'is an AI');
+}
+
+/** thisRound: the end-of-round screen shows only the round just closed; the game-over screen takes the last one. */
+function renderAudienceLine(id,thisRound){
+const el=document.getElementById(id);
+if(!el)return;
+const lr=G.audience&&G.audience.lastRound;
+const h=lr&&lr.total>0&&lr.counts&&(!thisRound||lr.round===G.r)?audienceLineHtml():'';
+el.style.display=h?'block':'none';
+el.innerHTML=h;
+}
+
 function renderEndOfRound(eid,iid){
 const fr=G.lang==='fr';
 const ep=eid?G.p.find(p=>p.id===eid):null;
@@ -2971,6 +3095,7 @@ document.getElementById('no-immunity').style.display='block';
 }
 var endRoundReturnBtn = document.getElementById('end-round-return-btn');
 if (endRoundReturnBtn) endRoundReturnBtn.textContent = fr ? "Retour à l'accueil" : 'Return home';
+renderAudienceLine('audience-round-line', true);
 renderEndScreenHistory('end-round-history', 'end-round-history-title');
 }
 
@@ -3002,6 +3127,8 @@ function addAIInspector() {
 }
 
 function goHome(){
+  // A spectator leaving goes back to a plain home page: the reload closes the socket, so the audience count drops.
+  if (watchMode) { location.href = location.pathname; return; }
   // Leaving on purpose: the server frees the lobby seat now, or keeps a silent one mid-game; no resume afterwards.
   if (socket.connected) socket.emit('leaveRoom');
   clearSession();
@@ -3030,6 +3157,8 @@ function goHome(){
   G.myAnswer = null;
   G.review = null;
   G.voteSel = null;
+  G.watchVote = null;
+  G.audience = null;
   G.replyTo = null;
   if (G.endSeq) { G.endSeq.timers.forEach(clearTimeout); G.endSeq = null; }
   // Reset chat rendering; the user options (simple view, live typing) stay remembered and are re-applied
@@ -3364,6 +3493,7 @@ else if(reason==='ai_win'){ msg.textContent=goFr?'Les IA gagnent !':'AI wins!'; 
 else { msg.textContent=goFr?'Égalité':'Draw'; if(detail) detail.textContent=goFr?'Partie terminée.':'Game ended.'; }
 }
 if(gameoverHomeBtn) gameoverHomeBtn.textContent = G.lang === 'fr' ? "Retour à l'accueil" : 'Return home';
+renderAudienceLine('audience-gameover-line', false);
 if(rematchDeadline) tickRematch();
 else if(!rematchPending) setRematchButton(false, G.lang === 'fr' ? 'Rejouer avec ce groupe' : 'Play again, same group');
 renderGameFeedback();

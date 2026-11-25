@@ -197,6 +197,13 @@ export interface TableOptions {
 
 export type LaunchRefusal = 'not_private' | 'not_waiting' | 'not_host' | 'too_few';
 
+/** What every browser sees of the audience: how many watch now, and the last round whose vote closed. */
+export interface AudienceState {
+  watching: number;
+  /** null until a round's vote closes; then shown to everyone, the round's own pick never during its vote. */
+  lastRound: { round: number; counts: Record<string, number>; total: number } | null;
+}
+
 /** A lobby seat as the other humans see it: taken, nothing more. */
 const HIDDEN_SEAT = { id: '', username: '', color: '', colorName: '', isReady: true, isEliminated: false };
 
@@ -270,6 +277,12 @@ export class GameRoom {
   private aborted = false;
   /** Bots are being created for a full room: no further join. */
   private starting = false;
+  /** Sockets watching read-only (watchRoom): no seat, never counted for the launch, the vacancy or the votes. */
+  private spectators = new Set<string>();
+  /** The audience's live pick of each round, by round then spectator socket id; the last replaces the earlier. */
+  private audienceVotesByRound = new Map<number, Map<string, { target: string; ts: number }>>();
+  /** The aggregate of the last round whose vote closed; every browser sees it from the close on. */
+  private audienceLastRound: AudienceState['lastRound'] = null;
   private table: TableOptions;
 
   constructor(
@@ -812,6 +825,19 @@ export class GameRoom {
       this.eliminationOrder.push(eliminated.id);
     }
 
+    // The audience's opinion becomes public with the round's close: never during the vote it belongs to.
+    const audienceVotes = this.audienceVotesByRound.get(this.state.currentRound);
+    if (audienceVotes && audienceVotes.size > 0) {
+      const counts: Record<string, number> = {};
+      for (const p of this.state.players) {
+        let n = 0;
+        for (const vote of audienceVotes.values()) if (vote.target === p.id) n++;
+        if (n > 0) counts[p.id] = n;
+      }
+      const total = Object.values(counts).reduce((a, b) => a + b, 0);
+      this.audienceLastRound = { round: this.state.currentRound, counts, total };
+    }
+
     this.state.phase = 'endround';
     this.state.voteEndTime = null;
     this.state.endRoundEndTime = this.now() + ENDROUND_MS;
@@ -920,6 +946,13 @@ export class GameRoom {
         .filter((m) => m.playerId !== 'system')
         .map((m) => ({ id: m.id, round: m.round, player: m.playerName, type: kindOf(m.playerId), content: m.content, timestamp: m.timestamp, ...(m.replyToId ? { replyToId: m.replyToId } : {}) }));
 
+      const audienceVotes: NonNullable<GameLogData['audienceVotes']> = [];
+      for (const [round, votes] of this.audienceVotesByRound) {
+        for (const [spectator, vote] of votes) {
+          audienceVotes.push({ round, spectator, target: this.nameOf(vote.target), timestamp: vote.ts });
+        }
+      }
+
       const data: GameLogData = {
         gameId: this.gameId(),
         date: new Date(this.now()).toISOString(),
@@ -930,6 +963,7 @@ export class GameRoom {
         messages,
         voice: { ...this.deps.voice },
         lineInputs: [...this.lineInputs],
+        audienceVotes,
       };
       const saved = this.deps.persistence.saveGameLog(data);
       // An aborted game says nothing of who won: the human profiles stay as they were.
@@ -1144,6 +1178,54 @@ export class GameRoom {
     void this.deps.persistence.saveMessageFlag(this.gameId(), messageId, player.username, message.round, reason);
   }
 
+  // ====== AUDIENCE (read-only spectators) ======
+
+  /**
+   * A socket joins the room channel as a spectator: counted for everyone (audience.watching), handed the current
+   * state. No seat, no session: the room stays vacant without a human no matter how many watch.
+   */
+  addWatcher(socketId: string): void {
+    if (!socketId || this.spectators.has(socketId)) return;
+    this.spectators.add(socketId);
+    this.emitState();
+  }
+
+  /** Gone (socket closed): the count falls back for every browser. */
+  removeWatcher(socketId: string): void {
+    if (!this.spectators.delete(socketId)) return;
+    this.emitState();
+  }
+
+  watcherCount(): number {
+    return this.spectators.size;
+  }
+
+  /**
+   * A spectator's pick of the round: voting phase only, from a watcher, on a player still in; the last replaces.
+   * It never touches the players' vote — the aggregate is built when the round's vote closes, shown only from then.
+   */
+  addAudienceVote(socketId: string, targetId: string): boolean {
+    if (this.aborted || this.state.phase !== 'voting' || !this.spectators.has(socketId)) return false;
+    if (!this.state.players.some((p) => p.id === targetId && !p.isEliminated)) return false;
+    let votes = this.audienceVotesByRound.get(this.state.currentRound);
+    if (!votes) {
+      votes = new Map();
+      this.audienceVotesByRound.set(this.state.currentRound, votes);
+    }
+    votes.set(socketId, { target: targetId, ts: this.now() });
+    return true;
+  }
+
+  /** The audience field of every state, lobby ones included. */
+  private audienceField(): AudienceState {
+    return { watching: this.spectators.size, lastRound: this.audienceLastRound };
+  }
+
+  /** The waiting room as a spectator sees it: every seat hidden, the same as publicState() without a socket. */
+  private watcherState(): Record<string, unknown> {
+    return this.lobbyState(null);
+  }
+
   // ====== UTILS ======
 
   private nameOf(id: string): string {
@@ -1160,6 +1242,8 @@ export class GameRoom {
       for (const p of this.state.players) {
         if (p.type === 'human' && p.socketId) this.io.to(p.socketId).emit('gameState', this.lobbyState(p.id));
       }
+      // The lobby state is per-socket: a spectator gets the same waiting state with every seat hidden.
+      for (const s of this.spectators) this.io.to(s).emit('gameState', this.watcherState());
       return;
     }
     this.io.to(this.state.roomId).emit('gameState', this.sanitizeState());
@@ -1280,6 +1364,7 @@ export class GameRoom {
       out.transcript = this.transcript();
     }
     out.language = this.state.language ?? 'fr';
+    out.audience = this.audienceField();
     return out;
   }
 

@@ -122,6 +122,8 @@ io.on('connection', (socket) => {
   console.log(`Client connected: ${socket.id}`);
 
   let currentRoom: GameRoom | null = null;
+  // The room this socket watches read-only (watchRoom); null once it takes a seat, watching and playing never mix.
+  let watchedRoom: GameRoom | null = null;
   // The home-screen answer of this socket's player, carried into a rematch they join from here.
   let consent: StyleConsent = NO_CONSENT;
   // Resolved on every action: once a resume moves the seat to another socket, this one plays for nobody.
@@ -139,6 +141,10 @@ io.on('connection', (socket) => {
     });
 
   const joinInto = async (room: GameRoom, username: string, language?: 'fr' | 'en') => {
+    if (watchedRoom) {
+      watchedRoom.removeWatcher(socket.id);
+      watchedRoom = null;
+    }
     const actualRoomId = room.getState().roomId;
     const success = await room.addHumanPlayer(socket.id, username, language, consent);
 
@@ -237,6 +243,32 @@ io.on('connection', (socket) => {
     currentRoom = null;
   });
 
+  // Spectateur en lecture seule d'une salle privée : même état que les joueurs, jamais un siège
+  on('watchRoom', (payload: unknown) => {
+    const roomId = roomIdOf(fields(payload).roomId);
+    const refuse = (reason: string) => socket.emit('watchError', { reason });
+    if (!roomId) return refuse('not_found');
+    if (roomId.startsWith('public-')) return refuse('public_room');
+    // A seated player never doubles as the audience of a room, theirs or another.
+    if (currentRoom) return refuse('seated');
+    const room = gameRooms.get(roomId);
+    if (!room) return refuse('not_found');
+    if (watchedRoom && watchedRoom !== room) {
+      watchedRoom.removeWatcher(socket.id);
+      socket.leave(watchedRoom.getState().roomId);
+    }
+    socket.join(roomId);
+    watchedRoom = room;
+    room.addWatcher(socket.id);
+    console.log(`Spectator ${socket.id} watching ${roomId}`);
+  });
+
+  // Vote du public : la salle ne l'accepte que pendant la phase de vote, d'un spectateur, sur un joueur en jeu
+  on('audienceVote', (payload: { targetId?: unknown } | undefined) => {
+    const targetId = typeof payload?.targetId === 'string' ? payload.targetId : '';
+    if (watchedRoom && targetId) watchedRoom.addAudienceVote(socket.id, targetId);
+  });
+
   // Envoyer un message ; collage et temps de frappe (input) sont gardés pour l'analyse, jamais renvoyés ni sanctionnés
   on('sendMessage', (payload: unknown) => {
     const { replyToId, input } = fields(payload);
@@ -313,6 +345,7 @@ io.on('connection', (socket) => {
   // Déconnexion : la place reste (grâce), la room se supprime d'elle-même quand plus aucun humain n'y est (onVacant)
   on('disconnect', () => {
     console.log(`Client disconnected: ${socket.id}`);
+    watchedRoom?.removeWatcher(socket.id);
     currentRoom?.disconnect(socket.id);
   });
 });
